@@ -4,6 +4,7 @@ using System.Text;
 using System.Diagnostics;
 using DataModel;
 using Log;
+using System;
 
 namespace ChargeDebug.Service
 {
@@ -668,53 +669,54 @@ namespace ChargeDebug.Service
         // 修改接收线程逻辑 - 使用批量处理提高效率
         private void ReceiveLoop()
         {
-            //LogService.Log("CAN接收线程已启动");
-            const int BATCH_SIZE = 10000; // 增大批处理量
+            const int BATCH_SIZE = 10000;
             int structSize = Marshal.SizeOf(typeof(ZCAN_Receive_Data));
-            IntPtr buffer = Marshal.AllocHGlobal(BATCH_SIZE * structSize);
 
             while (_isRunning)
             {
-                Parallel.ForEach(_deviceHandles, device =>
+                // 改为顺序处理每个通道
+                foreach (var device in _deviceHandles.ToList()) // 使用副本避免并发修改
                 {
                     string key = device.Key;
                     var channelHandle = device.Value.channelHandle;
 
-                    // 获取待处理帧数（API调用优化）
-                    uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
-                    if (pendingFrames == 0) return;
-
-                    // 批量读取
-                    uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
-                    uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
-
-                    if (actualRead > 0)
+                    // 为每个通道分配独立缓冲区
+                    IntPtr buffer = Marshal.AllocHGlobal(BATCH_SIZE * structSize);
+                    try
                     {
-                        var queue = _receiveQueues.GetOrAdd(key, _ => new ConcurrentQueue<ZCAN_Receive_Data>());
-                        var batch = new ZCAN_Receive_Data[actualRead];
+                        uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
+                        if (pendingFrames == 0) continue;
 
-                        // 批量复制到托管内存
-                        for (int i = 0; i < actualRead; i++)
+                        uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
+                        uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
+
+                        if (actualRead > 0)
                         {
-                            batch[i] = Marshal.PtrToStructure<ZCAN_Receive_Data>(
-                                IntPtr.Add(buffer, i * structSize));
-                        }
+                            var queue = _receiveQueues.GetOrAdd(key, _ => new ConcurrentQueue<ZCAN_Receive_Data>());
+                            var batch = new ZCAN_Receive_Data[actualRead];
 
-                        // 批量入队（减少锁竞争）
-                        foreach (var frame in batch)
-                        {
-                            queue.Enqueue(frame);
-                        }
+                            for (int i = 0; i < actualRead; i++)
+                            {
+                                batch[i] = Marshal.PtrToStructure<ZCAN_Receive_Data>(
+                                    IntPtr.Add(buffer, i * structSize));
+                            }
 
-                        // 更新最后接收时间
-                        _lastReceiveTime[key] = DateTime.Now;
+                            // 单线程入队避免交叉
+                            foreach (var frame in batch)
+                            {
+                                queue.Enqueue(frame);
+                            }
+
+                            _lastReceiveTime[key] = DateTime.Now;
+                        }
                     }
-                });
-
-                Thread.Sleep(1); // 适当降低CPU占用
+                    finally
+                    {
+                        Marshal.FreeHGlobal(buffer); // 及时释放缓冲区
+                    }
+                }
+                Thread.Sleep(1);
             }
-
-            Marshal.FreeHGlobal(buffer);
         }
 
         public async Task<ZCAN_Receive_Data> ReceiveFrameAsync(string channelKey, uint expectedCanId, int timeoutMs)

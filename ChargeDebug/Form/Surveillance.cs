@@ -1,6 +1,5 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
-using DbcParserLib.Model;
 using DevExpress.XtraEditors;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;

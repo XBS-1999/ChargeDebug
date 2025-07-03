@@ -331,6 +331,7 @@ namespace ChargeDebug.Form
                 // 双重检查防止重复初始化
                 if (_disposed || !this.IsHandleCreated) return;
 
+
                 try
                 {
                     CANManager.Instance.Init();
