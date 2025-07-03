@@ -1,6 +1,5 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
-using DbcParserLib.Model;
 using DevExpress.XtraEditors;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
@@ -17,7 +16,6 @@ namespace ChargeDebug.Form
         private EmptySpaceItem middleSpaceItem;
         private EmptySpaceItem topSpaceItem;
 
-        private System.Threading.Timer _sendTimer;
         private List<EquipmentModel> surequipmentList = new List<EquipmentModel>();
         // 添加设备定时器字典
         private readonly Dictionary<int, System.Threading.Timer> _deviceTimers = 

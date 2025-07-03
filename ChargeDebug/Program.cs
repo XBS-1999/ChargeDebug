@@ -5,6 +5,7 @@ using ChargeDebug.Form;
 using ChargeDebug.Service;
 using DevExpress.XtraEditors;
 
+
 namespace ChargeDebug
 {
     internal static class Program
