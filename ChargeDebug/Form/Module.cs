@@ -243,7 +243,7 @@ namespace ChargeDebug.Form
                         _faultSignalDefinitions[signal.SystemName] = signal;
                         
                         // 记录故障信号信息
-                        LogService.Log($"发现故障信号: {signal.SystemName} (CAN ID: 0x{canId:X})");
+                        //LogService.Log($"发现故障信号: {signal.SystemName} (CAN ID: 0x{canId:X})");
                     }
                     else
                     {
