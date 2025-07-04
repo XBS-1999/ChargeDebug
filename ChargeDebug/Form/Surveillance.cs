@@ -7,6 +7,7 @@ using System.Data.SQLite;
 
 namespace ChargeDebug.Form
 {
+    //修改验证
     public partial class Surveillance : XtraUserControl
     {
         private LayoutControl layoutControl;
@@ -16,7 +17,6 @@ namespace ChargeDebug.Form
         private EmptySpaceItem middleSpaceItem;
         private EmptySpaceItem topSpaceItem;
 
-        private System.Threading.Timer _sendTimer;
         private List<EquipmentModel> surequipmentList = new List<EquipmentModel>();
         // 添加设备定时器字典
         private readonly Dictionary<int, System.Threading.Timer> _deviceTimers = 
