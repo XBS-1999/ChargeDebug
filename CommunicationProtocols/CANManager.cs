@@ -674,7 +674,7 @@ namespace ChargeDebug.Service
 
             while (_isRunning)
             {
-                // 改为顺序处理每个通道
+                // 改为顺序处理每个通道//
                 foreach (var device in _deviceHandles.ToList()) // 使用副本避免并发修改
                 {
                     string key = device.Key;

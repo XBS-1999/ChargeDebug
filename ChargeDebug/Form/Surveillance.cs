@@ -7,7 +7,6 @@ using System.Data.SQLite;
 
 namespace ChargeDebug.Form
 {
-    //修改验证
     public partial class Surveillance : XtraUserControl
     {
         private LayoutControl layoutControl;
