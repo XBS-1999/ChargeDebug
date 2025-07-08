@@ -413,9 +413,48 @@ namespace TcpAssistant
                                 AppendInfo("等待设备重启（5秒）...");
                                 await Task.Delay(5000);
 
-                                AppendInfo($"🔄 正在尝试重连设备 ({txtIPAddress.Text}:{txtPort.Text})...");
-                                Connect();
-                                return true;
+                                // +++ 新增：带重试机制的重连逻辑 +++
+                                bool reconnected = false;
+                                int reconnectAttempts = 0;
+                                const int maxReconnectAttempts = 3;
+                                const int reconnectInterval = 5000; // 5秒间隔
+
+                                while (!reconnected && reconnectAttempts < maxReconnectAttempts)
+                                {
+                                    reconnectAttempts++;
+                                    AppendInfo($"🔄 正在尝试重连设备 ({txtIPAddress.Text}:{txtPort.Text})... [尝试 {reconnectAttempts}/{maxReconnectAttempts}]");
+
+                                    try
+                                    {
+                                        Connect(); // 尝试重新连接
+
+                                        // 检查是否连接成功
+                                        await Task.Delay(100); // 给连接状态更新一点时间
+                                        if (tcpHelper?.IsConnected == true)
+                                        {
+                                            reconnected = true;
+                                            AppendInfo("✅ 设备重连成功！");
+                                            return true;
+                                        }
+                                    }
+                                    catch (Exception reconnectEx)
+                                    {
+                                        AppendInfo($"❌ 重连失败: {reconnectEx.Message}");
+                                    }
+
+                                    // 如果不是最后一次尝试，等待重试间隔
+                                    if (reconnectAttempts < maxReconnectAttempts)
+                                    {
+                                        AppendInfo($"⏳ 等待 {reconnectInterval / 1000} 秒后重试...");
+                                        await Task.Delay(reconnectInterval);
+                                    }
+                                }
+
+                                if (!reconnected)
+                                {
+                                    AppendInfo($"❌ 设备重连失败: 超过最大重试次数({maxReconnectAttempts})");
+                                    return false;
+                                }
                             }
                             else
                             {
