@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Threading;
 
 namespace TcpCommunicationLib
 {
@@ -63,7 +64,16 @@ namespace TcpCommunicationLib
             try
             {
                 _client = new TcpClient();
-                _client.Connect(ip, port);
+                IAsyncResult result = _client.BeginConnect(ip, port, null, null);
+
+                // 等待连接完成或超时
+                if (!result.AsyncWaitHandle.WaitOne(1000))
+                {
+                    _client.Close();
+                    throw new TimeoutException($"连接超时 ({1000}ms)");
+                }
+
+                _client.EndConnect(result);
                 _stream = _client.GetStream();
                 _isServer = false;
                 ClientIP = ip;
@@ -74,6 +84,7 @@ namespace TcpCommunicationLib
             catch (Exception)
             {
                 OnConnectionStatusChanged(false);
+                CleanupResources();
                 throw;
             }
         }
@@ -309,6 +320,10 @@ namespace TcpCommunicationLib
                 _stream?.Close();
                 _client?.Close();
                 _server?.Stop();
+
+                // 释放资源
+                _stream = null;
+                _client = null;
             }
             catch { }
         }
