@@ -629,7 +629,7 @@ namespace ChargeDebug.Form
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
-                    int times = 10;
+                    int times = 20;
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -648,7 +648,7 @@ namespace ChargeDebug.Form
                         catch (Exception ex)
                         {
                             retryCount++;
-                            times += 10;
+                            times += 5;
                             AppendInfo($"❌ 块 {block.BlockIndex} 第 {retryCount} 次重试失败: {ex.Message}");
 
                             if (retryCount >= maxRetries)
