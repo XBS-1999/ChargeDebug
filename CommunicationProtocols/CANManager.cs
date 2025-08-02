@@ -174,8 +174,7 @@ namespace ChargeDebug.Service
 
                     if (isRegistered && CheckTimeout(channelKey))
                     {
-                        //logger.Info($"设备{channelKey} 通信超时，尝试重连...");
-                        //LogService.Log($"CAN盒{channelKey} 通信超时，尝试重连...");
+                        _globalSendingEnabled = false;
                         if (_equipmentInfo.TryGetValue(channelKey, out var equipment))
                         {
                             // 使用统一的重连方法
@@ -205,7 +204,7 @@ namespace ChargeDebug.Service
         private bool CheckTimeout(string channelKey)
         {
             return _lastReceiveTime.TryGetValue(channelKey, out var lastTime) &&
-                   (DateTime.Now - lastTime).TotalSeconds > 5;
+                   (DateTime.Now - lastTime).TotalSeconds > 3;
         }
 
         // 更新连接状态
@@ -257,6 +256,7 @@ namespace ChargeDebug.Service
         private Thread _receiveThread;  // CAN数据接收线程
         private bool _isRunning;                // 控制接收线程运行标志
         private static readonly object _registerLock = new object();
+        private readonly object _reconnectLock = new object();
         // 连接状态变化事件
         public event Action<string, bool> OnConnectionStatusChanged;
 
@@ -275,7 +275,7 @@ namespace ChargeDebug.Service
 
         // 重连定时器
         private System.Threading.Timer _reconnectTimer;
-        private const int RECONNECT_INTERVAL = 5000; // 5秒尝试重连一次
+        private const int RECONNECT_INTERVAL = 3000; // 5秒尝试重连一次
 
         // 在CANManager类中添加以下字段
         public readonly ConcurrentDictionary<string, ConcurrentQueue<ZCAN_Receive_Data>> _receiveQueues =
@@ -340,9 +340,10 @@ namespace ChargeDebug.Service
                 try
                 {
                     // +++ 关键修复：检查并关闭旧连接 +++
-                    if (!isReconnect && _deviceHandles.ContainsKey(key))
+                    if (isReconnect || _deviceHandles.ContainsKey(key))
                     {
                         UnregisterChannel(equipment.DeviceIndex, equipment.CanIndex);
+                        Thread.Sleep(50); // 给硬件恢复时间
                     }
 
                     // 保存设备信息（无论成功与否）
@@ -403,6 +404,7 @@ namespace ChargeDebug.Service
 
                     // 更新连接状态
                     _deviceHandles[key] = (deviceHandle, channelHandle);
+                    _globalSendingEnabled = true;
                     UpdateConnectionStatus(key, true);
                     _lastReceiveTime[key] = DateTime.Now;
 
