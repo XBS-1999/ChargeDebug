@@ -205,7 +205,7 @@ namespace ChargeDebug.Service
         private bool CheckTimeout(string channelKey)
         {
             return _lastReceiveTime.TryGetValue(channelKey, out var lastTime) &&
-                   (DateTime.Now - lastTime).TotalSeconds > 5;
+                   (DateTime.Now - lastTime).TotalSeconds > 1;
         }
 
         // 更新连接状态
@@ -275,7 +275,7 @@ namespace ChargeDebug.Service
 
         // 重连定时器
         private System.Threading.Timer _reconnectTimer;
-        private const int RECONNECT_INTERVAL = 5000; // 5秒尝试重连一次
+        private const int RECONNECT_INTERVAL = 3000; // 3秒尝试重连一次
 
         // 在CANManager类中添加以下字段
         public readonly ConcurrentDictionary<string, ConcurrentQueue<ZCAN_Receive_Data>> _receiveQueues =
@@ -340,9 +340,10 @@ namespace ChargeDebug.Service
                 try
                 {
                     // +++ 关键修复：检查并关闭旧连接 +++
-                    if (!isReconnect && _deviceHandles.ContainsKey(key))
+                    if (isReconnect || _deviceHandles.ContainsKey(key))
                     {
                         UnregisterChannel(equipment.DeviceIndex, equipment.CanIndex);
+                        Thread.Sleep(10); // 给硬件恢复时间
                     }
 
                     // 保存设备信息（无论成功与否）
