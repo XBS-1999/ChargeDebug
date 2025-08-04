@@ -194,9 +194,16 @@ namespace ChargeDebug.Form
                     // 获取最大通道数（AC和DC中的较大值）
                     int maxChannels = Math.Max(equipment.ACNumber, equipment.DCNumber);
 
+                    //获取AC,DC起始地址
+                    int acnum = Convert.ToInt32(equipment.ACAddress.Substring(equipment.ACAddress.Length - 1));
+                    int dcnum = Convert.ToInt32(equipment.DCAddress.Substring(equipment.DCAddress.Length - 1));
+
                     for (int i = 0; i < maxChannels; i++)
                     {
                         List<SignalInfo> channelSignals = new List<SignalInfo>();
+
+                        acnum += i;
+                        dcnum += i;
 
                         // 处理DC通道信号（如果存在）
                         if (i < equipment.DCNumber)
@@ -207,7 +214,7 @@ namespace ChargeDebug.Form
                                 if (signal.CANID.Contains("2X"))
                                 {
                                     var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("2X", "2" + i);
+                                    newSignal.CANID = signal.CANID.Replace("2X", "2" + dcnum);
                                     channelSignals.Add(newSignal);
                                 }
                             }
@@ -216,13 +223,14 @@ namespace ChargeDebug.Form
                         // 处理AC通道信号
                         if (i < equipment.ACNumber)
                         {
+                            //int num = equipment.ACAddress;
                             foreach (var signal in allSignals)
                             {
                                 // 只处理AC相关信号
                                 if (signal.CANID.Contains("AX"))
                                 {
                                     var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + i);
+                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + acnum);
                                     channelSignals.Add(newSignal);
                                 }
                             }

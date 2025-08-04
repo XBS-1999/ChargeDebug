@@ -10,7 +10,9 @@
         public int DeviceIndex { get; set; }
         public int CanIndex { get; set; }
         public int ACNumber { get; set; }
+        public string? ACAddress { get; set; }
         public int DCNumber { get; set; }
+        public string? DCAddress { get; set; }
         public string? CommunicationProtocols { get; set; }
         public string? Whether { get; set; }
     }

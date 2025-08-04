@@ -653,7 +653,9 @@ namespace ChargeDebug.Service
                                 DeviceIndex = Convert.ToInt32(reader["DeviceIndex"]),
                                 CanIndex = Convert.ToInt32(reader["CanIndex"]),
                                 ACNumber = Convert.ToInt32(reader["ACNumber"]),
+                                ACAddress = reader["ACAddress"].ToString(),
                                 DCNumber = Convert.ToInt32(reader["DCNumber"]), // 添加DCNumber读取
+                                DCAddress = reader["DCAddress"].ToString(),
                                 CommunicationProtocols = reader["CommunicationProtocols"].ToString()
                             });
                         }

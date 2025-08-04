@@ -15,7 +15,9 @@ namespace ChargeDebug.Form
         private TextEdit deviceindex;
         private TextEdit canindex;
         private TextEdit acnumber;
+        private TextEdit acaddress;
         private TextEdit dcnumber;
+        private TextEdit dcaddress;
         private ComboBoxEdit communicationprotocols;
         private ComboBoxEdit whether;
 
@@ -26,7 +28,9 @@ namespace ChargeDebug.Form
         public string DeviceIndex => deviceindex.Text;
         public string CanIndex => canindex.Text;
         public string ACNumber => acnumber.Text;
+        public string ACAddress => acaddress.Text;
         public string DCNumber => dcnumber.Text;
+        public string DCAddress => dcaddress.Text;
         public string CommunicationProtocols => communicationprotocols.Text;
         public string Whether => whether.Text;
 
@@ -56,7 +60,7 @@ namespace ChargeDebug.Form
         private void InitializeControls()
         {
             // 初始化控件布局和配置
-            this.Size = new Size(700, 300);
+            this.Size = new Size(700, 350);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.StartPosition = FormStartPosition.CenterParent;
 
@@ -77,12 +81,16 @@ namespace ChargeDebug.Form
             canindex = new TextEdit { Location = new Point(450, 100), Width = 150 };
             LabelControl labelcontrol7 = new LabelControl { Text = "AC数量:", Location = new Point(70, 142) };
             acnumber = new TextEdit { Location = new Point(150, 140), Width = 150 };
-            LabelControl labelcontrol8 = new LabelControl { Text = "DC数量:", Location = new Point(340, 142) };
-            dcnumber = new TextEdit { Location = new Point(450, 140), Width = 150 };
-            LabelControl labelcontrol9 = new LabelControl { Text = "通讯协议:", Location = new Point(70, 182) };
-            communicationprotocols = new ComboBoxEdit { Location = new Point(150, 180), Width = 150 };
-            LabelControl labelcontrol10 = new LabelControl { Text = "是否启用设备:", Location = new Point(340, 182) };
-            whether = new ComboBoxEdit { Location = new Point(450, 180), Width = 150 };
+            LabelControl labelcontrol11 = new LabelControl { Text = "AC起始地址:", Location = new Point(340, 142) };
+            acaddress = new TextEdit { Location = new Point(450, 140), Width = 150 };
+            LabelControl labelcontrol8 = new LabelControl { Text = "DC数量:", Location = new Point(70, 182) };
+            dcnumber = new TextEdit { Location = new Point(150, 180), Width = 150 };
+            LabelControl labelcontrol12 = new LabelControl { Text = "DC起始地址:", Location = new Point(340, 182) };
+            dcaddress = new TextEdit { Location = new Point(450, 180), Width = 150 };
+            LabelControl labelcontrol9 = new LabelControl { Text = "通讯协议:", Location = new Point(70, 222) };
+            communicationprotocols = new ComboBoxEdit { Location = new Point(150, 220), Width = 150 };
+            LabelControl labelcontrol10 = new LabelControl { Text = "是否启用设备:", Location = new Point(340, 222) };
+            whether = new ComboBoxEdit { Location = new Point(450, 220), Width = 150 };
 
             cantype.Properties.Items.AddRange(new object[]
             { "CANET-2E-U" });
@@ -102,19 +110,19 @@ namespace ChargeDebug.Form
             {
                 Text = "确定",
                 DialogResult = DialogResult.None, // 先不直接返回OK
-                Location = new Point(200, 230)
+                Location = new Point(200, 270)
             };
             SimpleButton btnCancel = new SimpleButton
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(400, 230)
+                Location = new Point(400, 270)
             };
 
             this.Controls.AddRange(new Control[]
             {
-                labelcontrol1,labelcontrol2,labelcontrol3,labelcontrol4,labelcontrol5,labelcontrol6,labelcontrol7,labelcontrol8,labelcontrol9,labelcontrol10,
-                devicenumber, cantype, deviceip, deviceport,deviceindex,canindex,acnumber,dcnumber,communicationprotocols,whether,
+                labelcontrol1,labelcontrol2,labelcontrol3,labelcontrol4,labelcontrol5,labelcontrol6,labelcontrol7,labelcontrol11,labelcontrol8,labelcontrol12,labelcontrol9,labelcontrol10,
+                devicenumber, cantype, deviceip, deviceport,deviceindex,canindex,acnumber,acaddress,dcnumber,dcaddress,communicationprotocols,whether,
                 btnOK,btnCancel
             });
 
@@ -168,7 +176,9 @@ namespace ChargeDebug.Form
             deviceindex.Text = row["DeviceIndex"].ToString();
             canindex.Text = row["CanIndex"].ToString();
             acnumber.Text = row["AcNumber"].ToString();
+            acaddress.Text = row["ACAddress"].ToString();
             dcnumber.Text = row["DcNumber"].ToString();
+            dcaddress.Text = row["DCAddress"].ToString();
             communicationprotocols.Text = row["CommunicationProtocols"].ToString();
             whether.Text = row["Whether"].ToString();
         }
@@ -218,10 +228,22 @@ namespace ChargeDebug.Form
                 ShowError("AC通道数不能为空！", acnumber);
                 return false;
             }
+            // 验证AC起始地址
+            if (string.IsNullOrWhiteSpace(acaddress.Text))
+            {
+                ShowError("AC起始地址不能为空！", acaddress);
+                return false;
+            }
             // 验证DC通道数
             if (string.IsNullOrWhiteSpace(dcnumber.Text))
             {
                 ShowError("DC通道数不能为空！", dcnumber);
+                return false;
+            }
+            // 验证DC起始地址
+            if (string.IsNullOrWhiteSpace(dcaddress.Text))
+            {
+                ShowError("DC起始地址不能为空！", dcaddress);
                 return false;
             }
             // 验证通讯协议

@@ -1,9 +1,10 @@
 ﻿using DevExpress.XtraEditors;
-using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
-using System.Data.SQLite;
+using DevExpress.XtraGrid.Views.Grid;
+using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 using System.Data;
+using System.Data.SQLite;
 
 namespace ChargeDebug.Form
 {
@@ -67,10 +68,20 @@ namespace ChargeDebug.Form
             acnumber.Caption = "AC数量";
             acnumber.Visible = true;
 
+            GridColumn acaddress = new GridColumn();
+            acaddress.FieldName = "ACAddress";
+            acaddress.Caption = "AC起始地址";
+            acaddress.Visible = true;
+
             GridColumn dcnumber = new GridColumn();
             dcnumber.FieldName = "DCNumber";
             dcnumber.Caption = "DC数量";
             dcnumber.Visible = true;
+
+            GridColumn dcaddress = new GridColumn();
+            dcaddress.FieldName = "DCAddress";
+            dcaddress.Caption = "DC起始地址";
+            dcaddress.Visible = true;
 
             GridColumn communicationprotocols = new GridColumn();
             communicationprotocols.FieldName = "CommunicationProtocols";
@@ -83,7 +94,7 @@ namespace ChargeDebug.Form
             whether.Visible = true;
 
             gridview.Columns.AddRange(new[] { devicenumber, cantype, deviceip,
-                  deviceport, deviceindex, canindex, acnumber, dcnumber, communicationprotocols, whether });
+                  deviceport, deviceindex, canindex, acnumber,acaddress, dcnumber, dcaddress, communicationprotocols, whether });
 
             SimpleButton simpleButton = new SimpleButton();
             simpleButton.Location = new Point(10, 20);
@@ -190,10 +201,10 @@ namespace ChargeDebug.Form
                             conn.Open();
                             const string insertQuery = @"INSERT INTO Equipment 
                                 (DeviceNumber, CanType, DeviceIP, DevicePort, 
-                                 DeviceIndex, CanIndex, ACNumber, DCNumber, CommunicationProtocols, Whether)
+                                 DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, Whether)
                                  VALUES 
                                (@DeviceNumber, @CanType, @DeviceIP, @DevicePort, 
-                                @DeviceIndex, @CanIndex, @ACNumber, @DCNumber, @CommunicationProtocols, @Whether)";
+                                @DeviceIndex, @CanIndex, @ACNumber, @ACAddress, @DCNumber, @DCAddress, @CommunicationProtocols, @Whether)";
 
                             using (var cmd = new SQLiteCommand(insertQuery, conn))
                             {
@@ -204,7 +215,9 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
                                 cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
                                 cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
+                                cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
                                 cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
+                                cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
                                 cmd.Parameters.AddWithValue("@CommunicationProtocols", form.CommunicationProtocols);
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
                                 cmd.ExecuteNonQuery();
@@ -260,7 +273,9 @@ namespace ChargeDebug.Form
                                         DeviceIndex = @DeviceIndex,
                                         CanIndex = @CanIndex,
                                         ACNumber = @ACNumber,
+                                        ACAddress = @ACAddress,
                                         DCNumber = @DCNumber,
+                                        DCAddress = @DCAddress,
                                         CommunicationProtocols = @CommunicationProtocols,
                                         Whether = @Whether
                                         WHERE EquipmentID = @EquipmentID";
@@ -275,7 +290,9 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
                                 cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
                                 cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
+                                cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
                                 cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
+                                cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
                                 cmd.Parameters.AddWithValue("@CommunicationProtocols", form.CommunicationProtocols);
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
                                 
