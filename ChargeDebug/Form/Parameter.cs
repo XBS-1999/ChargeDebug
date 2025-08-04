@@ -100,15 +100,20 @@ namespace ChargeDebug.Form
                         continue; // 跳过当前设备，不为其添加AC/DC Tab页
                     }
 
+                    //获取AC,DC起始地址
+                    int acnum = Convert.ToInt32(equipment.ACAddress.Substring(equipment.ACAddress.Length - 1));
+                    int dcnum = Convert.ToInt32(equipment.DCAddress.Substring(equipment.DCAddress.Length - 1));
+
                     // AC TabPages
                     for (int b = 0; b < equipment.ACNumber; b++)
                     {
+                        acnum += b;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
-                            WriteCANID = canIds["调试AC写入"].Replace("X", b.ToString()),
-                            ReadCANID = canIds["调试AC读取"].Replace("X", b.ToString()),
-                            ReceiveCANID = canIds["调试AC接收"].Replace("X", b.ToString()),
+                            WriteCANID = canIds["调试AC写入"].Replace("X", acnum.ToString()),
+                            ReadCANID = canIds["调试AC读取"].Replace("X", acnum.ToString()),
+                            ReceiveCANID = canIds["调试AC接收"].Replace("X", acnum.ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
                             DeviceNumber = equipment.DeviceNumber
@@ -130,12 +135,13 @@ namespace ChargeDebug.Form
                     // DC TabPages
                     for (int c = 0; c < equipment.DCNumber; c++)
                     {
+                        dcnum += c;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
-                            WriteCANID = canIds["调试DC写入"].Replace("X", c.ToString()),
-                            ReadCANID = canIds["调试DC读取"].Replace("X", c.ToString()),
-                            ReceiveCANID = canIds["调试DC接收"].Replace("X", c.ToString()),
+                            WriteCANID = canIds["调试DC写入"].Replace("X", dcnum.ToString()),
+                            ReadCANID = canIds["调试DC读取"].Replace("X", dcnum.ToString()),
+                            ReceiveCANID = canIds["调试DC接收"].Replace("X", dcnum.ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
                             DeviceNumber = equipment.DeviceNumber
