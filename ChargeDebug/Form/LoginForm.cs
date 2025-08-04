@@ -63,6 +63,8 @@ namespace ChargeDebug.Form
             txtUsername.Enter += (s, e) => txtUsername.BackColor = Color.AliceBlue;
             txtUsername.Leave += (s, e) => txtUsername.BackColor = Color.White;
 
+            txtUsername.Text = "admin";  //默认用户名
+
             // 密码输入
             LabelControl lblPass = new LabelControl();
             lblPass.Text = "密　码:";
