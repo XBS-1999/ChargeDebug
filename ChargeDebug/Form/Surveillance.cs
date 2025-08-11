@@ -248,9 +248,9 @@ namespace ChargeDebug.Form
 
                         // 创建模块（同时包含AC和DC通道）
                         string title = $"{equipment.DeviceNumber}-通道";
-                        title += i < equipment.ACNumber ? $"A{i + 1}" : "";
+                        title += i < equipment.ACNumber ? $"A{acnum + 1}" : "";
                         title += i < equipment.ACNumber && i < equipment.DCNumber ? "/" : "";
-                        title += i < equipment.DCNumber ? $"DC{i + 1}" : "";
+                        title += i < equipment.DCNumber ? $"DC{dcnum + 1}" : "";
 
                         //var userControl = new Module($"{equipment.DeviceNumber}-通道{i + 1}")
                         // 传递所有必需参数：标题、设备号、通道索引、信号列表

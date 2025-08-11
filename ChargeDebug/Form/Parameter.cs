@@ -15,6 +15,12 @@ namespace ChargeDebug.Form
         private LayoutControl layoutControl;
         private LayoutControlGroup rootGroup;
         private LayoutControlItem item;
+        private XtraTabControl mainTabControl; // 添加对主TabControl的引用
+
+        // 添加工具栏成员变量
+        private Panel toolStripPanel;
+        private SimpleButton btnExport;
+        private SimpleButton btnImport;
 
         private List<EquipmentModel> parequipmentList = new List<EquipmentModel>();
         private string dbcPath = "";
@@ -53,18 +59,63 @@ namespace ChargeDebug.Form
             InitializeComponent();
 
             InitializeUI();
+
+        }
+
+        // ==================== 导出功能 ====================
+        private void BtnExport_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        // ==================== 导入功能 ====================
+        private void BtnImport_Click(object sender, EventArgs e)
+        {
+
         }
 
         private void InitializeUI()
         {
-            // 创建主Tab控件
+            // ==================== 1. 创建工具栏 ====================
+            Panel toolPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.WhiteSmoke,
+                Padding = new System.Windows.Forms.Padding(0)
+            };
+            this.Controls.Add(toolPanel);
+
+            // 添加导出按钮
+            btnExport = new SimpleButton
+            {
+                Text = "导出参数",
+                Size = new Size(80, 25),
+                Location = new Point(1730, 1),
+                Appearance = { BackColor = Color.LightBlue }
+            };
+            btnExport.Click += BtnExport_Click;
+            toolPanel.Controls.Add(btnExport);
+
+            // 添加导入按钮
+            btnImport = new SimpleButton
+            {
+                Text = "导入参数",
+                Size = new Size(80, 25),
+                Location = new Point(1830, 1),
+                Appearance = { BackColor = Color.LightGreen }
+            };
+            btnImport.Click += BtnImport_Click;
+            toolPanel.Controls.Add(btnImport);
+
+            // ==================== 2. 创建主Tab控件 ====================
             XtraTabControl tabControl = new XtraTabControl
             {
                 Dock = DockStyle.Fill,
+
                 HeaderLocation = TabHeaderLocation.Top,
                 HeaderOrientation = TabOrientation.Horizontal
             };
-            this.Controls.Add(tabControl);
+            toolPanel.Controls.Add(tabControl);
 
             using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
             {
@@ -129,7 +180,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试AC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-AC{b + 1}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-AC{acnum + 1}", reuseSignals, signalCache, tabPageInfo);
                     }
 
                     // DC TabPages
@@ -157,10 +208,11 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试DC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-DC{c + 1}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-DC{dcnum + 1}", reuseSignals, signalCache, tabPageInfo);
                     }
                 }
             }
+
         }
 
         private void AddTabPageWithPanels(XtraTabControl tabControl, string pageTitle,
