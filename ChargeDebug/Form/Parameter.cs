@@ -1,4 +1,5 @@
-﻿using ChargeDebug.Service;
+﻿using Aspose.Pdf.Operators;
+using ChargeDebug.Service;
 //using CommunicationProtocols;
 using DataModel;
 using DevExpress.XtraEditors;
@@ -7,6 +8,7 @@ using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraTab;
 using Log;
 using System.Data.SQLite;
+using System.IO;
 
 namespace ChargeDebug.Form
 {
@@ -32,6 +34,9 @@ namespace ChargeDebug.Form
         private long dbcFileId = 0;
         private long messageId = 0;
         private int totalWidth = 0;
+
+        private Dictionary<string, Dictionary<string, string>> exportData = new Dictionary<string, Dictionary<string, string>>();
+        private Dictionary<string, Dictionary<string, string>> importData = new Dictionary<string, Dictionary<string, string>>();
 
         // 在类开头添加 TabControlInfo 内部类
         private class TabPageInfo
@@ -82,12 +87,242 @@ namespace ChargeDebug.Form
             this.ContextMenuStrip = contextMenu;
         }
 
-        // ==================== 导出功能 ====================
-        private void BtnExport_Click(object? sender, EventArgs e)
+        // ==================== 导出参数到CSV ====================
+        private async Task<bool> ExportParametersToCsv(string filePath, XtraTabPage tabPage)
         {
             try
             {
-                // 实现导出逻辑
+                // 获取指定Tab页中的所有GroupControl
+                var groups = GetGroupControlsInTabPage(tabPage);
+                exportData.Clear();
+
+                // 遍历所有参数组
+                foreach (var group in groups)
+                {
+                    var groupInfo = group.Tag as GroupInfo;
+                    if (groupInfo == null) continue;
+
+                    string groupTitle = group.Text;
+                    var groupData = new Dictionary<string, string>();
+
+                    // 重试读取参数（最多3次）
+                    bool readSuccess = false;
+                    int retryCount = 0;
+                    while (!readSuccess && retryCount < 1)
+                    {
+                        readSuccess = await ReadParameters(group);
+                        retryCount++;
+                        if (!readSuccess)
+                        {
+                            LogService.Log($"第{retryCount}次读取{groupTitle}失败，重试中...");
+                            await Task.Delay(200); // 延迟200ms后重试
+                        }
+                    }
+
+                    if (!readSuccess)
+                    {
+                        LogService.Log($"{groupTitle}读取失败，跳过该组");
+                        continue;
+                    }
+
+                    // 收集参数值
+                    for (int i = 0; i < groupInfo.Signals.Count; i++)
+                    {
+                        string signalName = groupInfo.Signals[i].SignalName;
+                        string value = groupInfo.TextEdits[i].Text;
+                        groupData[signalName] = value;
+                    }
+
+                    exportData[groupTitle] = groupData;
+                }
+
+                // 写入CSV文件
+                using (StreamWriter writer = new StreamWriter(filePath))
+                {
+                    // 写入标题行
+                    writer.WriteLine("Group,Signal,Value");
+
+                    // 写入数据
+                    foreach (var group in exportData)
+                    {
+                        foreach (var signal in group.Value)
+                        {
+                            writer.WriteLine($"\"{group.Key}\",\"{signal.Key}\",\"{signal.Value}\"");
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"导出失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        // ==================== 从CSV导入参数 ====================
+        private async Task<bool> ImportParametersFromCsv(string filePath, XtraTabPage tabPage)
+        {
+            try
+            {
+                importData.Clear();
+                string currentGroup = "";
+
+                using (StreamReader reader = new StreamReader(filePath))
+                {
+                    // 跳过标题行
+                    await reader.ReadLineAsync();
+
+                    while (!reader.EndOfStream)
+                    {
+                        string line = await reader.ReadLineAsync();
+                        string[] parts = line.Split(',');
+
+                        if (parts.Length < 3) continue;
+
+                        // 移除引号
+                        string group = parts[0].Trim('"');
+                        string signal = parts[1].Trim('"');
+                        string value = parts[2].Trim('"');
+
+                        // 新组
+                        if (!importData.ContainsKey(group))
+                        {
+                            importData[group] = new Dictionary<string, string>();
+                            currentGroup = group;
+                        }
+
+                        importData[currentGroup][signal] = value;
+                    }
+                }
+
+                // 获取指定Tab页中的所有GroupControl
+                var groups = GetGroupControlsInTabPage(tabPage);
+
+                // 应用参数值
+                foreach (var group in groups)
+                {
+                    string groupTitle = group.Text;
+                    if (!importData.ContainsKey(groupTitle)) continue;
+
+                    var groupInfo = group.Tag as GroupInfo;
+                    if (groupInfo == null) continue;
+
+                    // 设置参数值到文本框
+                    for (int i = 0; i < groupInfo.Signals.Count; i++)
+                    {
+                        string signalName = groupInfo.Signals[i].SignalName;
+                        if (importData[groupTitle].TryGetValue(signalName, out string value))
+                        {
+                            if (groupInfo.TextEdits[i].InvokeRequired)
+                            {
+                                groupInfo.TextEdits[i].Invoke(new Action(() =>
+                                    groupInfo.TextEdits[i].Text = value));
+                            }
+                            else
+                            {
+                                groupInfo.TextEdits[i].Text = value;
+                            }
+                        }
+                    }
+                }
+
+                // 写入所有参数（重试机制）
+                bool allSuccess = true;
+                foreach (var group in groups)
+                {
+                    string groupTitle = group.Text;
+                    if (!importData.ContainsKey(groupTitle)) continue;
+
+                    bool writeSuccess = false;
+                    int retryCount = 0;
+                    while (!writeSuccess && retryCount < 1)
+                    {
+                        writeSuccess = await WriteParameters(group);
+                        retryCount++;
+                        if (!writeSuccess)
+                        {
+                            LogService.Log($"第{retryCount}次写入{groupTitle}失败，重试中...");
+                            await Task.Delay(200); // 延迟200ms后重试
+                        }
+                    }
+
+                    if (!writeSuccess)
+                    {
+                        allSuccess = false;
+                        LogService.Log($"{groupTitle}写入失败");
+                    }
+                }
+
+                return allSuccess;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"导入失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        // ==================== 获取指定Tab页中的所有参数组 ====================
+        private List<GroupControl> GetGroupControlsInTabPage(XtraTabPage tabPage)
+        {
+            var groups = new List<GroupControl>();
+
+            // 获取布局控件
+            var layoutControl = tabPage.Controls.OfType<LayoutControl>().FirstOrDefault();
+            if (layoutControl == null) return groups;
+
+            // 获取所有GroupControl
+            foreach (Control control in layoutControl.Controls)
+            {
+                if (control is GroupControl group)
+                {
+                    groups.Add(group);
+                }
+            }
+
+            return groups;
+        }
+
+        // ==================== 获取所有参数组 ====================
+        private List<GroupControl> GetAllGroupControls()
+        {
+            var groups = new List<GroupControl>();
+
+            // 遍历所有Tab页
+            foreach (XtraTabPage tabPage in mainTabControl.TabPages)
+            {
+                // 获取布局控件
+                var layoutControl = tabPage.Controls.OfType<LayoutControl>().FirstOrDefault();
+                if (layoutControl == null) continue;
+
+                // 获取所有GroupControl
+                foreach (Control control in layoutControl.Controls)
+                {
+                    if (control is GroupControl group)
+                    {
+                        groups.Add(group);
+                    }
+                }
+            }
+
+            return groups;
+        }
+
+        // ==================== 修改导出按钮事件 ====================
+        private async void BtnExport_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 获取当前选中的Tab页
+                XtraTabPage currentTab = mainTabControl.SelectedTabPage;
+                if (currentTab == null)
+                {
+                    ShowToast("请选择一个通道", Color.Red);
+                    return;
+                }
+
                 SaveFileDialog saveDialog = new SaveFileDialog();
                 saveDialog.Filter = "CSV文件|*.csv|所有文件|*.*";
                 saveDialog.Title = "导出参数";
@@ -95,25 +330,40 @@ namespace ChargeDebug.Form
                 if (saveDialog.ShowDialog() == DialogResult.OK)
                 {
                     string filePath = saveDialog.FileName;
-                    // TODO: 实现实际导出逻辑
-                    // 示例: ExportParametersToCsv(filePath);
-                    ShowToast("参数导出成功", Color.Green);
-                    LogService.Log($"参数已导出到: {filePath}");
+                    // 传递当前选中的Tab页
+                    bool success = await ExportParametersToCsv(filePath, currentTab);
+
+                    if (success)
+                    {
+                        ShowToast("参数导出成功", Color.Green);
+                        LogService.Log($"参数已导出到: {filePath}");
+                    }
+                    else
+                    {
+                        ShowToast("参数导出失败", Color.Red);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                ShowToast("导出失败", Color.Red);
+                ShowToast("参数导出失败", Color.Red);
                 LogService.Log($"导出失败: {ex.Message}");
             }
         }
 
-        // ==================== 导入功能 ====================
-        private void BtnImport_Click(object? sender, EventArgs e)
+        // ==================== 修改导入按钮事件 ====================
+        private async void BtnImport_Click(object? sender, EventArgs e)
         {
             try
             {
-                // 实现导入逻辑
+                // 获取当前选中的Tab页
+                XtraTabPage currentTab = mainTabControl.SelectedTabPage;
+                if (currentTab == null)
+                {
+                    ShowToast("请选择一个通道", Color.Red);
+                    return;
+                }
+
                 OpenFileDialog openDialog = new OpenFileDialog();
                 openDialog.Filter = "CSV文件|*.csv|所有文件|*.*";
                 openDialog.Title = "导入参数";
@@ -121,18 +371,23 @@ namespace ChargeDebug.Form
                 if (openDialog.ShowDialog() == DialogResult.OK)
                 {
                     string filePath = openDialog.FileName;
-                    // TODO: 实现实际导入逻辑
-                    // 示例: ImportParametersFromCsv(filePath);
-                    ShowToast("参数导入成功", Color.Green);
-                    LogService.Log($"参数已从文件导入: {filePath}");
+                    // 传递当前选中的Tab页
+                    bool success = await ImportParametersFromCsv(filePath, currentTab);
 
-                    // 可选：刷新界面显示
-                    // RefreshParameterDisplay();
+                    if (success)
+                    {
+                        ShowToast("参数导入成功", Color.Green);
+                        LogService.Log($"参数已从文件导入: {filePath}");
+                    }
+                    else
+                    {
+                        ShowToast("参数导入失败", Color.Red);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                ShowToast("导入失败", Color.Red);
+                ShowToast("参数导入失败", Color.Red);
                 LogService.Log($"导入失败: {ex.Message}");
             }
         }
@@ -149,14 +404,14 @@ namespace ChargeDebug.Form
             //this.Controls.Add(toolPanel);
 
             // ==================== 2. 创建主Tab控件 ====================
-            XtraTabControl tabControl = new XtraTabControl
+            // ==================== 初始化 mainTabControl ====================
+            mainTabControl = new XtraTabControl
             {
                 Dock = DockStyle.Fill,
-
                 HeaderLocation = TabHeaderLocation.Top,
                 HeaderOrientation = TabOrientation.Horizontal
             };
-            this.Controls.Add(tabControl);
+            this.Controls.Add(mainTabControl);
 
             using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
             {
@@ -221,7 +476,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试AC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceName}-AC{acnum}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(mainTabControl, $"{equipment.DeviceName}-AC{acnum}", reuseSignals, signalCache, tabPageInfo);
                     }
 
                     // DC TabPages
@@ -249,7 +504,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试DC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceName}-DC{dcnum}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(mainTabControl, $"{equipment.DeviceName}-DC{dcnum}", reuseSignals, signalCache, tabPageInfo);
                     }
                 }
             }
@@ -520,25 +775,30 @@ namespace ChargeDebug.Form
             }
 
             // 绑定按钮事件（修改后）
+#pragma warning disable CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
             btnRead.Click += (sender, e) => ReadParameters(group);
+#pragma warning restore CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
+#pragma warning disable CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
             btnWrite.Click += (sender, e) => WriteParameters(group);
+#pragma warning restore CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
 
             totalWidth += item.MaxSize.Width;
             group.Controls.Add(btnRead);
             group.Controls.Add(btnWrite);
         }
 
-        private async void ReadParameters(GroupControl group)
+        //private async void ReadParameters(GroupControl group)
+        private async Task<bool> ReadParameters(GroupControl group)
         {
             try
             {
                 // 获取组信息
                 var groupInfo = group.Tag as GroupInfo;
-                if (groupInfo == null) return;
+                if (groupInfo == null) return false;
 
                 // 获取Tab页信息
                 var tabInfo = groupInfo.TabInfo;
-                if (tabInfo == null) return;
+                if (tabInfo == null) return false;
 
                 // 构造读取报文（命令字）
                 byte[] readCommand = new byte[8];
@@ -566,7 +826,7 @@ namespace ChargeDebug.Form
                 {
                     ShowToast("读取失败", Color.Red);
                     LogService.Log("读取失败:未收到响应或响应超时");
-                    return;
+                    return false;
                 }
 
                 // 验证响应命令字
@@ -574,7 +834,7 @@ namespace ChargeDebug.Form
                 {
                     ShowToast("读取失败", Color.Red);
                     LogService.Log($"响应命令字不匹配: 期望0x{groupInfo.Command:X2}, 收到0x{response.data[0]:X2}");
-                    return;
+                    return false;
                 }
 
                 // 解析响应数据并更新UI
@@ -612,25 +872,28 @@ namespace ChargeDebug.Form
                 }
                 ShowToast("读取成功", Color.Green);
                 LogService.Log("读取成功!");
+                return true;
             }
             catch (Exception ex)
             {
                 ShowToast("读取失败", Color.Red);
                 LogService.Log($"读取失败:{ex.Message}");
+                return false;
             }
         }
 
-        private async void WriteParameters(GroupControl group)
+        //private async void WriteParameters(GroupControl group)
+        private async Task<bool> WriteParameters(GroupControl group)
         {
             try
             {
                 // 获取组信息
                 var groupInfo = group.Tag as GroupInfo;
-                if (groupInfo == null) return;
+                if (groupInfo == null) return false;
 
                 // 获取Tab页信息
                 var tabInfo = groupInfo.TabInfo;
-                if (tabInfo == null) return;
+                if (tabInfo == null) return false;
 
                 // 收集参数值
                 byte[] writeData = new byte[8];
@@ -664,7 +927,7 @@ namespace ChargeDebug.Form
                     {
                         //MessageBox.Show($"参数格式错误: {signal.SignalName}");
                         LogService.Log($"参数格式错误: {signal.SignalName}");
-                        return;
+                        return false;
                     }
                 }
 
@@ -699,7 +962,7 @@ namespace ChargeDebug.Form
                 {
                     ShowToast("写入失败", Color.Red);
                     LogService.Log("写入失败:未收到响应或响应超时");
-                    return;
+                    return false;
                 }
 
                 // 验证响应命令字
@@ -715,16 +978,18 @@ namespace ChargeDebug.Form
                 {
                     ShowToast("写入失败", Color.Red);
                     LogService.Log("写入失败!");
-                    return;
+                    return false;
                 }
 
                 ShowToast("写入成功", Color.Green);
                 LogService.Log("写入成功!");
+                return true;
             }
             catch (Exception ex)
             {
                 ShowToast("写入失败", Color.Red);
                 LogService.Log($"写入失败:{ex.Message}");
+                return false;
             }
         }
 
