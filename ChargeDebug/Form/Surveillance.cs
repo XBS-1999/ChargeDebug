@@ -218,7 +218,7 @@ namespace ChargeDebug.Form
                                 if (signal.CANID.Contains("2X"))
                                 {
                                     var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("2X", "2" + dcnum);
+                                    newSignal.CANID = signal.CANID.Replace("2X", "2" + (dcnum - 1));
                                     channelSignals.Add(newSignal);
                                 }
                             }
@@ -234,7 +234,7 @@ namespace ChargeDebug.Form
                                 if (signal.CANID.Contains("AX"))
                                 {
                                     var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + acnum);
+                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + (acnum-1));
                                     channelSignals.Add(newSignal);
                                 }
                             }

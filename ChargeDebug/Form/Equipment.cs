@@ -2,7 +2,6 @@
 using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
-using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 using System.Data;
 using System.Data.SQLite;
 
@@ -37,6 +36,11 @@ namespace ChargeDebug.Form
             devicenumber.FieldName = "DeviceNumber";
             devicenumber.Caption = "设备序号";
             devicenumber.Visible = true;
+
+            GridColumn devicename = new GridColumn();
+            devicename.FieldName = "DeviceName";
+            devicename.Caption = "设备名称";
+            devicename.Visible = true;
 
             GridColumn cantype = new GridColumn();
             cantype.FieldName = "CanType";
@@ -93,7 +97,7 @@ namespace ChargeDebug.Form
             whether.Caption = "是否启用设备";
             whether.Visible = true;
 
-            gridview.Columns.AddRange(new[] { devicenumber, cantype, deviceip,
+            gridview.Columns.AddRange(new[] { devicenumber, devicename, cantype, deviceip,
                   deviceport, deviceindex, canindex, acnumber,acaddress, dcnumber, dcaddress, communicationprotocols, whether });
 
             SimpleButton simpleButton = new SimpleButton();
@@ -101,21 +105,21 @@ namespace ChargeDebug.Form
             simpleButton.Name = "simpleButton";
             simpleButton.Size = new Size(100, 30);
             simpleButton.TabIndex = 0;
-            simpleButton.Text = "增加通道";
+            simpleButton.Text = "增加设备";
 
             SimpleButton simpleButton1 = new SimpleButton();
             simpleButton1.Location = new Point(10, 70);
             simpleButton1.Name = "simpleButton1";
             simpleButton1.Size = new Size(100, 30);
             simpleButton1.TabIndex = 1;
-            simpleButton1.Text = "编辑通道";
+            simpleButton1.Text = "编辑设备";
 
             SimpleButton simpleButton2 = new SimpleButton();
             simpleButton2.Location = new Point(10, 120);
             simpleButton2.Name = "simpleButton2";
             simpleButton2.Size = new Size(100, 30);
             simpleButton2.TabIndex = 2;
-            simpleButton2.Text = "删除通道";
+            simpleButton2.Text = "删除设备";
 
             PanelControl panelControl = new PanelControl();
             panelControl.Dock = DockStyle.Right;

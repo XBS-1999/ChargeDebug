@@ -94,7 +94,7 @@ namespace ChargeDebug.Form
                 Appearance = { BackColor = Color.LightBlue }
             };
             btnExport.Click += BtnExport_Click;
-            toolPanel.Controls.Add(btnExport);
+            //toolPanel.Controls.Add(btnExport);
 
             // 添加导入按钮
             btnImport = new SimpleButton
@@ -105,7 +105,7 @@ namespace ChargeDebug.Form
                 Appearance = { BackColor = Color.LightGreen }
             };
             btnImport.Click += BtnImport_Click;
-            toolPanel.Controls.Add(btnImport);
+            //toolPanel.Controls.Add(btnImport);
 
             // ==================== 2. 创建主Tab控件 ====================
             XtraTabControl tabControl = new XtraTabControl
