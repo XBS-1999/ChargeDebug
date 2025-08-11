@@ -633,7 +633,7 @@ namespace ChargeDebug.Service
         {
             List<EquipmentModel> equipment = new List<EquipmentModel>();
 
-            const string query = "SELECT * FROM Equipment";
+            const string query = "SELECT * FROM Equipment ORDER BY [DeviceNumber] ASC";
 
             using (var cmd = new SQLiteCommand(query, conn))
             {
@@ -647,6 +647,7 @@ namespace ChargeDebug.Service
                             {
                                 EquipmentID = Convert.ToInt32(reader["EquipmentID"]),
                                 DeviceNumber = reader["DeviceNumber"].ToString(),
+                                DeviceName = reader["DeviceName"].ToString(),
                                 CanType = reader["CanType"].ToString(),
                                 DeviceIP = reader["DeviceIP"].ToString(),
                                 DevicePort = reader["DevicePort"].ToString(),

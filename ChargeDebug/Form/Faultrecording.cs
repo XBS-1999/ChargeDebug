@@ -436,7 +436,7 @@ namespace ChargeDebug.Form
             foreach (var item in faultrecordingList)
             {
                 if (item != null)
-                    comboBoxEdit.Properties.Items.Add($"{item.DeviceNumber}");
+                    comboBoxEdit.Properties.Items.Add($"{item.DeviceName}");
             }
 
             comboBoxEdit.SelectedIndex = 0;
@@ -738,7 +738,7 @@ namespace ChargeDebug.Form
             // 获取选中的设备
             string selectedDeviceNumber = comboBoxEdit.Text;
             EquipmentModel selectedEquipment = faultrecordingList
-                .FirstOrDefault(e => e.DeviceNumber == selectedDeviceNumber);
+                .FirstOrDefault(e => e.DeviceName == selectedDeviceNumber);
 
             if (selectedEquipment == null)
             {
@@ -766,7 +766,7 @@ namespace ChargeDebug.Form
             EquipmentModel selectedEquipment = (EquipmentModel)e.Argument;
             CancellationToken cancellationToken = _cancellationTokenSource.Token;
 
-            string deviceLogPrefix = $"{selectedEquipment.DeviceNumber}";
+            string deviceLogPrefix = $"{selectedEquipment.DeviceName}";
 
             try
             {

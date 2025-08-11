@@ -151,7 +151,7 @@ namespace ChargeDebug.Form
                 using (var conn = new SQLiteConnection(connectionString))
                 {
                     conn.Open();
-                    const string query = "SELECT * FROM Equipment";
+                    const string query = "SELECT * FROM Equipment ORDER BY [DeviceNumber] ASC";
                     using (var cmd = new SQLiteCommand(query, conn))
                     {
                         using (var adapter = new SQLiteDataAdapter(cmd))
@@ -180,10 +180,7 @@ namespace ChargeDebug.Form
                 using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
                 {
                     conn.Open();
-                    string query = @"
-                       SELECT MAX(CAST(SUBSTR(DeviceNumber, 3) AS INTEGER))
-                       FROM Equipment
-                       WHERE DeviceNumber LIKE '设备%'";
+                    string query = "SELECT MAX(DeviceNumber) FROM Equipment";
 
                     using (var cmd = new SQLiteCommand(query, conn))
                     {
@@ -192,10 +189,11 @@ namespace ChargeDebug.Form
                     }
                 }
                 // 生成新设备号
-                string newDeviceNumber = $"设备{maxNumber + 1}";
+                //string newDeviceNumber = $"设备{maxNumber + 1}";
+                int newDeviceNumber = maxNumber + 1;
 
                 // 打开编辑窗口并传递自动生成的设备号
-                using (var form = new DeviceEditForm(newDeviceNumber, dbcPath))
+                using (var form = new DeviceEditForm(dbcPath))
                 {
                     if (form.ShowDialog() == DialogResult.OK)
                     {
@@ -204,15 +202,16 @@ namespace ChargeDebug.Form
                         {
                             conn.Open();
                             const string insertQuery = @"INSERT INTO Equipment 
-                                (DeviceNumber, CanType, DeviceIP, DevicePort, 
+                                (DeviceNumber, DeviceName, CanType, DeviceIP, DevicePort, 
                                  DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, Whether)
                                  VALUES 
-                               (@DeviceNumber, @CanType, @DeviceIP, @DevicePort, 
+                               (@DeviceNumber, @DeviceName, @CanType, @DeviceIP, @DevicePort, 
                                 @DeviceIndex, @CanIndex, @ACNumber, @ACAddress, @DCNumber, @DCAddress, @CommunicationProtocols, @Whether)";
 
                             using (var cmd = new SQLiteCommand(insertQuery, conn))
                             {
                                 cmd.Parameters.AddWithValue("@DeviceNumber", newDeviceNumber);
+                                cmd.Parameters.AddWithValue("@DeviceName", form.DeviceName);
                                 cmd.Parameters.AddWithValue("@CanType", form.CanType);
                                 cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                 cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
@@ -270,7 +269,7 @@ namespace ChargeDebug.Form
                         {
                             conn.Open();
                             const string query = @"UPDATE Equipment SET
-                                        DeviceNumber = @DeviceNumber,
+                                        DeviceName = @DeviceName,
                                         CanType = @CanType,
                                         DeviceIP = @DeviceIP,
                                         DevicePort = @DevicePort,
@@ -287,7 +286,8 @@ namespace ChargeDebug.Form
                             using (var cmd = new SQLiteCommand(query, conn))
                             {
                                 cmd.Parameters.AddWithValue("@EquipmentID", row["EquipmentID"]);
-                                cmd.Parameters.AddWithValue("@DeviceNumber", form.DeviceNumber);
+                                //cmd.Parameters.AddWithValue("@DeviceNumber", form.DeviceNumber);
+                                cmd.Parameters.AddWithValue("@DeviceName", form.DeviceName);
                                 cmd.Parameters.AddWithValue("@CanType", form.CanType);
                                 cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                 cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);

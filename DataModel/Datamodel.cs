@@ -4,6 +4,7 @@
     {
         public int EquipmentID { get; set; }
         public string? DeviceNumber { get; set; }
+        public string? DeviceName { get; set; }
         public string? CanType { get; set; }
         public string? DeviceIP { get; set; }
         public string? DevicePort { get; set; }

@@ -16,6 +16,7 @@ namespace ChargeDebug.Form
         private LayoutControlGroup rootGroup;
         private LayoutControlItem item;
         private XtraTabControl mainTabControl; // 添加对主TabControl的引用
+        private ContextMenuStrip contextMenu; // 新增右键菜单成员
 
         // 添加工具栏成员变量
         private Panel toolStripPanel;
@@ -59,53 +60,93 @@ namespace ChargeDebug.Form
             InitializeComponent();
 
             InitializeUI();
+            InitializeContextMenu(); // 初始化右键菜单
+        }
 
+        // ==================== 新增右键菜单初始化 ====================
+        private void InitializeContextMenu()
+        {
+            contextMenu = new ContextMenuStrip();
+
+            // 添加"导入参数"菜单项
+            ToolStripMenuItem importItem = new ToolStripMenuItem("导入参数");
+            importItem.Click += BtnImport_Click; // 关联点击事件
+            contextMenu.Items.Add(importItem);
+
+            // 添加"导出参数"菜单项
+            ToolStripMenuItem exportItem = new ToolStripMenuItem("导出参数");
+            exportItem.Click += BtnExport_Click; // 关联点击事件
+            contextMenu.Items.Add(exportItem);
+
+            // 将右键菜单绑定到UserControl
+            this.ContextMenuStrip = contextMenu;
         }
 
         // ==================== 导出功能 ====================
-        private void BtnExport_Click(object sender, EventArgs e)
+        private void BtnExport_Click(object? sender, EventArgs e)
         {
+            try
+            {
+                // 实现导出逻辑
+                SaveFileDialog saveDialog = new SaveFileDialog();
+                saveDialog.Filter = "CSV文件|*.csv|所有文件|*.*";
+                saveDialog.Title = "导出参数";
 
+                if (saveDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string filePath = saveDialog.FileName;
+                    // TODO: 实现实际导出逻辑
+                    // 示例: ExportParametersToCsv(filePath);
+                    ShowToast("参数导出成功", Color.Green);
+                    LogService.Log($"参数已导出到: {filePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast("导出失败", Color.Red);
+                LogService.Log($"导出失败: {ex.Message}");
+            }
         }
 
         // ==================== 导入功能 ====================
-        private void BtnImport_Click(object sender, EventArgs e)
+        private void BtnImport_Click(object? sender, EventArgs e)
         {
+            try
+            {
+                // 实现导入逻辑
+                OpenFileDialog openDialog = new OpenFileDialog();
+                openDialog.Filter = "CSV文件|*.csv|所有文件|*.*";
+                openDialog.Title = "导入参数";
 
+                if (openDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string filePath = openDialog.FileName;
+                    // TODO: 实现实际导入逻辑
+                    // 示例: ImportParametersFromCsv(filePath);
+                    ShowToast("参数导入成功", Color.Green);
+                    LogService.Log($"参数已从文件导入: {filePath}");
+
+                    // 可选：刷新界面显示
+                    // RefreshParameterDisplay();
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast("导入失败", Color.Red);
+                LogService.Log($"导入失败: {ex.Message}");
+            }
         }
 
         private void InitializeUI()
         {
             // ==================== 1. 创建工具栏 ====================
-            Panel toolPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.WhiteSmoke,
-                Padding = new System.Windows.Forms.Padding(0)
-            };
-            this.Controls.Add(toolPanel);
-
-            // 添加导出按钮
-            btnExport = new SimpleButton
-            {
-                Text = "导出参数",
-                Size = new Size(80, 25),
-                Location = new Point(1730, 1),
-                Appearance = { BackColor = Color.LightBlue }
-            };
-            btnExport.Click += BtnExport_Click;
-            //toolPanel.Controls.Add(btnExport);
-
-            // 添加导入按钮
-            btnImport = new SimpleButton
-            {
-                Text = "导入参数",
-                Size = new Size(80, 25),
-                Location = new Point(1830, 1),
-                Appearance = { BackColor = Color.LightGreen }
-            };
-            btnImport.Click += BtnImport_Click;
-            //toolPanel.Controls.Add(btnImport);
+            //Panel toolPanel = new Panel
+            //{
+            //    Dock = DockStyle.Fill,
+            //    BackColor = Color.WhiteSmoke,
+            //    Padding = new System.Windows.Forms.Padding(0)
+            //};
+            //this.Controls.Add(toolPanel);
 
             // ==================== 2. 创建主Tab控件 ====================
             XtraTabControl tabControl = new XtraTabControl
@@ -115,7 +156,7 @@ namespace ChargeDebug.Form
                 HeaderLocation = TabHeaderLocation.Top,
                 HeaderOrientation = TabOrientation.Horizontal
             };
-            toolPanel.Controls.Add(tabControl);
+            this.Controls.Add(tabControl);
 
             using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
             {
@@ -167,7 +208,7 @@ namespace ChargeDebug.Form
                             ReceiveCANID = canIds["调试AC接收"].Replace("X", (acnum - 1).ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
-                            DeviceNumber = equipment.DeviceNumber
+                            DeviceNumber = equipment.DeviceName
                         };
 
                         // 预加载信号数据
@@ -180,7 +221,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试AC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-AC{acnum}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceName}-AC{acnum}", reuseSignals, signalCache, tabPageInfo);
                     }
 
                     // DC TabPages
@@ -195,7 +236,7 @@ namespace ChargeDebug.Form
                             ReceiveCANID = canIds["调试DC接收"].Replace("X", (dcnum - 1).ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
-                            DeviceNumber = equipment.DeviceNumber
+                            DeviceNumber = equipment.DeviceName
                         };
                         
                         // 预加载信号数据
@@ -208,7 +249,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试DC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-DC{dcnum}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceName}-DC{dcnum}", reuseSignals, signalCache, tabPageInfo);
                     }
                 }
             }

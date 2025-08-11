@@ -8,7 +8,8 @@ namespace ChargeDebug.Form
     public partial class DeviceEditForm : XtraForm
     {
         // 表单控件定义（根据实际需要添加）
-        private TextEdit devicenumber;
+        //private TextEdit devicenumber;
+        private TextEdit devicename;
         private ComboBoxEdit cantype;
         private TextEdit deviceip;
         private TextEdit deviceport;
@@ -21,7 +22,8 @@ namespace ChargeDebug.Form
         private ComboBoxEdit communicationprotocols;
         private ComboBoxEdit whether;
 
-        public string DeviceNumber => devicenumber.Text;
+        //public string DeviceNumber => devicenumber.Text;
+        public string DeviceName => devicename.Text;
         public string CanType => cantype.Text;
         public string DeviceIP => deviceip.Text;
         public string DevicePort => deviceport.Text;
@@ -38,13 +40,13 @@ namespace ChargeDebug.Form
 
 
         // 构造函数（新增模式）
-        public DeviceEditForm(string deviceNumber,string dbPath)
+        public DeviceEditForm(string dbPath)
         {
             dbcPath = dbPath;
             InitializeComponent();
             this.Text = "增加设备";
             InitializeControls();
-            devicenumber.Text = deviceNumber;
+            //devicenumber.Text = deviceNumber;
         }
 
         // 构造函数（编辑模式）
@@ -65,10 +67,12 @@ namespace ChargeDebug.Form
             this.StartPosition = FormStartPosition.CenterParent;
 
             // 创建并配置控件
-            LabelControl labelcontrol1 = new LabelControl { Text = "设备序号:", Location = new Point(70, 22) };
-            devicenumber = new TextEdit{ Location = new Point(150, 20), Width = 150 };
-            devicenumber.Properties.ReadOnly = true;
-            devicenumber.Properties.AllowFocused = false;     // 禁止获得焦点
+            //LabelControl labelcontrol1 = new LabelControl { Text = "设备序号:", Location = new Point(70, 22) };
+            //devicenumber = new TextEdit{ Location = new Point(150, 20), Width = 150 };
+            //devicenumber.Properties.ReadOnly = true;
+            //devicenumber.Properties.AllowFocused = false;     // 禁止获得焦点
+            LabelControl labelcontrol13 = new LabelControl { Text = "设备名称:", Location = new Point(70, 22) };
+            devicename = new TextEdit { Location = new Point(150, 20), Width = 150 };
             LabelControl labelcontrol2 = new LabelControl { Text = "CAN盒类型:", Location = new Point(340, 22) };
             cantype = new ComboBoxEdit { Location = new Point(450, 20), Width = 150 };
             LabelControl labelcontrol3 = new LabelControl { Text = "设备IP:", Location = new Point(70, 62) };
@@ -121,8 +125,8 @@ namespace ChargeDebug.Form
 
             this.Controls.AddRange(new Control[]
             {
-                labelcontrol1,labelcontrol2,labelcontrol3,labelcontrol4,labelcontrol5,labelcontrol6,labelcontrol7,labelcontrol11,labelcontrol8,labelcontrol12,labelcontrol9,labelcontrol10,
-                devicenumber, cantype, deviceip, deviceport,deviceindex,canindex,acnumber,acaddress,dcnumber,dcaddress,communicationprotocols,whether,
+                labelcontrol13,labelcontrol2,labelcontrol3,labelcontrol4,labelcontrol5,labelcontrol6,labelcontrol7,labelcontrol11,labelcontrol8,labelcontrol12,labelcontrol9,labelcontrol10,
+                devicename, cantype, deviceip, deviceport,deviceindex,canindex,acnumber,acaddress,dcnumber,dcaddress,communicationprotocols,whether,
                 btnOK,btnCancel
             });
 
@@ -169,7 +173,7 @@ namespace ChargeDebug.Form
 
         private void LoadData(DataRow row)
         {
-            devicenumber.Text = row["DeviceNumber"].ToString();
+            devicename.Text = row["DeviceName"].ToString();
             cantype.Text = row["CanType"].ToString();
             deviceip.Text = row["DeviceIP"].ToString();
             deviceport.Text = row["DevicePort"].ToString();
@@ -186,9 +190,9 @@ namespace ChargeDebug.Form
         private bool ValidateInput()
         {
             // 验证设备编号
-            if (string.IsNullOrWhiteSpace(devicenumber.Text))
+            if (string.IsNullOrWhiteSpace(devicename.Text))
             {
-                ShowError("设备编号不能为空！", devicenumber);
+                ShowError("设备名称不能为空！", devicename);
                 return false;
             }
             // 验证CAN盒类型

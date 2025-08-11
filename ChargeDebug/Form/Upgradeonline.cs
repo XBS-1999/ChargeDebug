@@ -210,7 +210,7 @@ namespace ChargeDebug.Form
             {
                 if (item != null)
                 {
-                    string displayText = $"{item.DeviceNumber}";
+                    string displayText = $"{item.DeviceName}";
                     cbDevice.Properties.Items.Add(displayText);
                     deviceMap[displayText] = item;
                 }
