@@ -158,13 +158,13 @@ namespace ChargeDebug.Form
                     // AC TabPages
                     for (int b = 0; b < equipment.ACNumber; b++)
                     {
-                        acnum += b;
+                        acnum ++;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
-                            WriteCANID = canIds["调试AC写入"].Replace("X", acnum.ToString()),
-                            ReadCANID = canIds["调试AC读取"].Replace("X", acnum.ToString()),
-                            ReceiveCANID = canIds["调试AC接收"].Replace("X", acnum.ToString()),
+                            WriteCANID = canIds["调试AC写入"].Replace("X", (acnum - 1).ToString()),
+                            ReadCANID = canIds["调试AC读取"].Replace("X", (acnum - 1).ToString()),
+                            ReceiveCANID = canIds["调试AC接收"].Replace("X", (acnum - 1).ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
                             DeviceNumber = equipment.DeviceNumber
@@ -180,19 +180,19 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试AC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-AC{acnum + 1}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-AC{acnum}", reuseSignals, signalCache, tabPageInfo);
                     }
 
                     // DC TabPages
                     for (int c = 0; c < equipment.DCNumber; c++)
                     {
-                        dcnum += c;
+                        dcnum ++;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
-                            WriteCANID = canIds["调试DC写入"].Replace("X", dcnum.ToString()),
-                            ReadCANID = canIds["调试DC读取"].Replace("X", dcnum.ToString()),
-                            ReceiveCANID = canIds["调试DC接收"].Replace("X", dcnum.ToString()),
+                            WriteCANID = canIds["调试DC写入"].Replace("X", (dcnum - 1).ToString()),
+                            ReadCANID = canIds["调试DC读取"].Replace("X", (dcnum - 1).ToString()),
+                            ReceiveCANID = canIds["调试DC接收"].Replace("X", (dcnum - 1).ToString()),
                             DeviceIndex = equipment.DeviceIndex,
                             CanIndex = equipment.CanIndex,
                             DeviceNumber = equipment.DeviceNumber
@@ -208,7 +208,7 @@ namespace ChargeDebug.Form
                                 conn, messageid["调试DC写入"], reuse.Description);
                         }
 
-                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-DC{dcnum + 1}", reuseSignals, signalCache, tabPageInfo);
+                        AddTabPageWithPanels(tabControl, $"{equipment.DeviceNumber}-DC{dcnum}", reuseSignals, signalCache, tabPageInfo);
                     }
                 }
             }

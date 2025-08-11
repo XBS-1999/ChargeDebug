@@ -20,7 +20,9 @@ namespace ChargeDebug.Form
         // 添加设备定时器字典
         private readonly Dictionary<int, System.Threading.Timer> _deviceTimers = 
             new Dictionary<int, System.Threading.Timer>();
-        private static uint dcnumber = 0;        //总DC通道数
+        //private static uint dcnumber = 0;        //总DC通道数
+        //private static uint acnumber = 0;        //总AC通道数
+        private static int channels = 0;        //总通道数
         private string dbcPath = "";
         // 在 Surveillance 类中
         private bool _enabled = true;
@@ -78,11 +80,13 @@ namespace ChargeDebug.Form
 
         private void DeviceConfig()
         {
-            dcnumber = 0;  //清空DC通道
+            channels = 0;  //先清空通道在计算
             // 遍历所有设备进行统计
             foreach (var equipment in surequipmentList)
             {
-                dcnumber += (uint)equipment.DCNumber;
+                // 获取最大通道数（AC和DC中的较大值）
+                int channel = Math.Max(equipment.ACNumber, equipment.DCNumber);
+                channels += channel;
             }
         }
 
@@ -152,8 +156,8 @@ namespace ChargeDebug.Form
             InitializeUI();
             int totalWidth = 0;
             int value = 0;
-            if (dcnumber <= 4)
-                value = 256 / (int)dcnumber;
+            if (channels <= 4)
+                value = 256 / channels;
             else
                 value = 64;
 
@@ -202,8 +206,8 @@ namespace ChargeDebug.Form
                     {
                         List<SignalInfo> channelSignals = new List<SignalInfo>();
 
-                        acnum += i;
-                        dcnum += i;
+                        acnum ++;
+                        dcnum ++;
 
                         // 处理DC通道信号（如果存在）
                         if (i < equipment.DCNumber)
@@ -248,9 +252,9 @@ namespace ChargeDebug.Form
 
                         // 创建模块（同时包含AC和DC通道）
                         string title = $"{equipment.DeviceNumber}-通道";
-                        title += i < equipment.ACNumber ? $"A{acnum + 1}" : "";
+                        title += i < equipment.ACNumber ? $"A{acnum}" : "";
                         title += i < equipment.ACNumber && i < equipment.DCNumber ? "/" : "";
-                        title += i < equipment.DCNumber ? $"DC{dcnum + 1}" : "";
+                        title += i < equipment.DCNumber ? $"DC{dcnum}" : "";
 
                         //var userControl = new Module($"{equipment.DeviceNumber}-通道{i + 1}")
                         // 传递所有必需参数：标题、设备号、通道索引、信号列表
@@ -312,9 +316,9 @@ namespace ChargeDebug.Form
                 }
 
             }
-            if (dcnumber <= 4)
+            if (channels <= 4)
             {
-                int Width = (int)(dcnumber * (400 + value) - value);
+                int Width = (int)(channels * (400 + value) - value);
                 int remainingWidth = (rootGroup.Width - Width) / 2;
                 leftSpaceItem.MinSize = new Size(remainingWidth, 700);
                 leftSpaceItem.MaxSize = new Size(remainingWidth, 700);

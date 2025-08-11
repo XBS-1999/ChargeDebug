@@ -437,11 +437,6 @@ namespace ChargeDebug.Form
 
             foreach (var record in records)
             {
-                //if (record.Address == 0x87558)
-                //{
-                //    int a = 0;
-                //}
-
                 // 计算当前记录需要多少字节
                 int bytesNeeded = record.Data.Length;
 
