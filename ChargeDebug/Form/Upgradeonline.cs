@@ -513,7 +513,7 @@ namespace ChargeDebug.Form
             if (currentData.Count == 0) return;
 
             // 确保数据大小是8的倍数（调用处已处理，此处为双重保障）
-            PadToMultipleOf8(ref currentData);
+            //PadToMultipleOf8(ref currentData);
 
             blocks.Add(new DataBlock
             {
@@ -644,11 +644,11 @@ namespace ChargeDebug.Form
                         {
                             retryCount++;
                             times += 5;
-                            AppendInfo($"❌ 块 {block.BlockIndex} 第 {retryCount} 次重试失败: {ex.Message}");
+                            AppendInfo($"❌ 第 {block.BlockIndex} 包数据第 {retryCount} 次重试失败: {ex.Message}");
 
                             if (retryCount >= maxRetries)
                             {
-                                AppendInfo($"❌ 块 {block.BlockIndex} 重试{maxRetries}次均失败，停止升级！");
+                                AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
                                 throw; // 抛出异常终止升级
                             }
 
@@ -663,7 +663,7 @@ namespace ChargeDebug.Form
 
                     await Task.Delay(5);
                 }
-                AppendInfo("✅ 所有数据块传输完成，升级成功！");
+                AppendInfo("✅ 所有数据包传输完成，升级成功！");
             }
             catch (Exception ex)
             {
@@ -684,19 +684,19 @@ namespace ChargeDebug.Form
                                    startAddress,
                                    (uint)blockData.Length)) // 这里传入字节长度
             {
-                throw new Exception($"块 {blockIndex} 地址和长度设置失败");
+                throw new Exception($"第 {blockIndex} 包数据地址和长度设置失败");
             }
 
             // 2. 发送数据
             if (!await SendDataPackets(device, channelKey, blockData, blockIndex, totalBlocks, times))
             {
-                throw new Exception($"块 {blockIndex} 数据传输失败");
+                throw new Exception($"第 {blockIndex} 包数据传输失败");
             }
 
             // 3. 校验数据
             if (!await VerifyDataBlock(device, channelKey, blockIndex, totalBlocks))
             {
-                throw new Exception($"块 {blockIndex} 数据校验失败");
+                throw new Exception($"第 {blockIndex} 包数据校验失败");
             }
         }
 
@@ -870,7 +870,7 @@ namespace ChargeDebug.Form
                     uint num = verifyResponse.data[0];
                     if ((num == blockIndex - 1) && (verifyResponse.data[2] == 0x00))
                     {
-                        AppendInfo($"✅ 块 {blockIndex} 校验成功");
+                        AppendInfo($"✅ 第 {blockIndex} 包数据烧写成功");
                         return true;
                     }
                     else
