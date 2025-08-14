@@ -437,39 +437,33 @@ namespace ChargeDebug.Form
 
             foreach (var record in records)
             {
-                // 计算当前记录需要多少字节
-                int bytesNeeded = record.Data.Length;
-
-                // 如果当前块剩余空间不足，且当前块已有数据
-                if (currentBlockData.Count > 0 &&
-                    currentBlockData.Count + bytesNeeded > 256)
+                // 当检测到地址间隙时，直接结束当前块并开始新块
+                if (record.Address > currentAddress)
                 {
-                    // 完成当前块
-                    currentAddress = record.Address;
-                    FinalizeCurrentBlock(blocks, ref currentBlockData, ref currentBlockStartAddress, currentAddress);
-                }
-
-                // 处理地址间隙（按双字节单位填充0x0000）
-                if ((record.Address > currentAddress) && (currentBlockData.Count > 0))
-                {
-                    uint gapSize = record.Address - currentAddress;
-                    for (int i = 0; i < gapSize; i++)
+                    // 结束当前块（如果有数据）
+                    if (currentBlockData.Count > 0)
                     {
-                        currentBlockData.Add(0x00);
-                        currentBlockData.Add(0x00);
-                        if (currentBlockData.Count >= 256)
-                        {
-                            FinalizeCurrentBlock(blocks, ref currentBlockData, ref currentBlockStartAddress, currentAddress + (uint)i + 1);
-                        }
+                        FinalizeCurrentBlock(blocks, ref currentBlockData, ref currentBlockStartAddress, currentAddress);
                     }
+                    // 开始新块
+                    currentBlockStartAddress = record.Address;
                     currentAddress = record.Address;
                 }
 
-                // 添加当前记录数据
+                // 检查剩余空间是否足够
+                if (currentBlockData.Count + record.Data.Length > 256)
+                {
+                    // 空间不足，结束当前块
+                    FinalizeCurrentBlock(blocks, ref currentBlockData, ref currentBlockStartAddress, currentAddress);
+                    currentBlockStartAddress = record.Address; // 新块从当前记录开始
+                    currentAddress = record.Address;
+                }
+
+                // 添加数据
                 currentBlockData.AddRange(record.Data);
                 currentAddress += (uint)record.Data.Length / 2;
 
-                // 检查是否达到块大小限制（256字节）
+                // 检查是否达到块大小限制
                 if (currentBlockData.Count >= 256)
                 {
                     FinalizeCurrentBlock(blocks, ref currentBlockData, ref currentBlockStartAddress, currentAddress);

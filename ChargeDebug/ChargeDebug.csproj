@@ -24,6 +24,7 @@
     <PackageReference Include="Aspose.PDF" Version="25.5.0" />
     <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="DbcParserLib" Version="1.7.0" />
+    <PackageReference Include="DevExpress.Win" Version="24.1.7" />
     <PackageReference Include="DevExpress.Win.BonusSkins" Version="24.1.7" />
     <PackageReference Include="DevExpress.Win.Design" Version="24.1.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.4" />
