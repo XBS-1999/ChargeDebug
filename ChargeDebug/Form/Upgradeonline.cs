@@ -338,6 +338,18 @@ namespace ChargeDebug.Form
                             // +++ 新增：显示总块数 +++
                             int totalBlocks = hexData.Blocks.Count;
 
+                            //// 计算当前块的CRC16校验值 (使用MODBUS CRC16算法)
+                            //byte[] blockData = GetBlockData(hexData, 257); // 需要实现GetBlockData方法
+                            //ushort crc = CalculateCrc16(blockData);
+
+                            //string abc = "";
+                            //for (int i = 0; i < blockData.Length; i++)
+                            //{
+                            //    abc += blockData[i].ToString("X2");
+                            //}
+
+                            //AppendInfo($"0x{crc:X8}");
+                            //AppendInfo($"{abc}");
                             AppendInfo($"✅ HEX解析成功: 起始地址 0x{hexData.MinAddress:X8}, " +
                                        $"结束地址 0x{hexData.MaxAddress:X8}, " +
                                        $"总长度 {totalBytes} 字节, " +
@@ -618,7 +630,7 @@ namespace ChargeDebug.Form
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
-                    int times = 20;
+                    int times = 15;
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -861,15 +873,16 @@ namespace ChargeDebug.Form
 
                 if (verifyCanId == 0x0000BB03)
                 {
-                    uint num = verifyResponse.data[0];
-                    if ((num == blockIndex - 1) && (verifyResponse.data[2] == 0x00))
+                    // 修改点：正确解析两个字节的块序号
+                    ushort receivedBlockIndex = (ushort)(verifyResponse.data[0] | (verifyResponse.data[1] << 8));
+                    if ((receivedBlockIndex == blockIndex - 1) && (verifyResponse.data[2] == 0x00))
                     {
                         AppendInfo($"✅ 第 {blockIndex} 包数据烧写成功");
                         return true;
                     }
                     else
                     {
-                        AppendInfo($"❌ 块 {blockIndex} 校验失败: 错误代码 0x{verifyResponse.data[2]:X2}-{num + 1}");
+                        AppendInfo($"❌ 块 {blockIndex} 校验失败: 错误代码 0x{verifyResponse.data[2]:X2}-{receivedBlockIndex + 1}");
                         return false;
                     }
                 }
