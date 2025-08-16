@@ -18,6 +18,7 @@ using System.ComponentModel;
 using ChargeDebug.Service;
 using System.Globalization;
 using DataModel;
+using Aspose.Pdf.Operators;
 
 namespace ChargeDebug.Form
 {
@@ -33,6 +34,8 @@ namespace ChargeDebug.Form
         private BindingList<ReuseSignal> _currentReuseSignals;
         private TreeListNode _currentSignalNode;
         private List<EquipmentModel> agreementList;
+        // 新增临时数据结构
+        private Dictionary<long, List<ReuseSignal>> _reuseSignalsCache = new Dictionary<long, List<ReuseSignal>>();
 
         // 上下文菜单组件
         private ContextMenuStrip gridContextMenu;
@@ -542,6 +545,9 @@ namespace ChargeDebug.Form
                     try
                     {
                         //1.获取当前页面值
+                        // 保存原始ID（可能是临时ID）
+                        long originalId = Convert.ToInt64(_currentSignalNode.Tag ?? -1);
+
                         //父节点
                         var canId = parentNode.GetValue("CAN ID").ToString();
                         var frameType = parentNode.GetValue("帧类型").ToString();
@@ -598,6 +604,19 @@ namespace ChargeDebug.Form
                         _currentSignalNode.Tag = signalID; // 更新Tag为新的SignalID
 
                         // 4. 加载复用信号并编辑
+                        // 检查原始ID对应的缓存复用信号
+                        if (originalId < 0 && _reuseSignalsCache.ContainsKey(originalId))
+                        {
+                            var reuseSignal = _reuseSignalsCache[originalId];
+                            SQLite_Service.SaveReuseSignals(
+                                conn,
+                                signalID,
+                                reuseSignal,
+                                transaction
+                            );
+                            // 移除已处理的缓存
+                            _reuseSignalsCache.Remove(originalId);
+                        }
                         var reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, signalID);
                         _currentReuseSignals = new BindingList<ReuseSignal>(reuseSignals);
 
@@ -879,6 +898,115 @@ namespace ChargeDebug.Form
             }
         }
 
+        /* 导入Excel按钮触发事件 */
+        private void ImportExcelDBC()
+        {
+            ClearAllNodes();
+            _reuseSignalsCache.Clear(); // 清空缓存
+
+            using (var ofd = new OpenFileDialog { Filter = "Excel文件|*.xlsx;*.xls" })
+            {
+                if (ofd.ShowDialog() != DialogResult.OK) return;
+
+                try
+                {
+                    // 读取Excel文件
+                    using (var workbook = new XLWorkbook(ofd.FileName))
+                    {
+                        var ws = workbook.Worksheet(1); // 第一个工作表
+                        var range = ws.RangeUsed();
+                        if (range == null) return;
+
+                        // 创建字典跟踪当前报文节点
+                        TreeListNode currentMessageNode = null;
+                        Dictionary<string, TreeListNode> signalNodeMap = new Dictionary<string, TreeListNode>();
+
+                        // 从第2行开始（跳过表头）
+                        for (int row = 2; row <= range.RowCount(); row++)
+                        {
+                            // 读取关键列值
+                            string canId = ws.Cell(row, 1).GetString().Trim();
+                            string frameType = ws.Cell(row, 2).GetString().Trim();
+                            string messageName = ws.Cell(row, 3).GetString().Trim();
+                            string dataLength = ws.Cell(row, 4).GetString().Trim();
+                            string signalName = ws.Cell(row, 5).GetString().Trim();
+
+                            // 如果是报文行
+                            if (!string.IsNullOrWhiteSpace(canId))
+                            {
+                                // 创建新报文节点
+                                currentMessageNode = treeList.AppendNode(new object[]
+                                {
+                                    canId,
+                                    frameType,
+                                    messageName,
+                                    dataLength,
+                                    "", "", "", "", "", "", "", "", "", ""
+                                }, null);
+
+                                // 设置初始排序值
+                                currentMessageNode.SetValue("Orders", row - 1);
+                            }
+                            // 如果是信号行（且有父报文）
+                            else if (!string.IsNullOrWhiteSpace(signalName) && currentMessageNode != null)
+                            {
+                                // 创建信号节点
+                                var signalNode = treeList.AppendNode(new object[]
+                                {
+                                    "", "", "", "",
+                                    signalName,
+                                    ws.Cell(row, 6).GetString().Trim(), // 是否复用信号
+                                    ws.Cell(row, 7).GetString().Trim(), // 系统变量
+                                    ws.Cell(row, 8).GetString().Trim(), // 单位
+                                    TryParseInt(ws.Cell(row, 9).GetString()), // 起始位
+                                    TryParseInt(ws.Cell(row, 10).GetString()), // 长度
+                                    ws.Cell(row, 11).GetString().Trim(), // 字节顺序
+                                    ws.Cell(row, 12).GetString().Trim(), // 符号
+                                    TryParseDecimal(ws.Cell(row, 13).GetString()), // 系数
+                                    TryParseDecimal(ws.Cell(row, 14).GetString()), // 偏移
+                                    ws.Cell(row, 15).GetString().Trim() // 范围
+                                }, currentMessageNode);
+
+                                // 设置初始排序值
+                                signalNode.SetValue("Orders", row - 1);
+
+                                // 处理复用信号
+                                string reuseSignals = ws.Cell(row, 6).GetString().Trim();
+                                string reuseDetails = ws.Cell(row, 16).GetString().Trim(); // 新增复用信号详情列
+
+                                if (reuseSignals == "是")
+                                {
+                                    signalNode.SetValue("是否复用信号", "是");
+                                    signalNode.SetValue("信号名称", "已配置");
+
+                                    // 解析复用信号并缓存（使用临时ID）
+                                    long tempSignalId = -(row + 1000); // 生成临时唯一ID
+                                    var parsedSignals = ParseReuseSignals(reuseDetails);
+                                    _reuseSignalsCache[tempSignalId] = parsedSignals;
+
+                                    signalNode.Tag = tempSignalId;
+                                    signalNodeMap[signalName] = signalNode;
+                                }
+                            }
+                        }
+
+                        // 展开所有节点
+                        treeList.ExpandAll();
+
+                        XtraMessageBox.Show($"成功导入 {treeList.Nodes.Count} 条报文！");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"导入失败: {ex.Message}");
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+        }
+
         /* 导出Excel按钮触发事件 */
         private void ExportExcel()
         {
@@ -935,6 +1063,11 @@ namespace ChargeDebug.Form
                             ws.Columns("M").Width = 10;
                             ws.Columns("N").Width = 10;
                             ws.Columns("O").Width = 20;
+
+                            // 添加复用信号详情列头
+                            ws.Cell(1, 16).Value = "复用信号详情";
+                            ws.Column(16).Width = 40;
+
                             ws.RangeUsed().Style.Border.InsideBorder = XLBorderStyleValues.Thin;
 
                             workbook.SaveAs(sfd.FileName);
@@ -948,6 +1081,7 @@ namespace ChargeDebug.Form
                 }
             }
         }
+
         /* 上移下移按钮触发事件 */
         private void MoveUp()
         {
@@ -1005,7 +1139,51 @@ namespace ChargeDebug.Form
         {
             if (_currentDbcFileId == -1)
             {
-                SaveAsNewDBC();
+                // 检查是否有选中的文件
+                if (gridView.FocusedRowHandle < 0)
+                {
+                    XtraMessageBox.Show("请先在左侧列表中选择要覆盖的文件");
+                    return;
+                }
+
+                DataRow row = gridView.GetDataRow(gridView.FocusedRowHandle);
+                if (row == null) return;
+
+                // 获取文件名
+                string fileName = row["DBC文件名称"].ToString();
+
+                // 弹出对话框询问用户（显示文件名）
+                DialogResult result = XtraMessageBox.Show(
+                    $"是否覆盖现有文件 '{fileName}'？",  // 添加文件名到提示信息
+                    "保存选项",
+                    MessageBoxButtons.YesNoCancel
+                );
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                        {
+                            conn.Open();
+                            // 获取选中文件的ID
+                            _currentDbcFileId = SQLite_Service.GetDbcFileId(conn, fileName);
+
+                            // 执行覆盖操作
+                            SQLite_Service.DeleteDbcFileMessages(conn, _currentDbcFileId);
+                            UpdateExistingDBC();
+                            RefreshTreeListData();
+                        }
+                        break;
+
+                    case DialogResult.No:
+                        // 另存为新文件
+                        SaveAsNewDBC();
+                        break;
+
+                    case DialogResult.Cancel:
+                        // 取消操作
+                        break;
+                }
             }
             else
             {
@@ -1112,6 +1290,9 @@ namespace ChargeDebug.Form
         {
             foreach (TreeListNode signalNode in parentNode.Nodes)
             {
+                // 保存原始ID（可能是临时ID）
+                long originalId = Convert.ToInt64(signalNode.Tag ?? -1);
+
                 var sigInfo = new SignalInfo
                 {
                     SignalID = signalNode.Tag as long? ?? -1,
@@ -1149,6 +1330,34 @@ namespace ChargeDebug.Form
                 );
 
                 signalNode.Tag = sigId;
+
+                // 检查原始ID对应的缓存复用信号
+                if (originalId < 0 && _reuseSignalsCache.ContainsKey(originalId))
+                {
+                    var reuseSignals = _reuseSignalsCache[originalId];
+                    SQLite_Service.SaveReuseSignals(
+                        conn,
+                        sigId,
+                        reuseSignals,
+                        transaction
+                    );
+                    // 移除已处理的缓存
+                    _reuseSignalsCache.Remove(originalId);
+                }
+                // 处理现有信号的复用信号（原逻辑保留）
+                else if (signalNode.Tag is long tempId && tempId < 0)
+                {
+                    if (_reuseSignalsCache.TryGetValue(tempId, out var reuseSignals))
+                    {
+                        SQLite_Service.SaveReuseSignals(
+                            conn,
+                            sigId,
+                            reuseSignals,
+                            transaction
+                        );
+                        _reuseSignalsCache.Remove(tempId);
+                    }
+                }
             }
         }
 
@@ -1501,7 +1710,7 @@ namespace ChargeDebug.Form
             btnexpand.Click += (s, e) => Expand();
             btnfold.Click += (s, e) => Fold();
             btnImport.Click += (s, e) => ImportDBC();
-            //btnImportExcel.Click += (s, e) => ImportExcelDBC();
+            btnImportExcel.Click += (s, e) => ImportExcelDBC();
             btnAddMessage.Click += (s, e) => AddNewMessage();
             btnDeleteMessage.Click += (s, e) => DeleteSelectedMessages();
             btnAddSignal.Click += (s, e) => AddNewSignal();
@@ -1522,7 +1731,7 @@ namespace ChargeDebug.Form
         /* 递归写入节点数据 */
         private void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex)
         {
-            // 遍历所有列获取值
+            // 写入当前节点所有列的数据
             for (int i = 0; i < treeList.Columns.Count; i++)
             {
                 var cell = ws.Cell(rowIndex, i + 1);
@@ -1538,12 +1747,97 @@ namespace ChargeDebug.Form
                 }
             }
 
+            // 检查是否为复用信号
+            bool isMultiplexSignal = false;
+            List<ReuseSignal> reuseSignals = null;
+
+            if (node.ParentNode != null) // 信号节点
+            {
+                string multiplexValue = node.GetValue("是否复用信号")?.ToString();
+                if (multiplexValue == "是")
+                {
+                    isMultiplexSignal = true;
+                    long signalId = Convert.ToInt64(node.Tag);
+
+                    // 从数据库加载复用信号
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+                        reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, signalId);
+                    }
+                }
+            }
+
+            // 如果是复用信号且有复用信号数据
+            if (isMultiplexSignal && reuseSignals != null && reuseSignals.Count > 0)
+            {
+                // 在"复用信号详情"列写入格式化后的复用信号信息
+                ws.Cell(rowIndex, 16).Value = FormatReuseSignalsForExcel(reuseSignals);
+            }
+
+            // 关键修复：先增加行号再处理子节点
+            rowIndex++; // 移动到下一行
+
             // 递归处理子节点
             foreach (TreeListNode childNode in node.Nodes)
             {
-                rowIndex++;
+                //rowIndex++;
                 WriteNodeToExcel(ws, childNode, ref rowIndex);
             }
+
+            // 移动到下一行
+            //rowIndex++;
+        }
+
+        private List<ReuseSignal> ParseReuseSignals(string input)
+        {
+            var signals = new List<ReuseSignal>();
+
+            if (string.IsNullOrWhiteSpace(input))
+                return signals;
+
+            // 格式：描述1=值1;描述2=值2
+            var entries = input.Split('\n');
+            foreach (var entry in entries)
+            {
+                var parts = entry.Split('=');
+                if (parts.Length == 2)
+                {
+                    signals.Add(new ReuseSignal
+                    {
+                        Description = parts[0].Trim(),
+                        Value = parts[1].Trim()
+                    });
+                }
+            }
+
+            return signals;
+        }
+
+        // 辅助方法：安全转换整数
+        private int TryParseInt(string value)
+        {
+            return int.TryParse(value, out int result) ? result : 0;
+        }
+
+        // 辅助方法：安全转换小数
+        private decimal TryParseDecimal(string value)
+        {
+            return decimal.TryParse(value, out decimal result) ? result : 0m;
+        }
+
+        /* 格式化复用信号信息用于Excel显示 */
+        private string FormatReuseSignalsForExcel(List<ReuseSignal> reuseSignals)
+        {
+            if (reuseSignals == null || reuseSignals.Count == 0)
+                return "无复用信号配置";
+
+            var sb = new StringBuilder();
+            foreach (var signal in reuseSignals)
+            {
+                sb.AppendLine($"{signal.Description} = {signal.Value}");
+            }
+            return sb.ToString().TrimEnd();
         }
 
         /* 显示DBC内容 */

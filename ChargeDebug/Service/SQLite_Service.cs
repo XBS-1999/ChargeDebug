@@ -119,6 +119,47 @@ namespace ChargeDebug.Service
                 cmd.ExecuteNonQuery();
             }
         }
+
+        public static void DeleteDbcFileMessages(SQLiteConnection conn, long fileId, SQLiteTransaction transaction = null)
+        {
+            const string deleteReuseSignalsSql = @"DELETE FROM ReuseSignals 
+                                        WHERE SignalID IN (
+                                            SELECT SignalID FROM Signals 
+                                            WHERE MessageID IN (
+                                            SELECT MessageID FROM Messages
+                                            WHERE DbcFileID = @fileId))";
+            const string deleteSignalsSql = @"DELETE FROM Signals 
+                                        WHERE MessageID IN (
+                                            SELECT MessageID FROM Messages 
+                                            WHERE DbcFileID = @fileId
+                                        )";
+            const string deleteMessagesSql = "DELETE FROM Messages WHERE DbcFileID = @fileId";
+            //const string deleteFileSql = "DELETE FROM DbcFile WHERE DbcFileID = @fileId";
+
+            using (var cmd = new SQLiteCommand(deleteReuseSignalsSql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@fileId", fileId);
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var cmd = new SQLiteCommand(deleteSignalsSql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@fileId", fileId);
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var cmd = new SQLiteCommand(deleteMessagesSql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@fileId", fileId);
+                cmd.ExecuteNonQuery();
+            }
+
+            //using (var cmd = new SQLiteCommand(deleteFileSql, conn, transaction))
+            //{
+            //    cmd.Parameters.AddWithValue("@fileId", fileId);
+            //    cmd.ExecuteNonQuery();
+            //}
+        }
         #endregion
 
         #region 报文操作
@@ -192,7 +233,7 @@ namespace ChargeDebug.Service
             string? frameType, string? messageName, int dataLength, int orders, long dbcFileId,
             SQLiteTransaction? transaction = null)
         {
-            if (messageId == -1) // 新增
+            if (messageId < 0) // 新增
             {
                 const string insertSql = @"INSERT INTO Messages 
                                       (DbcFileID, CANID, FrameType, MessageName, DataLength, Orders)
@@ -470,7 +511,7 @@ namespace ChargeDebug.Service
             int startBit, int length, string? byteOrder, string? signed, decimal factor,
             decimal offset, string? minMax, int orders, SQLiteTransaction? transaction = null)
         {
-            if (signalId == -1) // 新增
+            if (signalId < 0) // 新增
             {
                 const string insertSql = @"INSERT INTO Signals 
                                       (MessageID, SignalName, MultiplexSignals, SystemName, Unit,
