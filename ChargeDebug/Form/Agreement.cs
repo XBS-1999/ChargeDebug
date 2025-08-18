@@ -1823,7 +1823,7 @@ namespace ChargeDebug.Form
         // 辅助方法：安全转换小数
         private decimal TryParseDecimal(string value)
         {
-            return decimal.TryParse(value, out decimal result) ? result : 0m;
+            return decimal.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
         }
 
         /* 格式化复用信号信息用于Excel显示 */
