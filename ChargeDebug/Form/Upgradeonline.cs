@@ -233,7 +233,7 @@ namespace ChargeDebug.Form
 
             // 获取当前选中的设备
             var selectedDevice = deviceMap[cbDevice.SelectedItem.ToString()];
-            AppendInfo($"已选择设备: {selectedDevice.DeviceNumber}");
+            AppendInfo($"已选择设备: {selectedDevice.DeviceName}");
             // 添加AC通道
             for (int i = 0; i < selectedDevice.ACNumber; i++)
             {
@@ -329,7 +329,7 @@ namespace ChargeDebug.Form
                         try
                         {
                             // 解析HEX文件并缓存
-                            HexFileData hexData = ParseHexFile(filePath);
+                            HexFileData hexData = ParseHexFile(filePath, cbCpu.SelectedItem?.ToString() ?? "");
                             hexFileCache[filePath] = hexData;
 
                             // 计算总字节数 (MaxAddress - MinAddress + 1)
@@ -398,7 +398,7 @@ namespace ChargeDebug.Form
         }
 
         // HEX文件解析方法
-        private HexFileData ParseHexFile(string filePath)
+        private HexFileData ParseHexFile(string filePath, string firmwareModel)
         {
             List<HexRecord> records = new List<HexRecord>();
             uint upperAddress = 0;
@@ -473,7 +473,14 @@ namespace ChargeDebug.Form
 
                 // 添加数据
                 currentBlockData.AddRange(record.Data);
-                currentAddress += (uint)record.Data.Length / 2;
+                if (firmwareModel.Substring(0, 3) == "ARM")
+                {
+                    currentAddress += (uint)record.Data.Length;
+                }
+                else
+                {
+                    currentAddress += (uint)record.Data.Length / 2;
+                }
 
                 // 检查是否达到块大小限制
                 if (currentBlockData.Count >= 256)
@@ -619,7 +626,7 @@ namespace ChargeDebug.Form
             {
                 if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
                 {
-                    hexData = ParseHexFile(filePath);
+                    hexData = ParseHexFile(filePath, cbCpu.SelectedItem?.ToString() ?? "");
                     hexFileCache[filePath] = hexData;
                 }
 
@@ -840,7 +847,7 @@ namespace ChargeDebug.Form
                 string filePath = btnSelectFile.Text;
                 if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
                 {
-                    hexData = ParseHexFile(filePath);
+                    hexData = ParseHexFile(filePath, cbCpu.SelectedItem?.ToString() ?? "");
                     hexFileCache[filePath] = hexData;
                 }
 
