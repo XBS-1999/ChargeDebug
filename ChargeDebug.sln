@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataModel", "DataModel\Data
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LogService", "LogService\LogService.csproj", "{F8E5EED2-C4BF-445E-BEF9-F6E01DFCD9E0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectManagement", "ProjectManagement\ProjectManagement.csproj", "{BACA1376-E388-9F87-865D-371ED350B1D3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,10 @@ Global
 		{F8E5EED2-C4BF-445E-BEF9-F6E01DFCD9E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F8E5EED2-C4BF-445E-BEF9-F6E01DFCD9E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F8E5EED2-C4BF-445E-BEF9-F6E01DFCD9E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BACA1376-E388-9F87-865D-371ED350B1D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BACA1376-E388-9F87-865D-371ED350B1D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BACA1376-E388-9F87-865D-371ED350B1D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BACA1376-E388-9F87-865D-371ED350B1D3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
