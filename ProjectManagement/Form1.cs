@@ -6,8 +6,9 @@ using DevExpress.XtraLayout;
 using DevExpress.Utils;
 using DevExpress.XtraLayout.Utils;
 using DevExpress.Utils.Layout;
-using DevExpress.XtraRichEdit.Model;
+using System.Data.SQLite;
 using DevExpress.XtraEditors.Controls;
+using System.Data;
 
 namespace ProjectManagement
 {
@@ -19,7 +20,7 @@ namespace ProjectManagement
         private SimpleButton btnEdit;
         private SimpleButton btnDelete;
 
-        public ProjectManagement()
+        public ProjectManagement(string dbcPath)
         {
             InitializeComponent();
             InitializeUI();
@@ -81,6 +82,7 @@ namespace ProjectManagement
             // 添加列
             var columns = new[]
             {
+                new GridColumn{FieldName = "ProjectID", Caption = "项目ID", Visible = false},
                 new GridColumn{FieldName = "序号",Caption = "序号",Visible = true,Width = 80,OptionsColumn = { AllowEdit = false }},
                 new GridColumn{FieldName = "项目名称",Caption = "项目名称",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }},
                 new GridColumn{FieldName = "电池包名称",Caption = "电池包名称",Visible = true,Width = 150,OptionsColumn = { AllowEdit = false }},
@@ -95,7 +97,7 @@ namespace ProjectManagement
             gridItem.TextVisible = false;
             gridItem.Padding = new DevExpress.XtraLayout.Utils.Padding(5);
             gridItem.SizeConstraintsType = SizeConstraintsType.Custom;
-            //gridItem.MinSize = new Size(700, 0); // 最小宽度
+            gridItem.MinSize = new Size(700, 0); // 最小宽度
             rootGroup.AddItem(gridItem);
 
             // === 右侧按钮区域 ===
@@ -125,6 +127,11 @@ namespace ProjectManagement
             btnEdit = CreateModernButton("编辑项目", ColorTranslator.FromHtml("#2196F3")); // Material Blue
             btnDelete = CreateModernButton("删除项目", ColorTranslator.FromHtml("#F44336")); // Material Red
 
+            // 添加按钮事件
+            btnNew.Click += BtnNew_Click;
+            btnEdit.Click += BtnEdit_Click;
+            btnDelete.Click += BtnDelete_Click;
+
             // 添加按钮到面板
             buttonPanel.Controls.Add(btnNew);
             buttonPanel.Controls.Add(btnEdit);
@@ -137,10 +144,61 @@ namespace ProjectManagement
                 TextVisible = false,
                 SizeConstraintsType = SizeConstraintsType.Custom,
                 Padding = new DevExpress.XtraLayout.Utils.Padding(5),
-                ControlMinSize = new Size(120, 120)
+                ControlMinSize = new Size(100, 100)
             };
 
             buttonGroup.AddItem(buttonItem);
+        }
+
+        private void BtnDelete_Click(object? sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void BtnEdit_Click(object? sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        // 加载项目数据
+        private void LoadProjects()
+        {
+            try
+            {
+                string query = "SELECT ProjectID, ProjectName as 项目名称, BatteryName as 电池包名称, " +
+                               "BatteryCode as 电池包特征码, CommunicationType as 通讯方式, " +
+                               "datetime(CreationTime, 'localtime') as 创建时间 FROM Projects ORDER BY CreationTime DESC";
+
+                DataTable dt = new DataTable();
+                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
+                {
+                    adapter.Fill(dt);
+                }
+
+                // 添加序号列
+                dt.Columns.Add("序号", typeof(int));
+                for (int i = 0; i < dt.Rows.Count; i++)
+                {
+                    dt.Rows[i]["序号"] = i + 1;
+                }
+
+                gridControl.DataSource = dt;
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"加载项目数据失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnNew_Click(object? sender, EventArgs e)
+        {
+            using (ProjectEditForm editForm = new ProjectEditForm(null, connection))
+            {
+                if (editForm.ShowDialog() == DialogResult.OK)
+                {
+                    LoadProjects(); // 刷新数据
+                }
+            }
         }
 
         private SimpleButton CreateModernButton(string text, Color baseColor)
@@ -148,11 +206,11 @@ namespace ProjectManagement
             SimpleButton btn = new SimpleButton
             {
                 Text = text,
-                Size = new Size(100, 30),
+                Size = new Size(80, 30),
                 Margin = new System.Windows.Forms.Padding(0,0,0,20),
                 Appearance =
                 {
-                    Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
+                    Font = new Font("Tahoma", 12, FontStyle.Bold),
                     BackColor = baseColor,
                     ForeColor = Color.White,
                     BorderColor = baseColor,
