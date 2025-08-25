@@ -1,13 +1,16 @@
 using DevExpress.XtraEditors;
-using DevExpress.XtraGrid.Columns;
-using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraGrid;
+using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
-using DevExpress.Utils;
 using DevExpress.XtraLayout.Utils;
+using DevExpress.Utils;
 using DevExpress.Utils.Layout;
-using DevExpress.XtraRichEdit.Model;
+using System.Data.SQLite;
+using System.Data;
 using DevExpress.XtraEditors.Controls;
+using DevExpress.XtraGrid.Columns;
+using DevExpress.Data;
+using DevExpress.XtraGrid.Views.Grid.ViewInfo;
 
 namespace ProjectManagement
 {
@@ -18,11 +21,20 @@ namespace ProjectManagement
         private SimpleButton btnNew;
         private SimpleButton btnEdit;
         private SimpleButton btnDelete;
+        private SQLiteConnection connection;
+        private string dbPath;
 
-        public ProjectManagement()
+        public ProjectManagement(string dbPath)
         {
+            this.dbPath = dbPath;
             InitializeComponent();
             InitializeUI();
+            this.Load += ProjectManagement_Load;
+        }
+
+        private void ProjectManagement_Load(object? sender, EventArgs e)
+        {
+            LoadProjects();
         }
 
         private void InitializeUI()
@@ -60,7 +72,7 @@ namespace ProjectManagement
 
             // 网格视图设置
             gridView.OptionsView.ShowGroupPanel = false;
-            gridView.OptionsView.ShowVerticalLines = DefaultBoolean.False;
+            gridView.OptionsView.ShowVerticalLines = DefaultBoolean.True;
             gridView.OptionsView.ShowHorizontalLines = DefaultBoolean.True;
             gridView.OptionsView.EnableAppearanceEvenRow = true;
             gridView.OptionsView.EnableAppearanceOddRow = true;
@@ -82,20 +94,24 @@ namespace ProjectManagement
             var columns = new[]
             {
                 new GridColumn{FieldName = "序号",Caption = "序号",Visible = true,Width = 80,OptionsColumn = { AllowEdit = false }},
-                new GridColumn{FieldName = "项目名称",Caption = "项目名称",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }},
-                new GridColumn{FieldName = "电池包名称",Caption = "电池包名称",Visible = true,Width = 150,OptionsColumn = { AllowEdit = false }},
-                new GridColumn{FieldName = "电池包特征码",Caption = "电池包特征码",Visible = true,Width = 200,OptionsColumn = { AllowEdit = false }},
-                new GridColumn{FieldName = "通讯方式",Caption = "通讯方式",Visible = true,Width = 120,OptionsColumn = { AllowEdit = false }},
-                new GridColumn{FieldName = "创建时间",Caption = "创建时间",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }}
+                new GridColumn{FieldName = "ProjectName",Caption = "项目名称",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }},
+                new GridColumn{FieldName = "BatteryName",Caption = "电池包名称",Visible = true,Width = 150,OptionsColumn = { AllowEdit = false }},
+                new GridColumn{FieldName = "BatteryCode",Caption = "电池包特征码",Visible = true,Width = 200,OptionsColumn = { AllowEdit = false }},
+                new GridColumn{FieldName = "CommunicationType",Caption = "通讯方式",Visible = true,Width = 120,OptionsColumn = { AllowEdit = false }},
+                new GridColumn{FieldName = "CreationTime",Caption = "创建时间",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }},
+                new GridColumn{FieldName = "ModificationTime",Caption = "修改时间",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }}
             };
 
             gridView.Columns.AddRange(columns);
+
+            // 添加双击事件处理
+            gridView.DoubleClick += GridView_DoubleClick;
 
             gridItem.Control = gridControl;
             gridItem.TextVisible = false;
             gridItem.Padding = new DevExpress.XtraLayout.Utils.Padding(5);
             gridItem.SizeConstraintsType = SizeConstraintsType.Custom;
-            //gridItem.MinSize = new Size(700, 0); // 最小宽度
+            gridItem.MinSize = new Size(700, 0); // 最小宽度
             rootGroup.AddItem(gridItem);
 
             // === 右侧按钮区域 ===
@@ -125,6 +141,11 @@ namespace ProjectManagement
             btnEdit = CreateModernButton("编辑项目", ColorTranslator.FromHtml("#2196F3")); // Material Blue
             btnDelete = CreateModernButton("删除项目", ColorTranslator.FromHtml("#F44336")); // Material Red
 
+            // 添加按钮事件
+            btnNew.Click += BtnNew_Click;
+            btnEdit.Click += BtnEdit_Click;
+            btnDelete.Click += BtnDelete_Click;
+
             // 添加按钮到面板
             buttonPanel.Controls.Add(btnNew);
             buttonPanel.Controls.Add(btnEdit);
@@ -137,10 +158,293 @@ namespace ProjectManagement
                 TextVisible = false,
                 SizeConstraintsType = SizeConstraintsType.Custom,
                 Padding = new DevExpress.XtraLayout.Utils.Padding(5),
-                ControlMinSize = new Size(120, 120)
+                ControlMinSize = new Size(100, 100)
             };
 
             buttonGroup.AddItem(buttonItem);
+        }
+
+        private void GridView_DoubleClick(object? sender, EventArgs e)
+        {
+            // 获取鼠标点击的位置
+            Point clickPoint = gridView.GridControl.PointToClient(Control.MousePosition);
+
+            // 获取点击的行句柄
+            GridHitInfo hitInfo = gridView.CalcHitInfo(clickPoint);
+
+            // 检查是否点击在行上
+            if (hitInfo.InRow || hitInfo.InRowCell)
+            {
+                // 获取点击的行
+                int rowHandle = hitInfo.RowHandle;
+
+                // 确保行句柄有效
+                if (rowHandle >= 0)
+                {
+                    // 获取行数据
+                    DataRowView row = gridView.GetRow(rowHandle) as DataRowView;
+
+                    if (row != null)
+                    {
+                        // 获取项目ID
+                        int projectId = Convert.ToInt32(row["ProjectID"]);
+
+                        // 打开项目详情页面
+                        OpenProjectDetail(projectId);
+                    }
+                }
+            }
+        }
+
+        private void OpenProjectDetail(int projectId)
+        {
+            try
+            {
+                // 从数据库获取项目数据
+                ProjectData projectData = GetProjectData(projectId);
+
+                if (projectData != null)
+                {
+                    // 创建并显示项目详情表单
+                    ProjectDetailForm detailForm = new ProjectDetailForm();
+                    detailForm.Show();
+
+                    // 或者使用 ShowDialog 以模态方式打开
+                    // detailForm.ShowDialog();
+                }
+                else
+                {
+                    XtraMessageBox.Show("无法找到项目数据", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"打开项目详情失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnDelete_Click(object? sender, EventArgs e)
+        {
+            if (gridView.SelectedRowsCount == 0)
+            {
+                XtraMessageBox.Show("请选择要删除的项目", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (XtraMessageBox.Show("确定要删除选中的项目吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            {
+                try
+                {
+                    int[] selectedRowHandles = gridView.GetSelectedRows();
+                    using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+                    {
+                        conn.Open();
+
+                        foreach (int rowHandle in selectedRowHandles)
+                        {
+                            DataRowView row = gridView.GetRow(rowHandle) as DataRowView;
+                            if (row != null)
+                            {
+                                int projectId = Convert.ToInt32(row["ProjectID"]);
+
+                                string deleteQuery = "DELETE FROM Projects WHERE ProjectID = @ProjectID";
+                                using (SQLiteCommand cmd = new SQLiteCommand(deleteQuery, conn))
+                                {
+                                    cmd.Parameters.AddWithValue("@ProjectID", projectId);
+                                    cmd.ExecuteNonQuery();
+                                }
+                            }
+                        }
+                    }
+
+                    LoadProjects(); // 刷新数据
+                    XtraMessageBox.Show("删除成功", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"删除项目失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BtnEdit_Click(object? sender, EventArgs e)
+        {
+            if (gridView.SelectedRowsCount == 0)
+            {
+                XtraMessageBox.Show("请选择要编辑的项目", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (gridView.SelectedRowsCount > 1)
+            {
+                XtraMessageBox.Show("只能选择一个项目进行编辑", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int selectedRowHandle = gridView.GetSelectedRows()[0];
+            DataRowView row = gridView.GetRow(selectedRowHandle) as DataRowView;
+
+            if (row != null)
+            {
+                int projectId = Convert.ToInt32(row["ProjectID"]);
+
+                // 从数据库获取项目数据
+                ProjectData projectData = GetProjectData(projectId);
+
+                using (ProjectEditForm editForm = new ProjectEditForm(projectData))
+                {
+                    if (editForm.ShowDialog() == DialogResult.OK)
+                    {
+                        // 更新数据库
+                        UpdateProject(projectId, editForm.ProjectName, editForm.BatteryName,
+                                      editForm.BatteryCode, editForm.CommunicationType);
+                        LoadProjects(); // 刷新数据
+                    }
+                }
+            }
+        }
+
+        // 加载项目数据
+        private void LoadProjects()
+        {
+            try
+            {
+                string connectionString = $"Data Source={dbPath};Version=3;";
+                DataTable dataTable = new DataTable();
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+                    const string query = "SELECT ProjectID, ProjectName, BatteryName, " +
+                                         "BatteryCode, CommunicationType, " +
+                                         "datetime(CreationTime, 'localtime') as CreationTime, " +
+                                         "datetime(ModificationTime, 'localtime') as ModificationTime " +
+                                         "FROM Projects ORDER BY COALESCE(ModificationTime, CreationTime) DESC";
+                    using (var cmd = new SQLiteCommand(query, conn))
+                    {
+                        using (var adapter = new SQLiteDataAdapter(cmd))
+                        {
+                            adapter.Fill(dataTable);
+                        }
+                    }
+                }
+
+                // 添加序号列并按照显示顺序生成序号
+                dataTable.Columns.Add("序号", typeof(int));
+                for (int i = 0; i < dataTable.Rows.Count; i++)
+                {
+                    // 按照数据在网格中的显示顺序生成序号（1,2,3...）
+                    dataTable.Rows[i]["序号"] = i + 1;
+                }
+
+                gridControl.DataSource = dataTable;
+
+                // 确保网格按照创建时间降序排列
+                gridView.ClearSorting();
+                gridView.SortInfo.Add(new GridColumnSortInfo(gridView.Columns["ModificationTime"], ColumnSortOrder.Descending));
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"加载项目数据失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnNew_Click(object? sender, EventArgs e)
+        {
+            using (ProjectEditForm editForm = new ProjectEditForm())
+            {
+                if (editForm.ShowDialog() == DialogResult.OK)
+                {
+                    // 插入新项目到数据库
+                    InsertProject(editForm.ProjectName, editForm.BatteryName,
+                                 editForm.BatteryCode, editForm.CommunicationType);
+                    LoadProjects(); // 刷新数据
+                }
+            }
+        }
+
+        private ProjectData GetProjectData(int projectId)
+        {
+            using (SQLiteConnection connection = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                connection.Open();
+                string query = "SELECT ProjectName, BatteryName, BatteryCode, CommunicationType, " +
+                               "datetime(ModificationTime, 'localtime') as ModificationTime " +
+                               "FROM Projects WHERE ProjectID = @ProjectID";
+
+                using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
+                {
+                    cmd.Parameters.AddWithValue("@ProjectID", projectId);
+
+                    using (SQLiteDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return new ProjectData
+                            {
+                                ProjectID = projectId,
+                                ProjectName = reader["ProjectName"].ToString(),
+                                BatteryName = reader["BatteryName"].ToString(),
+                                BatteryCode = reader["BatteryCode"].ToString(),
+                                CommunicationType = reader["CommunicationType"].ToString(),
+                                ModificationTime = reader["ModificationTime"] != DBNull.Value ?
+                                          reader["ModificationTime"].ToString() : null
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        private void UpdateProject(int projectId, string projectName, string batteryName,
+                                   string batteryCode, string communicationType)
+        {
+            using (SQLiteConnection connection = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                connection.Open();
+                string updateQuery = @"UPDATE Projects SET 
+                                       ProjectName = @ProjectName, 
+                                       BatteryName = @BatteryName, 
+                                       BatteryCode = @BatteryCode, 
+                                       CommunicationType = @CommunicationType,
+                                       ModificationTime = datetime('now')
+                                       WHERE ProjectID = @ProjectID";
+
+                using (SQLiteCommand cmd = new SQLiteCommand(updateQuery, connection))
+                {
+                    cmd.Parameters.AddWithValue("@ProjectName", projectName);
+                    cmd.Parameters.AddWithValue("@BatteryName", batteryName);
+                    cmd.Parameters.AddWithValue("@BatteryCode", batteryCode);
+                    cmd.Parameters.AddWithValue("@CommunicationType", communicationType);
+                    cmd.Parameters.AddWithValue("@ProjectID", projectId);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private void InsertProject(string projectName, string batteryName,
+                                   string batteryCode, string communicationType)
+        {
+            using (SQLiteConnection connection = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                connection.Open();
+                string insertQuery = @"INSERT INTO Projects 
+                                    (ProjectName, BatteryName, BatteryCode, CommunicationType, CreationTime, ModificationTime) 
+                                    VALUES 
+                                    (@ProjectName, @BatteryName, @BatteryCode, @CommunicationType, datetime('now'), datetime('now'))";
+
+                using (SQLiteCommand cmd = new SQLiteCommand(insertQuery, connection))
+                {
+                    cmd.Parameters.AddWithValue("@ProjectName", projectName);
+                    cmd.Parameters.AddWithValue("@BatteryName", batteryName);
+                    cmd.Parameters.AddWithValue("@BatteryCode", batteryCode);
+                    cmd.Parameters.AddWithValue("@CommunicationType", communicationType);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
 
         private SimpleButton CreateModernButton(string text, Color baseColor)
@@ -148,11 +452,11 @@ namespace ProjectManagement
             SimpleButton btn = new SimpleButton
             {
                 Text = text,
-                Size = new Size(100, 30),
+                Size = new Size(80, 30),
                 Margin = new System.Windows.Forms.Padding(0,0,0,20),
                 Appearance =
                 {
-                    Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
+                    Font = new Font("Tahoma", 12, FontStyle.Bold),
                     BackColor = baseColor,
                     ForeColor = Color.White,
                     BorderColor = baseColor,
