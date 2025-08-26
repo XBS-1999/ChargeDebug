@@ -199,7 +199,7 @@ namespace ChargeDebug
             ribbon.ShowExpandCollapseButton = DefaultBoolean.False;
             ribbon.ShowApplicationButton = DefaultBoolean.False;
             ribbon.ShowFullScreenButton = DefaultBoolean.False;
-            //ribbon.ShowPageHeadersMode = ShowPageHeadersMode.Hide;
+            ribbon.ShowPageHeadersMode = ShowPageHeadersMode.Hide;
             this.Controls.Add(ribbon);
 
             // 创建主页签添加到Ribbon
@@ -207,8 +207,8 @@ namespace ChargeDebug
             ribbon.Pages.AddRange(new[] { homePage1 });
 
             // 创建功能组
-            RibbonPageGroup group1 = new RibbonPageGroup("");
-            //RibbonPageGroup group2 = new RibbonPageGroup("系统管理");
+            RibbonPageGroup group1 = new RibbonPageGroup("调试管理");
+            group1.ShowCaptionButton = false;
             // 将功能组添加到主页签
             homePage1.Groups.AddRange(new[] { group1 });
 
