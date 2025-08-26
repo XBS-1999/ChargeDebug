@@ -6,11 +6,16 @@ using DevExpress.XtraLayout.Utils;
 using DevExpress.Utils;
 using DevExpress.Utils.Layout;
 using System.Data.SQLite;
+<<<<<<< HEAD
 using System.Data;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.Data;
 using DevExpress.XtraGrid.Views.Grid.ViewInfo;
+=======
+using DevExpress.XtraEditors.Controls;
+using System.Data;
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
 
 namespace ProjectManagement
 {
@@ -24,7 +29,11 @@ namespace ProjectManagement
         private SQLiteConnection connection;
         private string dbPath;
 
+<<<<<<< HEAD
         public ProjectManagement(string dbPath)
+=======
+        public ProjectManagement(string dbcPath)
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
         {
             this.dbPath = dbPath;
             InitializeComponent();
@@ -93,6 +102,7 @@ namespace ProjectManagement
             // 添加列
             var columns = new[]
             {
+                new GridColumn{FieldName = "ProjectID", Caption = "项目ID", Visible = false},
                 new GridColumn{FieldName = "序号",Caption = "序号",Visible = true,Width = 80,OptionsColumn = { AllowEdit = false }},
                 new GridColumn{FieldName = "ProjectName",Caption = "项目名称",Visible = true,Width = 180,OptionsColumn = { AllowEdit = false }},
                 new GridColumn{FieldName = "BatteryName",Caption = "电池包名称",Visible = true,Width = 150,OptionsColumn = { AllowEdit = false }},
@@ -164,6 +174,7 @@ namespace ProjectManagement
             buttonGroup.AddItem(buttonItem);
         }
 
+<<<<<<< HEAD
         private void GridView_DoubleClick(object? sender, EventArgs e)
         {
             // 获取鼠标点击的位置
@@ -265,10 +276,16 @@ namespace ProjectManagement
                     XtraMessageBox.Show($"删除项目失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
+=======
+        private void BtnDelete_Click(object? sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
         }
 
         private void BtnEdit_Click(object? sender, EventArgs e)
         {
+<<<<<<< HEAD
             if (gridView.SelectedRowsCount == 0)
             {
                 XtraMessageBox.Show("请选择要编辑的项目", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -302,6 +319,9 @@ namespace ProjectManagement
                     }
                 }
             }
+=======
+            throw new NotImplementedException();
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
         }
 
         // 加载项目数据
@@ -309,6 +329,7 @@ namespace ProjectManagement
         {
             try
             {
+<<<<<<< HEAD
                 string connectionString = $"Data Source={dbPath};Version=3;";
                 DataTable dataTable = new DataTable();
 
@@ -342,6 +363,26 @@ namespace ProjectManagement
                 // 确保网格按照创建时间降序排列
                 gridView.ClearSorting();
                 gridView.SortInfo.Add(new GridColumnSortInfo(gridView.Columns["ModificationTime"], ColumnSortOrder.Descending));
+=======
+                string query = "SELECT ProjectID, ProjectName as 项目名称, BatteryName as 电池包名称, " +
+                               "BatteryCode as 电池包特征码, CommunicationType as 通讯方式, " +
+                               "datetime(CreationTime, 'localtime') as 创建时间 FROM Projects ORDER BY CreationTime DESC";
+
+                DataTable dt = new DataTable();
+                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
+                {
+                    adapter.Fill(dt);
+                }
+
+                // 添加序号列
+                dt.Columns.Add("序号", typeof(int));
+                for (int i = 0; i < dt.Rows.Count; i++)
+                {
+                    dt.Rows[i]["序号"] = i + 1;
+                }
+
+                gridControl.DataSource = dt;
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
             }
             catch (Exception ex)
             {
@@ -351,6 +392,7 @@ namespace ProjectManagement
 
         private void BtnNew_Click(object? sender, EventArgs e)
         {
+<<<<<<< HEAD
             using (ProjectEditForm editForm = new ProjectEditForm())
             {
                 if (editForm.ShowDialog() == DialogResult.OK)
@@ -358,11 +400,18 @@ namespace ProjectManagement
                     // 插入新项目到数据库
                     InsertProject(editForm.ProjectName, editForm.BatteryName,
                                  editForm.BatteryCode, editForm.CommunicationType);
+=======
+            using (ProjectEditForm editForm = new ProjectEditForm(null, connection))
+            {
+                if (editForm.ShowDialog() == DialogResult.OK)
+                {
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
                     LoadProjects(); // 刷新数据
                 }
             }
         }
 
+<<<<<<< HEAD
         private ProjectData GetProjectData(int projectId)
         {
             using (SQLiteConnection connection = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
@@ -447,6 +496,8 @@ namespace ProjectManagement
             }
         }
 
+=======
+>>>>>>> 9a38e72691fb335083a79d2214f9d102a7fa3eb9
         private SimpleButton CreateModernButton(string text, Color baseColor)
         {
             SimpleButton btn = new SimpleButton
