@@ -203,11 +203,11 @@ namespace ChargeDebug
             this.Controls.Add(ribbon);
 
             // 创建主页签添加到Ribbon
-            RibbonPage homePage1 = new RibbonPage("主页");
+            RibbonPage homePage1 = new RibbonPage("");
             ribbon.Pages.AddRange(new[] { homePage1 });
 
             // 创建功能组
-            RibbonPageGroup group1 = new RibbonPageGroup("常用功能");
+            RibbonPageGroup group1 = new RibbonPageGroup("");
             //RibbonPageGroup group2 = new RibbonPageGroup("系统管理");
             // 将功能组添加到主页签
             homePage1.Groups.AddRange(new[] { group1 });
