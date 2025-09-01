@@ -73,7 +73,7 @@ namespace ChargeDebug.Form
             //devicenumber.Properties.AllowFocused = false;     // 禁止获得焦点
             LabelControl labelcontrol13 = new LabelControl { Text = "设备名称:", Location = new Point(70, 22) };
             devicename = new TextEdit { Location = new Point(150, 20), Width = 150 };
-            LabelControl labelcontrol2 = new LabelControl { Text = "CAN盒类型:", Location = new Point(340, 22) };
+            LabelControl labelcontrol2 = new LabelControl { Text = "通讯类型:", Location = new Point(340, 22) };
             cantype = new ComboBoxEdit { Location = new Point(450, 20), Width = 150 };
             LabelControl labelcontrol3 = new LabelControl { Text = "设备IP:", Location = new Point(70, 62) };
             deviceip = new TextEdit { Location = new Point(150, 60), Width = 150 };
@@ -97,7 +97,7 @@ namespace ChargeDebug.Form
             whether = new ComboBoxEdit { Location = new Point(450, 220), Width = 150 };
 
             cantype.Properties.Items.AddRange(new object[]
-            { "CANET-2E-U" });
+            { "CANET-2E-U", "RS485-MODBUS" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
 
             whether.Properties.Items.AddRange(new object[]

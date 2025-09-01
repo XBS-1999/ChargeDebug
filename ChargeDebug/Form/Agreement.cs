@@ -18,8 +18,6 @@ using System.ComponentModel;
 using ChargeDebug.Service;
 using System.Globalization;
 using DataModel;
-using Aspose.Pdf.Operators;
-using System.Net.Sockets;
 
 namespace ChargeDebug.Form
 {
@@ -49,17 +47,6 @@ namespace ChargeDebug.Form
         private ToolStripMenuItem deleteItem;
         private ToolStripMenuItem copyItem;
         private ToolStripMenuItem pasteItem;
-
-        // 下拉框组件
-        private RepositoryItemComboBox repoFrameType;
-        private RepositoryItemComboBox repoByteOrder;
-        private RepositoryItemComboBox repoMultiplexSignals;
-        private RepositoryItemComboBox repoSigned;
-        private RepositoryItemTextEdit repositoryTextEdit;
-
-        // Modbus特定编辑器
-        private RepositoryItemComboBox repoRegisterType;
-        private RepositoryItemComboBox repoDataType;
 
         // 事件 - 当配置更新时触发
         public event EventHandler ConfigUpdated;
@@ -217,74 +204,41 @@ namespace ChargeDebug.Form
                 _currentProtocolHandler = new CanProtocolHandler();
             }
 
-            // 初始化对应的UI列和编辑器
+            // 初始化编辑器
+            _currentProtocolHandler.InitializeEditors();
+
+            // 初始化对应的UI列
             _currentProtocolHandler.InitializeTreeColumns(treeList);
-            InitializeEditors(protocolType);
+
+            // 将编辑器添加到TreeList
+            InitializeTreeListEditors(protocolType);
         }
 
-        /// <summary>
-        /// 根据协议类型初始化编辑器
-        /// </summary>
-        private void InitializeEditors(string protocolType)
+        private void InitializeTreeListEditors(string protocolType)
         {
-            // 清除现有编辑器
             treeList.RepositoryItems.Clear();
 
-            if (protocolType == "CAN总线")
+            if (protocolType == "CAN总线" && _currentProtocolHandler is CanProtocolHandler canHandler)
             {
-                // 初始化CAN总线特定的编辑器
-                repoFrameType = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "标准帧", "扩展帧" }
-                };
-
-                repoMultiplexSignals = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "是", "否" }
-                };
-
-                repoByteOrder = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "Motorola", "Inter" }
-                };
-
-                repoSigned = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "Signed", "Unsigned" }
-                };
-
-                repositoryTextEdit = new RepositoryItemTextEdit();
-
                 treeList.RepositoryItems.AddRange(new RepositoryItem[] {
-                    repoFrameType, repoMultiplexSignals, repoByteOrder, repoSigned, repositoryTextEdit
+                    canHandler.RepoFrameType,
+                    canHandler.RepoMultiplexSignals,
+                    canHandler.RepoByteOrder,
+                    canHandler.RepoSigned,
+                    canHandler.RepositoryTextEdit
                 });
             }
-            else if (protocolType == "Modbus")
+            else if (protocolType == "Modbus" && _currentProtocolHandler is ModbusProtocolHandler modbusHandler)
             {
-                // 初始化Modbus特定的编辑器
-                repoRegisterType = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "线圈", "输入", "保持寄存器", "输入寄存器" }
-                };
-
-                repoDataType = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "整型", "浮点型", "布尔型", "字符串" }
-                };
-
-                repositoryTextEdit = new RepositoryItemTextEdit();
-
-                treeList.RepositoryItems.AddRange(new RepositoryItem[] {
-                    repoRegisterType, repoDataType, repositoryTextEdit
-                });
+                // 类似处理Modbus编辑器
+                //treeList.RepositoryItems.AddRange(new RepositoryItem[] {
+                //    modbusHandler.RepoRegisterType,
+                //    modbusHandler.RepoDataType,
+                //    modbusHandler.RepositoryTextEdit
+                //});
             }
         }
+
         #endregion
 
         #region UI事件处理
@@ -1339,6 +1293,7 @@ namespace ChargeDebug.Form
         /// </summary>
         public interface IProtocolHandler
         {
+            void InitializeEditors();
             void LoadData(SQLiteConnection conn, long dbcFileId, TreeList treeList);
             void InitializeTreeColumns(TreeList treeList);
             void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e);
@@ -1361,6 +1316,49 @@ namespace ChargeDebug.Form
         /// </summary>
         public class CanProtocolHandler : IProtocolHandler
         {
+            // 声明自己的编辑器实例
+            private RepositoryItemComboBox _repoFrameType;
+            private RepositoryItemComboBox _repoMultiplexSignals;
+            private RepositoryItemComboBox _repoByteOrder;
+            private RepositoryItemComboBox _repoSigned;
+            private RepositoryItemTextEdit _repositoryTextEdit;
+
+            // 提供对编辑器的访问属性
+            public RepositoryItemComboBox RepoFrameType => _repoFrameType;
+            public RepositoryItemComboBox RepoMultiplexSignals => _repoMultiplexSignals;
+            public RepositoryItemComboBox RepoByteOrder => _repoByteOrder;
+            public RepositoryItemComboBox RepoSigned => _repoSigned;
+            public RepositoryItemTextEdit RepositoryTextEdit => _repositoryTextEdit;
+
+            public void InitializeEditors()
+            {
+                _repoFrameType = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "标准帧", "扩展帧" }
+                };
+
+                _repoMultiplexSignals = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "是", "否" }
+                };
+
+                _repoByteOrder = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "Motorola", "Inter" }
+                };
+
+                _repoSigned = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "Signed", "Unsigned" }
+                };
+
+                _repositoryTextEdit = new RepositoryItemTextEdit();
+            }
+
             public void LoadData(SQLiteConnection conn, long dbcFileId, TreeList treeList)
             {
                 var messages = SQLite_Service.GetMessagesByDbc(conn, dbcFileId);
@@ -1437,54 +1435,261 @@ namespace ChargeDebug.Form
 
             public void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e) 
             {
-                // 父节点编辑器配置
-                if (e.Node.ParentNode == null)
+                if (e.Node.Level == 0) // 消息节点
                 {
                     switch (e.Column.Caption)
                     {
                         case "帧类型":
-                            e.RepositoryItem = repoFrameType;
+                            e.RepositoryItem = _repoFrameType;
                             break;
-                        case "CAN ID":
-                        case "消息名称":
-                        case "数据长度":
-                            e.RepositoryItem = repositoryTextEdit; // 文本编辑器
+                        default:
+                            e.RepositoryItem = _repositoryTextEdit;
                             break;
                     }
                 }
-                // 子节点编辑器配置
-                else
+                else // 信号节点
                 {
                     switch (e.Column.Caption)
                     {
                         case "是否复用信号":
-                            e.RepositoryItem = repoMultiplexSignals;
+                            e.RepositoryItem = _repoMultiplexSignals;
                             break;
                         case "字节顺序":
-                            e.RepositoryItem = repoByteOrder;
+                            e.RepositoryItem = _repoByteOrder;
                             break;
                         case "符号":
-                            e.RepositoryItem = repoSigned;
+                            e.RepositoryItem = _repoSigned;
                             break;
                         default:
-                            e.RepositoryItem = repositoryTextEdit; // 文本编辑器
+                            e.RepositoryItem = _repositoryTextEdit;
                             break;
                     }
                 }
+            }
+
+            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn) 
+            {
+                // 不允许编辑Orders列
+                if (focusedColumn.Caption == "Orders") return false;
+
+                // 父节点编辑规则
+                if (focusedNode.Level == 0) // 消息节点
+                {
+                    switch (focusedColumn.Caption)
+                    {
+                        case "CAN ID":
+                        case "帧类型":
+                        case "消息名称":
+                        case "数据长度":
+                            return true; // 允许编辑
+                        default:
+                            return false; // 禁止编辑其他列
+                    }
+                }
+                else // 信号节点
+                {
+                    switch (focusedColumn.Caption)
+                    {
+                        case "关联系统变量名称":
+                        case "是否复用信号":
+                        case "单位":
+                        case "起始位":
+                        case "长度":
+                        case "系数":
+                        case "偏移":
+                        case "范围":
+                        case "字节顺序":
+                        case "符号":
+                            return true; // 允许编辑
+
+                        case "信号名称":
+                            // 获取"是否复用信号"列的值
+                            var multiplexColumn = focusedNode.TreeList.Columns["是否复用信号"];
+                            if (multiplexColumn != null)
+                            {
+                                string multiplexValue = focusedNode.GetValue(multiplexColumn)?.ToString() ?? "";
+                                return (multiplexValue != "是"); // 如果复用信号为"是"，则不允许编辑信号名称
+                            }
+                            return true; // 默认允许编辑
+
+                        default:
+                            return false; // 禁止编辑其他列
+                    }
+                }
+            }
+
+            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath, long currentDbcFileId) 
+            {
+            }
+
+            public void AddNewItem(TreeList treeList, string dbcPath) 
+            {
 
             }
-            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn) { /* 实现 */ return true; }
-            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath, long currentDbcFileId) { /* 实现 */ }
-            public void AddNewItem(TreeList treeList, string dbcPath) { /* 实现 */ }
-            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback) { /* 实现 */ }
-            public void AddNewChildItem(TreeList treeList, string dbcPath) { /* 实现 */ }
-            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback) { /* 实现 */ }
-            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) { /* 实现 */ }
-            public void ExportExcel(TreeList treeList, string fileName, string dbcPath) { /* 实现 */ }
-            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) { /* 实现 */ }
-            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction) { /* 实现 */ }
-            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction) { /* 实现 */ }
-            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) { /* 实现 */ }
+
+            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback) 
+            {
+
+            }
+
+            public void AddNewChildItem(TreeList treeList, string dbcPath) 
+            {
+
+            }
+
+            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback) 
+            {
+
+            }
+
+            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
+            {
+                treeList.BeginUnboundLoad();
+
+                try
+                {
+                    using (var workbook = new XLWorkbook(fileName))
+                    {
+                        var worksheet = workbook.Worksheet(1);
+                        var rows = worksheet.RowsUsed().Skip(1); // 跳过标题行
+
+                        TreeListNode currentMessageNode = null;
+
+                        foreach (var row in rows)
+                        {
+                            // 检查是否是消息行（有CAN ID）
+                            var canIdCell = row.Cell(1);
+                            if (!canIdCell.IsEmpty() && canIdCell.Value.ToString() != "")
+                            {
+                                // 创建新消息节点
+                                currentMessageNode = treeList.AppendNode(new object[]
+                                {
+                            row.Cell(1).Value.ToString(),
+                            row.Cell(2).Value.ToString(),
+                            row.Cell(3).Value.ToString(),
+                            Convert.ToInt32(row.Cell(4).Value),
+                            "", "", "", "", "", "", "", "", "", ""
+                                }, null);
+                            }
+                            else if (currentMessageNode != null)
+                            {
+                                // 创建信号节点
+                                treeList.AppendNode(new object[]
+                                {
+                                    "", "", "", "",
+                                    row.Cell(5).Value.ToString(),
+                                    row.Cell(6).Value.ToString(),
+                                    row.Cell(7).Value.ToString(),
+                                    row.Cell(8).Value.ToString(),
+                                    Convert.ToInt32(row.Cell(9).Value),
+                                    Convert.ToInt32(row.Cell(10).Value),
+                                    row.Cell(11).Value.ToString(),
+                                    row.Cell(12).Value.ToString(),
+                                    row.Cell(13).Value.ToString(),
+                                    row.Cell(14).Value.ToString(),
+                                    row.Cell(15).Value.ToString()
+                                }, currentMessageNode);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+            
+            public void ExportExcel(TreeList treeList, string fileName, string dbcPath) 
+            {
+                using (var workbook = new XLWorkbook())
+                {
+                    var worksheet = workbook.Worksheets.Add("CAN协议");
+
+                    // 添加标题行
+                    worksheet.Cell(1, 1).Value = "CAN ID";
+                    worksheet.Cell(1, 2).Value = "帧类型";
+                    worksheet.Cell(1, 3).Value = "消息名称";
+                    worksheet.Cell(1, 4).Value = "数据长度";
+                    worksheet.Cell(1, 5).Value = "信号名称";
+                    worksheet.Cell(1, 6).Value = "是否复用信号";
+                    worksheet.Cell(1, 7).Value = "关联系统变量名称";
+                    worksheet.Cell(1, 8).Value = "单位";
+                    worksheet.Cell(1, 9).Value = "起始位";
+                    worksheet.Cell(1, 10).Value = "长度";
+                    worksheet.Cell(1, 11).Value = "字节顺序";
+                    worksheet.Cell(1, 12).Value = "符号";
+                    worksheet.Cell(1, 13).Value = "系数";
+                    worksheet.Cell(1, 14).Value = "偏移";
+                    worksheet.Cell(1, 15).Value = "范围";
+
+                    int rowIndex = 2;
+
+                    // 递归写入所有节点
+                    foreach (TreeListNode node in treeList.Nodes)
+                    {
+                        WriteNodeToExcel(worksheet, node, ref rowIndex, dbcPath);
+                    }
+
+                    workbook.SaveAs(fileName);
+                }
+            }
+
+            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
+            {
+
+            }
+
+            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction) 
+            {
+                if (node.Level == 0) // 消息节点
+                {
+                    long messageId = (long)node.Tag;
+                    SQLite_Service.UpdateMessageOrder(conn, messageId, order, transaction);
+                }
+                else // 信号节点
+                {
+                    long signalId = (long)node.Tag;
+                    SQLite_Service.UpdateSignalOrder(conn, signalId, order, transaction);
+                }
+            }
+
+            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction) 
+            {
+
+            }
+            
+            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) 
+            {
+                if (node.Level == 0) // 消息节点
+                {
+                    ws.Cell(rowIndex, 1).Value = node.GetValue("CAN ID")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 2).Value = node.GetValue("帧类型")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 3).Value = node.GetValue("消息名称")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 4).Value = node.GetValue("数据长度")?.ToString() ?? "";
+                    rowIndex++;
+                }
+                else // 信号节点
+                {
+                    ws.Cell(rowIndex, 5).Value = node.GetValue("信号名称")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 6).Value = node.GetValue("是否复用信号")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 7).Value = node.GetValue("关联系统变量名称")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 8).Value = node.GetValue("单位")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 9).Value = node.GetValue("起始位")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 10).Value = node.GetValue("长度")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 11).Value = node.GetValue("字节顺序")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 12).Value = node.GetValue("符号")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 13).Value = node.GetValue("系数")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 14).Value = node.GetValue("偏移")?.ToString() ?? "";
+                    ws.Cell(rowIndex, 15).Value = node.GetValue("范围")?.ToString() ?? "";
+                    rowIndex++;
+                }
+
+                // 递归处理子节点
+                foreach (TreeListNode childNode in node.Nodes)
+                {
+                    WriteNodeToExcel(ws, childNode, ref rowIndex, dbcPath);
+                }
+            }
         }
 
         /// <summary>
@@ -1492,6 +1697,10 @@ namespace ChargeDebug.Form
         /// </summary>
         public class ModbusProtocolHandler : IProtocolHandler
         {
+            public void InitializeEditors()
+            {
+
+            }
             public void LoadData(SQLiteConnection conn, long dbcFileId, TreeList treeList)
             {
                 var registers = SQLite_Service.GetModbusRegistersByFile(conn, dbcFileId);

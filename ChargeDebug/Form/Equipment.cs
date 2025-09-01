@@ -44,7 +44,7 @@ namespace ChargeDebug.Form
 
             GridColumn cantype = new GridColumn();
             cantype.FieldName = "CanType";
-            cantype.Caption = "CAN盒类型";
+            cantype.Caption = "通讯类型";
             cantype.Visible = true;
 
             GridColumn deviceip = new GridColumn();
