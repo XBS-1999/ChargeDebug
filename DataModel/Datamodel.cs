@@ -75,4 +75,22 @@
         public decimal Offset { get; set; }
         public string Unit { get; set; }
     }
+
+    public class ModbusRegisterInfo
+    {
+        public long RegisterID { get; set; }
+        public long FileID { get; set; }
+        public string RegisterType { get; set; }
+        public int Address { get; set; }
+        public string Name { get; set; }
+        public string DataType { get; set; }
+        public string ByteOrder { get; set; }
+        public decimal ScalingFactor { get; set; }
+        public decimal Offset { get; set; }
+        public decimal? MinValue { get; set; }
+        public decimal? MaxValue { get; set; }
+        public string Unit { get; set; }
+        public string Description { get; set; }
+        public int Orders { get; set; }
+    }
 }

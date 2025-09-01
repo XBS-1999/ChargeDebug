@@ -7,6 +7,20 @@ namespace ChargeDebug.Service
     public class SQLite_Service
     {
         #region DBC文件操作
+
+        public static string GetProtocolType(SQLiteConnection conn, long fileId)
+        {
+            string sql = "SELECT AgreementsTypes FROM DbcFile WHERE DbcFileID = @DbcFileID";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@DbcFileID", fileId);
+
+                var result = cmd.ExecuteScalar();
+                return result?.ToString() ?? "CAN总线"; // 默认返回 "CAN" 以防万一
+            }
+        }
+
         /// <summary>
         /// 获取DBC文件ID
         /// </summary>
@@ -22,32 +36,14 @@ namespace ChargeDebug.Service
         }
 
         /// <summary>
-        /// 获取所有DBC文件列表
-        /// </summary>
-        public static DataTable GetDbcFiles(SQLiteConnection conn)
-        {
-            const string sql = @"SELECT 
-                            DbcFileName AS DBC文件名称,
-                            datetime(CreationTime, 'localtime') AS 创建时间
-                            FROM DbcFile
-                            ORDER BY CreationTime DESC";
-
-            DataTable dt = new DataTable();
-            using (var adapter = new SQLiteDataAdapter(sql, conn))
-            {
-                adapter.Fill(dt);
-            }
-            return dt;
-        }
-
-        /// <summary>
         /// 获取带完整字段的DBC文件列表（兼容旧代码）
         /// </summary>
         public static DataTable GetDbcFilesWithFullColumns(SQLiteConnection conn)
         {
             const string sql = @"SELECT 
                             DbcFileID AS 文件ID,
-                            DbcFileName AS DBC文件名称,
+                            DbcFileName AS 文件名称,
+                            AgreementsTypes AS 协议类型,
                             datetime(CreationTime, 'localtime') AS 创建时间
                             FROM DbcFile
                             ORDER BY CreationTime DESC";
@@ -63,15 +59,16 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 插入或更新DBC文件记录
         /// </summary>
-        public static long UpsertDbcFile(SQLiteConnection conn, string fileName)
+        public static long UpsertDbcFile(SQLiteConnection conn, string fileName, string types)
         {
-            const string sql = @"INSERT INTO DbcFile (DbcFileName) 
-                           VALUES (@name)
+            const string sql = @"INSERT INTO DbcFile (DbcFileName,AgreementsTypes) 
+                           VALUES (@name,@types)
                            ON CONFLICT(DbcFileName) DO UPDATE SET DbcFileName=DbcFileName
                            RETURNING DbcFileID;";
             using (var cmd = new SQLiteCommand(sql, conn))
             {
                 cmd.Parameters.AddWithValue("@name", fileName);
+                cmd.Parameters.AddWithValue("@types", types);
                 return (long)cmd.ExecuteScalar();
             }
         }
@@ -160,6 +157,107 @@ namespace ChargeDebug.Service
             //    cmd.ExecuteNonQuery();
             //}
         }
+        #endregion
+
+        #region ModbusRegisters表操作
+        public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, long fileId,
+                                                string registerType, int address, string name, string dataType,
+                                                string byteOrder, decimal scalingFactor, decimal offset,
+                                                decimal? minValue, decimal? maxValue, string unit,
+                                                string description, int orders, SQLiteTransaction transaction = null)
+        {
+            string sql;
+            if (registerId <= 0)
+            {
+                sql = @"INSERT INTO ModbusRegisters 
+                   (FileID, RegisterType, Address, Name, DataType, ByteOrder, 
+                    ScalingFactor, Offset, MinValue, MaxValue, Unit, Description, Orders)
+                   VALUES 
+                   (@FileID, @RegisterType, @Address, @Name, @DataType, @ByteOrder, 
+                    @ScalingFactor, @Offset, @MinValue, @MaxValue, @Unit, @Description, @Orders);
+                   SELECT last_insert_rowid();";
+            }
+            else
+            {
+                sql = @"UPDATE ModbusRegisters SET 
+                   FileID = @FileID, RegisterType = @RegisterType, Address = @Address, 
+                   Name = @Name, DataType = @DataType, ByteOrder = @ByteOrder, 
+                   ScalingFactor = @ScalingFactor, Offset = @Offset, 
+                   MinValue = @MinValue, MaxValue = @MaxValue, Unit = @Unit, 
+                   Description = @Description, Orders = @Orders
+                   WHERE RegisterID = @RegisterID;
+                   SELECT @RegisterID;";
+            }
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@RegisterID", registerId);
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@RegisterType", registerType);
+                cmd.Parameters.AddWithValue("@Address", address);
+                cmd.Parameters.AddWithValue("@Name", name);
+                cmd.Parameters.AddWithValue("@DataType", dataType);
+                cmd.Parameters.AddWithValue("@ByteOrder", byteOrder ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@ScalingFactor", scalingFactor);
+                cmd.Parameters.AddWithValue("@Offset", offset);
+                cmd.Parameters.AddWithValue("@MinValue", minValue ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@MaxValue", maxValue ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Unit", unit ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Description", description ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Orders", orders);
+
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+        }
+
+        public static List<ModbusRegisterInfo> GetModbusRegistersByFile(SQLiteConnection conn, long fileId)
+        {
+            var registers = new List<ModbusRegisterInfo>();
+            string sql = "SELECT * FROM ModbusRegisters WHERE FileID = @FileID ORDER BY Orders";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        registers.Add(new ModbusRegisterInfo
+                        {
+                            RegisterID = Convert.ToInt64(reader["RegisterID"]),
+                            FileID = Convert.ToInt64(reader["FileID"]),
+                            RegisterType = reader["RegisterType"].ToString(),
+                            Address = Convert.ToInt32(reader["Address"]),
+                            Name = reader["Name"].ToString(),
+                            DataType = reader["DataType"].ToString(),
+                            ByteOrder = reader["ByteOrder"] is DBNull ? null : reader["ByteOrder"].ToString(),
+                            ScalingFactor = Convert.ToDecimal(reader["ScalingFactor"]),
+                            Offset = Convert.ToDecimal(reader["Offset"]),
+                            MinValue = reader["MinValue"] is DBNull ? null : (decimal?)Convert.ToDecimal(reader["MinValue"]),
+                            MaxValue = reader["MaxValue"] is DBNull ? null : (decimal?)Convert.ToDecimal(reader["MaxValue"]),
+                            Unit = reader["Unit"] is DBNull ? null : reader["Unit"].ToString(),
+                            Description = reader["Description"] is DBNull ? null : reader["Description"].ToString(),
+                            Orders = Convert.ToInt32(reader["Orders"])
+                        });
+                    }
+                }
+            }
+
+            return registers;
+        }
+
+        public static void DeleteModbusRegister(SQLiteConnection conn, long registerId, SQLiteTransaction transaction = null)
+        {
+            string sql = "DELETE FROM ModbusRegisters WHERE RegisterID = @RegisterID";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@RegisterID", registerId);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
         #endregion
 
         #region 报文操作

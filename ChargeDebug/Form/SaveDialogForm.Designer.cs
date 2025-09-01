@@ -34,14 +34,13 @@
             // 
             AutoScaleDimensions = new SizeF(7F, 14F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(298, 68);
+            ClientSize = new Size(398, 168);
             MaximizeBox = false;
-            MaximumSize = new Size(400, 100);
+            MaximumSize = new Size(400, 200);
             MinimizeBox = false;
-            MinimumSize = new Size(300, 100);
             Name = "SaveDialogForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "保存文件";
+            Text = "新建文件";
             ResumeLayout(false);
         }
 

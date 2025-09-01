@@ -33,6 +33,7 @@ namespace ChargeDebug
         private BarButtonItem buttonItem7;
         private BarButtonItem logButton; // 新增日志按钮
         private BarButtonItem buttonItem8;
+        private BarButtonItem buttonItem9;
 
         public MainForm(string dbcPath, string userPermissions, string username)
         {
@@ -222,6 +223,7 @@ namespace ChargeDebug
             buttonItem7 = new BarButtonItem();
             logButton = new BarButtonItem(); // 新增日志按钮
             buttonItem8 = new BarButtonItem();
+            buttonItem9 = new BarButtonItem();
 
             buttonItem1.Caption = "监控管理";
             buttonItem2.Caption = "参数管理";
@@ -232,7 +234,8 @@ namespace ChargeDebug
             buttonItem6.Caption = "故障录波";
             buttonItem7.Caption = "在线升级";
             logButton.Caption = "系统日志"; // 新增按钮
-            
+            buttonItem9.Caption = "校准管理";
+
             buttonItem1.RibbonStyle = RibbonItemStyles.All;
             buttonItem2.RibbonStyle = RibbonItemStyles.All;
             buttonItem3.RibbonStyle = RibbonItemStyles.All;
@@ -242,7 +245,8 @@ namespace ChargeDebug
             buttonItem6.RibbonStyle = RibbonItemStyles.All;
             buttonItem7.RibbonStyle = RibbonItemStyles.All;
             logButton.RibbonStyle = RibbonItemStyles.All;
-            
+            buttonItem9.RibbonStyle = RibbonItemStyles.All;
+
             //buttonItem1.RibbonStyle = RibbonItemStyles.Large;
             //buttonItem1.ButtonStyle = BarButtonStyle.DropDown;
             //buttonItem2.ButtonStyle = BarButtonStyle.DropDown;
@@ -254,11 +258,12 @@ namespace ChargeDebug
             buttonItem4.ImageOptions.Image = Properties.Resources.协议信息;
             buttonItem5.ImageOptions.Image = Properties.Resources.用户管理;
             buttonItem8.ImageOptions.Image = Properties.Resources.用户切换;
+            buttonItem9.ImageOptions.Image = Properties.Resources.校准管理;
             buttonItem6.ImageOptions.Image = Properties.Resources.故障统计;
             buttonItem7.ImageOptions.Image = Properties.Resources.在线升级;
             logButton.ImageOptions.Image = Properties.Resources.日志管理; // 假设有日志图标资源
 
-            group1.ItemLinks.AddRange(new[] { buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem6, buttonItem7, buttonItem5, buttonItem8, logButton });
+            group1.ItemLinks.AddRange(new[] { buttonItem1, buttonItem2, buttonItem9, buttonItem3, buttonItem4, buttonItem6, buttonItem7, buttonItem5, buttonItem8, logButton });
 
             buttonItem1.ItemClick += (s, e) => ShowPage(typeof(Surveillance));
             buttonItem2.ItemClick += (s, e) => ShowPage(typeof(Parameter));
@@ -268,6 +273,7 @@ namespace ChargeDebug
             buttonItem6.ItemClick += (s, e) => ShowPage(typeof(Faultrecording));
             buttonItem7.ItemClick += (s, e) => ShowPage(typeof(Upgradeonline));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer)); // 日志按钮事件
+            buttonItem9.ItemClick += (s, e) => ShowPage(typeof(Agreement));
 
             buttonItem8.ItemClick += (s, e) => SwitchUser();
 
