@@ -34,7 +34,7 @@ namespace ChargeDebug.Form
         {
             
             dbcPath = dbPath;
-            surequipmentList = equipmentList;
+            DeviceConfig(equipmentList);
             InitializeComponent();
             
             //InitializeUI();
@@ -78,15 +78,19 @@ namespace ChargeDebug.Form
             rootGroup.Add(horizontalGroup);
         }
 
-        private void DeviceConfig()
+        private void DeviceConfig(List<EquipmentModel> equipmentList)
         {
             channels = 0;  //先清空通道在计算
-            // 遍历所有设备进行统计
-            foreach (var equipment in surequipmentList)
+            surequipmentList.Clear();
+            foreach (var equipmentLists in equipmentList)
             {
-                // 获取最大通道数（AC和DC中的较大值）
-                int channel = Math.Max(equipment.ACNumber, equipment.DCNumber);
-                channels += channel;
+                if (equipmentLists.DeviceType == "充放电设备")
+                {
+                    surequipmentList.Add(equipmentLists);
+                    // 获取最大通道数（AC和DC中的较大值）
+                    int channel = Math.Max(equipmentLists.ACNumber, equipmentLists.DCNumber);
+                    channels += channel;
+                }
             }
         }
 
@@ -95,7 +99,7 @@ namespace ChargeDebug.Form
         {
             // 释放所有旧的 Module 控件资源
             DisposeOldModules();
-            surequipmentList = equipmentList;
+            DeviceConfig(equipmentList);
             //清除所有旧布局
             this.Controls.Clear();
             AddDynamicUserControls();
@@ -151,7 +155,7 @@ namespace ChargeDebug.Form
 
         private void AddDynamicUserControls()
         {
-            DeviceConfig();
+            //DeviceConfig();
             //重新布局
             InitializeUI();
             int totalWidth = 0;

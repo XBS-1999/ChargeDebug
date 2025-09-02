@@ -60,7 +60,7 @@ namespace ChargeDebug.Form
             };
 
             // 添加协议类型选项
-            cmbProtocolType.Properties.Items.AddRange(new string[] { "CAN总线", "Modbus" });
+            cmbProtocolType.Properties.Items.AddRange(new string[] { "CAN总线", "MODBUS" });
             cmbProtocolType.SelectedIndex = 0; // 默认选择CAN总线
 
             // 按钮

@@ -1,4 +1,5 @@
 ﻿using DataModel;
+using DbcParserLib.Model;
 using System.Data;
 using System.Data.SQLite;
 
@@ -159,105 +160,133 @@ namespace ChargeDebug.Service
         }
         #endregion
 
-        #region ModbusRegisters表操作
-        public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, long fileId,
-                                                string registerType, int address, string name, string dataType,
-                                                string byteOrder, decimal scalingFactor, decimal offset,
-                                                decimal? minValue, decimal? maxValue, string unit,
-                                                string description, int orders, SQLiteTransaction transaction = null)
+        #region ModbusSignals表操作
+
+        /// <summary>
+        /// 获取指定DBC文件的所有信号
+        /// </summary>
+        public static List<ModbusSignal> GetModbusRegistersByDbc(SQLiteConnection conn, long dbcFileId)
         {
-            string sql;
-            if (registerId <= 0)
-            {
-                sql = @"INSERT INTO ModbusRegisters 
-                   (FileID, RegisterType, Address, Name, DataType, ByteOrder, 
-                    ScalingFactor, Offset, MinValue, MaxValue, Unit, Description, Orders)
-                   VALUES 
-                   (@FileID, @RegisterType, @Address, @Name, @DataType, @ByteOrder, 
-                    @ScalingFactor, @Offset, @MinValue, @MaxValue, @Unit, @Description, @Orders);
-                   SELECT last_insert_rowid();";
-            }
-            else
-            {
-                sql = @"UPDATE ModbusRegisters SET 
-                   FileID = @FileID, RegisterType = @RegisterType, Address = @Address, 
-                   Name = @Name, DataType = @DataType, ByteOrder = @ByteOrder, 
-                   ScalingFactor = @ScalingFactor, Offset = @Offset, 
-                   MinValue = @MinValue, MaxValue = @MaxValue, Unit = @Unit, 
-                   Description = @Description, Orders = @Orders
-                   WHERE RegisterID = @RegisterID;
-                   SELECT @RegisterID;";
-            }
+            var signals = new List<ModbusSignal>();
 
-            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            using (var cmd = new SQLiteCommand(@"
+                       SELECT SignalID, SignalName, FunctionCode, RegisterAddress, RegisterCount, 
+                       SystemVariableName, Unit, ByteOrder, Signed, Factor, Offset, ValueRange, Orders,
+                       CreatedDate, ModifiedDate
+                       FROM ModbusSignals 
+                       WHERE DbcFileId = @dbcFileId 
+                       ORDER BY Orders", conn))
             {
-                cmd.Parameters.AddWithValue("@RegisterID", registerId);
-                cmd.Parameters.AddWithValue("@FileID", fileId);
-                cmd.Parameters.AddWithValue("@RegisterType", registerType);
-                cmd.Parameters.AddWithValue("@Address", address);
-                cmd.Parameters.AddWithValue("@Name", name);
-                cmd.Parameters.AddWithValue("@DataType", dataType);
-                cmd.Parameters.AddWithValue("@ByteOrder", byteOrder ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@ScalingFactor", scalingFactor);
-                cmd.Parameters.AddWithValue("@Offset", offset);
-                cmd.Parameters.AddWithValue("@MinValue", minValue ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@MaxValue", maxValue ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@Unit", unit ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@Description", description ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@Orders", orders);
-
-                return Convert.ToInt64(cmd.ExecuteScalar());
-            }
-        }
-
-        public static List<ModbusRegisterInfo> GetModbusRegistersByFile(SQLiteConnection conn, long fileId)
-        {
-            var registers = new List<ModbusRegisterInfo>();
-            string sql = "SELECT * FROM ModbusRegisters WHERE FileID = @FileID ORDER BY Orders";
-
-            using (var cmd = new SQLiteCommand(sql, conn))
-            {
-                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
 
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
                     {
-                        registers.Add(new ModbusRegisterInfo
+                        signals.Add(new ModbusSignal
                         {
-                            RegisterID = Convert.ToInt64(reader["RegisterID"]),
-                            FileID = Convert.ToInt64(reader["FileID"]),
-                            RegisterType = reader["RegisterType"].ToString(),
-                            Address = Convert.ToInt32(reader["Address"]),
-                            Name = reader["Name"].ToString(),
-                            DataType = reader["DataType"].ToString(),
-                            ByteOrder = reader["ByteOrder"] is DBNull ? null : reader["ByteOrder"].ToString(),
-                            ScalingFactor = Convert.ToDecimal(reader["ScalingFactor"]),
-                            Offset = Convert.ToDecimal(reader["Offset"]),
-                            MinValue = reader["MinValue"] is DBNull ? null : (decimal?)Convert.ToDecimal(reader["MinValue"]),
-                            MaxValue = reader["MaxValue"] is DBNull ? null : (decimal?)Convert.ToDecimal(reader["MaxValue"]),
-                            Unit = reader["Unit"] is DBNull ? null : reader["Unit"].ToString(),
-                            Description = reader["Description"] is DBNull ? null : reader["Description"].ToString(),
-                            Orders = Convert.ToInt32(reader["Orders"])
+                            SignalID = reader.GetInt64(0),
+                            SignalName = reader.GetString(1),
+                            FunctionCode = reader.GetString(2),
+                            RegisterAddress = reader.GetString(3),
+                            RegisterCount = reader.GetInt32(4),
+                            SystemVariableName = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                            Unit = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                            ByteOrder = reader.IsDBNull(7) ? "Inter" : reader.GetString(7),
+                            Signed = reader.IsDBNull(8) ? "Unsigned" : reader.GetString(8),
+                            Factor = reader.IsDBNull(9) ? 1.0 : reader.GetDouble(9),
+                            Offset = reader.IsDBNull(10) ? 0.0 : reader.GetDouble(10),
+                            ValueRange = reader.IsDBNull(11) ? "" : reader.GetString(11),
+                            Orders = reader.GetInt32(12),
+                            CreatedDate = reader.GetDateTime(13),
+                            ModifiedDate = reader.GetDateTime(14)
                         });
                     }
                 }
             }
 
-            return registers;
+            return signals;
         }
 
+        /// <summary>
+        /// 插入或更新Modbus寄存器
+        /// </summary>
+        public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, string address, string description,
+                                              string dataType, string accessType, string value, string notes,
+                                              int orders, long dbcFileId, SQLiteTransaction transaction = null)
+        {
+            SQLiteCommand cmd;
+
+            if (registerId == -1)
+            {
+                // 插入新记录
+                cmd = new SQLiteCommand(@"
+                INSERT INTO ModbusRegisters 
+                (DbcFileId, Address, Description, DataType, AccessType, Value, Notes, Orders) 
+                VALUES (@dbcFileId, @address, @description, @dataType, @accessType, @value, @notes, @orders);
+                SELECT last_insert_rowid();", conn, transaction);
+            }
+            else
+            {
+                // 更新现有记录
+                cmd = new SQLiteCommand(@"
+                UPDATE ModbusRegisters SET 
+                Address = @address, Description = @description, DataType = @dataType, 
+                AccessType = @accessType, Value = @value, Notes = @notes, Orders = @orders
+                WHERE RegisterID = @registerId;
+                SELECT @registerId;", conn, transaction);
+                cmd.Parameters.AddWithValue("@registerId", registerId);
+            }
+
+            cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+            cmd.Parameters.AddWithValue("@address", address);
+            cmd.Parameters.AddWithValue("@description", description);
+            cmd.Parameters.AddWithValue("@dataType", dataType);
+            cmd.Parameters.AddWithValue("@accessType", accessType);
+            cmd.Parameters.AddWithValue("@value", string.IsNullOrEmpty(value) ? DBNull.Value : (object)value);
+            cmd.Parameters.AddWithValue("@notes", string.IsNullOrEmpty(notes) ? DBNull.Value : (object)notes);
+            cmd.Parameters.AddWithValue("@orders", orders);
+
+            return Convert.ToInt64(cmd.ExecuteScalar());
+        }
+
+        /// <summary>
+        /// 删除Modbus寄存器
+        /// </summary>
         public static void DeleteModbusRegister(SQLiteConnection conn, long registerId, SQLiteTransaction transaction = null)
         {
-            string sql = "DELETE FROM ModbusRegisters WHERE RegisterID = @RegisterID";
-
-            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            using (var cmd = new SQLiteCommand("DELETE FROM ModbusRegisters WHERE RegisterID = @registerId", conn, transaction))
             {
-                cmd.Parameters.AddWithValue("@RegisterID", registerId);
+                cmd.Parameters.AddWithValue("@registerId", registerId);
                 cmd.ExecuteNonQuery();
             }
         }
 
+        /// <summary>
+        /// 更新Modbus寄存器排序
+        /// </summary>
+        public static void UpdateModbusRegisterOrder(SQLiteConnection conn, long registerId, int order, SQLiteTransaction transaction = null)
+        {
+            using (var cmd = new SQLiteCommand("UPDATE ModbusRegisters SET Orders = @order WHERE RegisterID = @registerId", conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@registerId", registerId);
+                cmd.Parameters.AddWithValue("@order", order);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 获取Modbus寄存器的最大排序值
+        /// </summary>
+        public static int GetMaxModbusRegisterOrder(SQLiteConnection conn, long dbcFileId)
+        {
+            using (var cmd = new SQLiteCommand("SELECT MAX(Orders) FROM ModbusRegisters WHERE DbcFileId = @dbcFileId", conn))
+            {
+                cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+                var result = cmd.ExecuteScalar();
+                return result == DBNull.Value ? 0 : Convert.ToInt32(result);
+            }
+        }
         #endregion
 
         #region 报文操作
@@ -780,24 +809,36 @@ namespace ChargeDebug.Service
                 {
                     while (reader.Read())
                     {
+                        //if ((reader["Whether"].ToString() == "启用") || (reader["DeviceType"].ToString() == "充放电设备"))
                         if (reader["Whether"].ToString() == "启用")
                         {
-                            equipment.Add(new EquipmentModel
+                            // 创建模型实例
+                            var model = new EquipmentModel
                             {
                                 EquipmentID = Convert.ToInt32(reader["EquipmentID"]),
-                                DeviceNumber = reader["DeviceNumber"].ToString(),
-                                DeviceName = reader["DeviceName"].ToString(),
-                                CanType = reader["CanType"].ToString(),
-                                DeviceIP = reader["DeviceIP"].ToString(),
-                                DevicePort = reader["DevicePort"].ToString(),
-                                DeviceIndex = Convert.ToInt32(reader["DeviceIndex"]),
-                                CanIndex = Convert.ToInt32(reader["CanIndex"]),
-                                ACNumber = Convert.ToInt32(reader["ACNumber"]),
-                                ACAddress = reader["ACAddress"].ToString(),
-                                DCNumber = Convert.ToInt32(reader["DCNumber"]), // 添加DCNumber读取
-                                DCAddress = reader["DCAddress"].ToString(),
-                                CommunicationProtocols = reader["CommunicationProtocols"].ToString()
-                            });
+                                DeviceNumber = reader["DeviceNumber"]?.ToString(),
+                                DeviceName = reader["DeviceName"]?.ToString(),
+                                DeviceType = reader["DeviceType"]?.ToString(),
+                                CanType = reader["CanType"]?.ToString(),
+                                CommunicationProtocols = reader["CommunicationProtocols"]?.ToString()
+                            };
+
+                            // 处理可能为null的字段
+                            model.DeviceIP = reader["DeviceIP"] is DBNull ? null : reader["DeviceIP"].ToString();
+                            model.DevicePort = reader["DevicePort"] is DBNull ? null : reader["DevicePort"].ToString();
+                            model.ACAddress = reader["ACAddress"] is DBNull ? null : reader["ACAddress"].ToString();
+                            model.DCAddress = reader["DCAddress"] is DBNull ? null : reader["DCAddress"].ToString();
+                            model.BaudRate = reader["BaudRate"] is DBNull ? null : reader["BaudRate"].ToString();
+                            model.DataBits = reader["DataBits"] is DBNull ? null : reader["DataBits"].ToString();
+                            model.Parity = reader["Parity"] is DBNull ? null : reader["Parity"].ToString();
+                            model.StopBits = reader["StopBits"] is DBNull ? null : reader["StopBits"].ToString();
+                            // 处理可能为null的整数字段
+                            model.DeviceIndex = reader["DeviceIndex"] is DBNull ? 0 : Convert.ToInt32(reader["DeviceIndex"]);
+                            model.CanIndex = reader["CanIndex"] is DBNull ? 0 : Convert.ToInt32(reader["CanIndex"]);
+                            model.ACNumber = reader["ACNumber"] is DBNull ? 0 : Convert.ToInt32(reader["ACNumber"]);
+                            model.DCNumber = reader["DCNumber"] is DBNull ? 0 : Convert.ToInt32(reader["DCNumber"]);
+                            
+                            equipment.Add(model);
                         }
                     }
                 }

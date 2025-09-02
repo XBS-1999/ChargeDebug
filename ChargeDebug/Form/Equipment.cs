@@ -1,9 +1,12 @@
-﻿using DevExpress.XtraEditors;
+﻿using DevExpress.Utils;
+using DevExpress.XtraEditors;
 using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using System.Data;
 using System.Data.SQLite;
+using System.Drawing;
+using System.IO.Ports;
 
 namespace ChargeDebug.Form
 {
@@ -29,76 +32,185 @@ namespace ChargeDebug.Form
             gridControl.MainView = gridview;
             gridControl.Dock = DockStyle.Left;
             gridControl.Width = 1790;
-            gridview.OptionsView.ShowGroupPanel = false;
+
             gridview.OptionsBehavior.Editable = false;
+            gridview.OptionsView.ShowGroupPanel = false;
+            gridview.OptionsView.ShowVerticalLines = DefaultBoolean.True;
+            gridview.OptionsView.ShowHorizontalLines = DefaultBoolean.True;
+            gridview.OptionsView.EnableAppearanceEvenRow = true;
+            gridview.OptionsView.EnableAppearanceOddRow = true;
+            gridview.Appearance.EvenRow.BackColor = ColorTranslator.FromHtml("#F9F9F9");
+            gridview.Appearance.OddRow.BackColor = Color.White;
+            gridview.Appearance.Row.BackColor2 = Color.White;
+            gridview.Appearance.HeaderPanel.BackColor = ColorTranslator.FromHtml("#F0F5FF");
+            //gridview.Appearance.HeaderPanel.Font = new Font("Tahoma", 10, FontStyle.Bold);
+            gridview.Appearance.HeaderPanel.Options.UseBackColor = true;
+            gridview.Appearance.HeaderPanel.Options.UseFont = true;
+            gridview.Appearance.HeaderPanel.TextOptions.HAlignment = HorzAlignment.Center;
+            gridview.Appearance.Row.TextOptions.HAlignment = HorzAlignment.Center;
+            gridview.OptionsSelection.MultiSelect = true;
+            gridview.OptionsSelection.MultiSelectMode = GridMultiSelectMode.RowSelect;
+            gridview.OptionsSelection.EnableAppearanceFocusedCell = false;
+            gridview.FocusRectStyle = DrawFocusRectStyle.RowFocus;
+
+            // 设备类型列
+            GridColumn deviceType = new GridColumn();
+            deviceType.FieldName = "DeviceType";
+            deviceType.Caption = "设备类型";
+            deviceType.Visible = true;
+            deviceType.Width = 80;
 
             GridColumn devicenumber = new GridColumn();
             devicenumber.FieldName = "DeviceNumber";
             devicenumber.Caption = "设备序号";
             devicenumber.Visible = true;
+            devicenumber.Width = 70;
 
             GridColumn devicename = new GridColumn();
             devicename.FieldName = "DeviceName";
             devicename.Caption = "设备名称";
             devicename.Visible = true;
+            devicename.Width = 120;
 
             GridColumn cantype = new GridColumn();
             cantype.FieldName = "CanType";
             cantype.Caption = "通讯类型";
             cantype.Visible = true;
+            cantype.Width = 80;
 
+            // 网口配置列
             GridColumn deviceip = new GridColumn();
             deviceip.FieldName = "DeviceIP";
             deviceip.Caption = "设备IP";
             deviceip.Visible = true;
+            deviceip.Width = 100;
 
             GridColumn deviceport = new GridColumn();
             deviceport.FieldName = "DevicePort";
             deviceport.Caption = "设备端口";
             deviceport.Visible = true;
+            deviceport.Width = 70;
+
+            // 串口配置列
+            GridColumn comPort = new GridColumn();
+            comPort.FieldName = "ComPort";
+            comPort.Caption = "串口号";
+            comPort.Visible = true;
+            comPort.Width = 70;
+
+            GridColumn baudRate = new GridColumn();
+            baudRate.FieldName = "BaudRate";
+            baudRate.Caption = "波特率";
+            baudRate.Visible = true;
+            baudRate.Width = 70;
+
+            GridColumn dataBits = new GridColumn();
+            dataBits.FieldName = "DataBits";
+            dataBits.Caption = "数据位";
+            dataBits.Visible = true;
+            dataBits.Width = 60;
+
+            GridColumn parity = new GridColumn();
+            parity.FieldName = "Parity";
+            parity.Caption = "校验位";
+            parity.Visible = true;
+            parity.Width = 60;
+
+            GridColumn stopBits = new GridColumn();
+            stopBits.FieldName = "StopBits";
+            stopBits.Caption = "停止位";
+            stopBits.Visible = true;
+            stopBits.Width = 60;
 
             GridColumn deviceindex = new GridColumn();
             deviceindex.FieldName = "DeviceIndex";
             deviceindex.Caption = "设备索引";
             deviceindex.Visible = true;
+            deviceindex.Width = 70;
 
             GridColumn canindex = new GridColumn();
             canindex.FieldName = "CanIndex";
             canindex.Caption = "CAN索引";
             canindex.Visible = true;
+            canindex.Width = 70;
 
             GridColumn acnumber = new GridColumn();
             acnumber.FieldName = "ACNumber";
             acnumber.Caption = "AC数量";
             acnumber.Visible = true;
+            acnumber.Width = 60;
 
             GridColumn acaddress = new GridColumn();
             acaddress.FieldName = "ACAddress";
             acaddress.Caption = "AC起始地址";
             acaddress.Visible = true;
+            acaddress.Width = 90;
 
             GridColumn dcnumber = new GridColumn();
             dcnumber.FieldName = "DCNumber";
             dcnumber.Caption = "DC数量";
             dcnumber.Visible = true;
+            dcnumber.Width = 60;
 
             GridColumn dcaddress = new GridColumn();
             dcaddress.FieldName = "DCAddress";
             dcaddress.Caption = "DC起始地址";
             dcaddress.Visible = true;
+            dcaddress.Width = 90;
 
             GridColumn communicationprotocols = new GridColumn();
             communicationprotocols.FieldName = "CommunicationProtocols";
             communicationprotocols.Caption = "通讯协议";
             communicationprotocols.Visible = true;
+            communicationprotocols.Width = 100;
 
             GridColumn whether = new GridColumn();
             whether.FieldName = "Whether";
             whether.Caption = "是否启用设备";
             whether.Visible = true;
+            whether.Width = 90;
 
-            gridview.Columns.AddRange(new[] { devicenumber, devicename, cantype, deviceip,
-                  deviceport, deviceindex, canindex, acnumber,acaddress, dcnumber, dcaddress, communicationprotocols, whether });
+            // 连接状态列
+            //GridColumn connectionStatus = new GridColumn();
+            //connectionStatus.FieldName = "ConnectionStatus";
+            //connectionStatus.Caption = "连接状态";
+            //connectionStatus.Visible = true;
+            //connectionStatus.Width = 80;
+
+            gridview.Columns.AddRange(new[] {
+                devicenumber, devicename, deviceType, cantype,
+                deviceip, deviceport, deviceindex, canindex, acnumber, acaddress, dcnumber, dcaddress,
+                comPort, baudRate, dataBits, parity, stopBits,
+                communicationprotocols, whether
+            });
+
+            // 设置连接状态列的显示样式
+            //gridview.FormatConditions.Add(new StyleFormatCondition
+            //{
+            //    Condition = FormatConditionEnum.Equal,
+            //    Value1 = "已连接",
+            //    Column = connectionStatus,
+            //    ApplyToRow = true,
+            //    Appearance = { ForeColor = Color.Green, Font = new Font(gridview.Appearance.Row.Font, FontStyle.Bold) }
+            //});
+
+            //gridview.FormatConditions.Add(new StyleFormatCondition
+            //{
+            //    Condition = FormatConditionEnum.Equal,
+            //    Value1 = "未连接",
+            //    Column = connectionStatus,
+            //    ApplyToRow = true,
+            //    Appearance = { ForeColor = Color.Red }
+            //});
+
+            //gridview.FormatConditions.Add(new StyleFormatCondition
+            //{
+            //    Condition = FormatConditionEnum.Equal,
+            //    Value1 = "连接中",
+            //    Column = connectionStatus,
+            //    ApplyToRow = true,
+            //    Appearance = { ForeColor = Color.Orange }
+            //});
 
             SimpleButton simpleButton = new SimpleButton();
             simpleButton.Location = new Point(10, 20);
@@ -121,10 +233,17 @@ namespace ChargeDebug.Form
             simpleButton2.TabIndex = 2;
             simpleButton2.Text = "删除设备";
 
+            SimpleButton refreshButton = new SimpleButton();
+            refreshButton.Location = new Point(10, 170);
+            refreshButton.Name = "refreshButton";
+            refreshButton.Size = new Size(100, 30);
+            refreshButton.TabIndex = 3;
+            refreshButton.Text = "刷新状态";
+
             PanelControl panelControl = new PanelControl();
             panelControl.Dock = DockStyle.Right;
             panelControl.Width = 120;
-            panelControl.Controls.AddRange(new[] { simpleButton, simpleButton1 });
+            panelControl.Controls.AddRange(new[] { simpleButton, simpleButton1, simpleButton2, refreshButton });
 
             this.Controls.Add(gridControl);
             this.Controls.Add(panelControl);
@@ -132,13 +251,16 @@ namespace ChargeDebug.Form
             // 为按钮添加点击事件
             simpleButton.Click += AddDevice_Click;
             simpleButton1.Click += EditDevice_Click;
-            //simpleButton2.Click += DeleteDevice_Click;
+            simpleButton2.Click += DeleteDevice_Click;
+            refreshButton.Click += RefreshButton_Click;
         }
 
         private void Equipment_Load(object? sender, EventArgs e)
         {
             // 加载数据
             LoadData();
+            // 初始刷新连接状态
+            //RefreshConnectionStatus();
         }
 
         private void LoadData()
@@ -151,13 +273,30 @@ namespace ChargeDebug.Form
                 using (var conn = new SQLiteConnection(connectionString))
                 {
                     conn.Open();
-                    const string query = "SELECT * FROM Equipment ORDER BY [DeviceNumber] ASC";
+                    // 修改查询语句以包含串口配置字段
+                    const string query = @"SELECT 
+                        EquipmentID, DeviceType, DeviceNumber, DeviceName, CanType, 
+                        DeviceIP, DevicePort, ComPort, BaudRate, DataBits, Parity, StopBits,
+                        DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, 
+                        CommunicationProtocols, Whether 
+                        FROM Equipment ORDER BY [DeviceNumber] ASC";
+
                     using (var cmd = new SQLiteCommand(query, conn))
                     {
                         using (var adapter = new SQLiteDataAdapter(cmd))
                         {
                             adapter.Fill(dataTable);
                         }
+                    }
+                }
+
+                // 如果没有ConnectionStatus列，添加它
+                if (!dataTable.Columns.Contains("ConnectionStatus"))
+                {
+                    dataTable.Columns.Add("ConnectionStatus", typeof(string));
+                    foreach (DataRow row in dataTable.Rows)
+                    {
+                        row["ConnectionStatus"] = "未知"; // 初始状态
                     }
                 }
 
@@ -168,6 +307,49 @@ namespace ChargeDebug.Form
                 XtraMessageBox.Show($"Error loading data: {ex.Message}", "Error",
                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        // 刷新连接状态
+        private void RefreshConnectionStatus()
+        {
+            // 这里实现连接状态检测逻辑
+            // 实际项目中，这里可能会调用设备通信接口来检测设备连接状态
+            DataTable data = (DataTable)gridControl.DataSource;
+
+            if (data != null)
+            {
+                foreach (DataRow row in data.Rows)
+                {
+                    // 模拟连接状态检测
+                    // 实际项目中应该根据设备类型和通信协议进行实际检测
+                    string deviceType = row["DeviceType"]?.ToString() ?? "";
+                    string protocol = row["CommunicationProtocols"]?.ToString() ?? "";
+
+                    // 模拟不同的连接状态
+                    Random rnd = new Random();
+                    int status = rnd.Next(0, 3);
+
+                    switch (status)
+                    {
+                        case 0:
+                            row["ConnectionStatus"] = "已连接";
+                            break;
+                        case 1:
+                            row["ConnectionStatus"] = "未连接";
+                            break;
+                        case 2:
+                            row["ConnectionStatus"] = "连接中";
+                            break;
+                    }
+                }
+
+                gridControl.RefreshDataSource();
+            }
+        }
+
+        private void RefreshButton_Click(object sender, EventArgs e)
+        {
+            RefreshConnectionStatus();
         }
 
         //增加设备
@@ -189,11 +371,10 @@ namespace ChargeDebug.Form
                     }
                 }
                 // 生成新设备号
-                //string newDeviceNumber = $"设备{maxNumber + 1}";
                 int newDeviceNumber = maxNumber + 1;
 
                 // 打开编辑窗口并传递自动生成的设备号
-                using (var form = new DeviceEditForm(dbcPath))
+                using (var form = new DeviceEditForm(dbcPath, newDeviceNumber))
                 {
                     if (form.ShowDialog() == DialogResult.OK)
                     {
@@ -201,28 +382,66 @@ namespace ChargeDebug.Form
                         using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
                         {
                             conn.Open();
+                            // 修改插入语句以包含串口配置字段
                             const string insertQuery = @"INSERT INTO Equipment 
-                                (DeviceNumber, DeviceName, CanType, DeviceIP, DevicePort, 
-                                 DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, Whether)
-                                 VALUES 
-                               (@DeviceNumber, @DeviceName, @CanType, @DeviceIP, @DevicePort, 
+                                (DeviceNumber, DeviceName, DeviceType, CanType, 
+                                DeviceIP, DevicePort, ComPort, BaudRate, DataBits, Parity, StopBits,
+                                DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, Whether)
+                                VALUES 
+                                (@DeviceNumber, @DeviceName, @DeviceType, @CanType, 
+                                @DeviceIP, @DevicePort, @ComPort, @BaudRate, @DataBits, @Parity, @StopBits,
                                 @DeviceIndex, @CanIndex, @ACNumber, @ACAddress, @DCNumber, @DCAddress, @CommunicationProtocols, @Whether)";
 
                             using (var cmd = new SQLiteCommand(insertQuery, conn))
                             {
+                                cmd.Parameters.AddWithValue("@DeviceType", form.DeviceType);
                                 cmd.Parameters.AddWithValue("@DeviceNumber", newDeviceNumber);
                                 cmd.Parameters.AddWithValue("@DeviceName", form.DeviceName);
                                 cmd.Parameters.AddWithValue("@CanType", form.CanType);
-                                cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
-                                cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
-                                cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
-                                cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
-                                cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
-                                cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
-                                cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
-                                cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
                                 cmd.Parameters.AddWithValue("@CommunicationProtocols", form.CommunicationProtocols);
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
+
+                                // 根据通讯类型设置相应的配置
+                                if (form.CanType == "CANET-2E-U")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
+                                    cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
+                                    cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
+                                    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
+                                }
+                                else if (form.CanType == "RS485-MODBUS")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ComPort", form.ComPort);
+                                    cmd.Parameters.AddWithValue("@BaudRate", form.BaudRate);
+                                    cmd.Parameters.AddWithValue("@DataBits", form.DataBits);
+                                    cmd.Parameters.AddWithValue("@Parity", form.Parity);
+                                    cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
+                                }
+
+                                if (form.DeviceType == "充放电设备")
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
+                                    cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
+                                    cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
+                                    cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
+                                }
+                                else
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                }
+
                                 cmd.ExecuteNonQuery();
                             }
                         }
@@ -268,11 +487,18 @@ namespace ChargeDebug.Form
                         using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
                         {
                             conn.Open();
+                            // 修改更新语句以包含串口配置字段
                             const string query = @"UPDATE Equipment SET
+                                        DeviceType = @DeviceType,
                                         DeviceName = @DeviceName,
                                         CanType = @CanType,
                                         DeviceIP = @DeviceIP,
                                         DevicePort = @DevicePort,
+                                        ComPort = @ComPort,
+                                        BaudRate = @BaudRate,
+                                        DataBits = @DataBits,
+                                        Parity = @Parity,
+                                        StopBits = @StopBits,
                                         DeviceIndex = @DeviceIndex,
                                         CanIndex = @CanIndex,
                                         ACNumber = @ACNumber,
@@ -286,20 +512,53 @@ namespace ChargeDebug.Form
                             using (var cmd = new SQLiteCommand(query, conn))
                             {
                                 cmd.Parameters.AddWithValue("@EquipmentID", row["EquipmentID"]);
-                                //cmd.Parameters.AddWithValue("@DeviceNumber", form.DeviceNumber);
+                                cmd.Parameters.AddWithValue("@DeviceType", form.DeviceType);
                                 cmd.Parameters.AddWithValue("@DeviceName", form.DeviceName);
                                 cmd.Parameters.AddWithValue("@CanType", form.CanType);
-                                cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
-                                cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
-                                cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
-                                cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
-                                cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
-                                cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
-                                cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
-                                cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
                                 cmd.Parameters.AddWithValue("@CommunicationProtocols", form.CommunicationProtocols);
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
-                                
+
+                                // 根据通讯类型设置相应的配置
+                                if (form.CanType == "CANET-2E-U")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
+                                    cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", form.DeviceIndex);
+                                    cmd.Parameters.AddWithValue("@CanIndex", form.CanIndex);
+                                    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
+                                }
+                                else if (form.CanType == "RS485-MODBUS")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ComPort", form.ComPort);
+                                    cmd.Parameters.AddWithValue("@BaudRate", form.BaudRate);
+                                    cmd.Parameters.AddWithValue("@DataBits", form.DataBits);
+                                    cmd.Parameters.AddWithValue("@Parity", form.Parity);
+                                    cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
+                                }
+
+                                if (form.DeviceType == "充放电设备")
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", form.ACNumber);
+                                    cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
+                                    cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
+                                    cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
+                                }
+                                else
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                }
+
                                 cmd.ExecuteNonQuery();
                             }
                         }
@@ -311,8 +570,6 @@ namespace ChargeDebug.Form
 
                         XtraMessageBox.Show("设备修改成功！", "提示",
                                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                        
                     }
                 }
             }
@@ -338,27 +595,27 @@ namespace ChargeDebug.Form
                     return;
                 }
 
-                // 获取设备编号
-                var deviceNumber = gridView.GetRowCellValue(selectedRowHandle, "DeviceNumber").ToString();
+                // 获取设备ID
+                DataRow row = ((DataRowView)gridView.GetRow(selectedRowHandle)).Row;
+                var equipmentId = row["EquipmentID"];
+                var deviceName = row["DeviceName"].ToString();
 
                 // 确认对话框
-                if (XtraMessageBox.Show($"确定要删除选中的{deviceNumber}吗？", "确认删除",
+                if (XtraMessageBox.Show($"确定要删除设备 '{deviceName}' 吗？", "确认删除",
                                       MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 {
                     return;
                 }
 
-                
-
                 // 执行删除操作
                 using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
                 {
                     conn.Open();
-                    const string query = "DELETE FROM Equipment WHERE DeviceNumber = @DeviceNumber";
+                    const string query = "DELETE FROM Equipment WHERE EquipmentID = @EquipmentID";
 
                     using (var cmd = new SQLiteCommand(query, conn))
                     {
-                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                        cmd.Parameters.AddWithValue("@EquipmentID", equipmentId);
                         cmd.ExecuteNonQuery();
                     }
                 }

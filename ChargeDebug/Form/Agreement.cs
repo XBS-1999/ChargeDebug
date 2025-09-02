@@ -194,7 +194,7 @@ namespace ChargeDebug.Form
             {
                 _currentProtocolHandler = new CanProtocolHandler();
             }
-            else if (protocolType == "Modbus")
+            else if (protocolType == "MODBUS")
             {
                 _currentProtocolHandler = new ModbusProtocolHandler();
             }
@@ -230,12 +230,12 @@ namespace ChargeDebug.Form
             }
             else if (protocolType == "Modbus" && _currentProtocolHandler is ModbusProtocolHandler modbusHandler)
             {
-                // 类似处理Modbus编辑器
-                //treeList.RepositoryItems.AddRange(new RepositoryItem[] {
-                //    modbusHandler.RepoRegisterType,
-                //    modbusHandler.RepoDataType,
-                //    modbusHandler.RepositoryTextEdit
-                //});
+                treeList.RepositoryItems.AddRange(new RepositoryItem[] {
+                    modbusHandler.RepoRegisterType,
+                    modbusHandler.RepoDataType,
+                    modbusHandler.RepoAccessType,
+                    modbusHandler.RepositoryTextEdit
+                });
             }
         }
 
@@ -465,8 +465,9 @@ namespace ChargeDebug.Form
             TreeListHitInfo hitInfo = treeList.CalcHitInfo(e.Location);
             if (hitInfo.HitInfoType != HitInfoType.Cell || hitInfo.Node == null) return;
 
-            // 使用协议处理器处理双击事件
-            _currentProtocolHandler.HandleDoubleClick(hitInfo, treeList, dbcPath, _currentDbcFileId);
+            // 使用协议处理器处理双击事件，传递复用信号缓存引用
+            _currentProtocolHandler.HandleDoubleClick(hitInfo, treeList, dbcPath,
+                                                    _currentDbcFileId, ref _reuseSignalsCache);
         }
 
         /// <summary>
@@ -1298,7 +1299,8 @@ namespace ChargeDebug.Form
             void InitializeTreeColumns(TreeList treeList);
             void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e);
             bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn);
-            void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath, long currentDbcFileId);
+            void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath,
+                            long currentDbcFileId, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache);
             void AddNewItem(TreeList treeList, string dbcPath);
             void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback);
             void AddNewChildItem(TreeList treeList, string dbcPath);
@@ -1518,28 +1520,382 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath, long currentDbcFileId) 
+            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath,
+                            long currentDbcFileId, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
             {
+                if (hitInfo.Node == null || hitInfo.Column == null) return;
+
+                // 只处理信号节点（Level=1）的"信号名称"列双击
+                if (hitInfo.Node.Level != 1 || hitInfo.Column.Caption != "信号名称") return;
+
+                TreeListNode signalNode = hitInfo.Node;
+                TreeListNode parentNode = signalNode.ParentNode;
+
+                using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                {
+                    conn.Open();
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 保存原始ID（可能是临时ID）
+                            long originalId = Convert.ToInt64(signalNode.Tag ?? -1);
+
+                            // 获取父节点（报文节点）的值
+                            string canId = parentNode.GetValue("CAN ID")?.ToString() ?? "";
+                            string frameType = parentNode.GetValue("帧类型")?.ToString() ?? "";
+                            string messageName = parentNode.GetValue("消息名称")?.ToString() ?? "";
+                            int dataLength = Convert.ToInt32(parentNode.GetValue("数据长度") ?? 0);
+                            int parentOrder = Convert.ToInt32(parentNode.GetValue("Orders") ?? 0);
+
+                            // 获取信号节点的值
+                            string signalName = signalNode.GetValue("信号名称")?.ToString() ?? "";
+                            string multiplexSignals = signalNode.GetValue("是否复用信号")?.ToString() ?? "";
+                            string systemName = signalNode.GetValue("关联系统变量名称")?.ToString() ?? "";
+                            string unit = signalNode.GetValue("单位")?.ToString() ?? "";
+                            int startBit = Convert.ToInt32(signalNode.GetValue("起始位") ?? 0);
+                            int length = Convert.ToInt32(signalNode.GetValue("长度") ?? 0);
+                            string byteOrder = signalNode.GetValue("字节顺序")?.ToString() ?? "";
+                            string signed = signalNode.GetValue("符号")?.ToString() ?? "";
+                            decimal factor = Convert.ToDecimal(signalNode.GetValue("系数") ?? 1);
+                            decimal offset = Convert.ToDecimal(signalNode.GetValue("偏移") ?? 0);
+                            string minMax = signalNode.GetValue("范围")?.ToString() ?? "";
+                            int order = Convert.ToInt32(signalNode.GetValue("Orders") ?? 0);
+
+                            // 插入或更新报文
+                            long messageId = Convert.ToInt64(parentNode.Tag ?? -1);
+                            messageId = SQLite_Service.UpsertMessage(
+                                conn,
+                                messageId: messageId,
+                                canId: canId,
+                                frameType: frameType,
+                                messageName: messageName,
+                                dataLength: dataLength,
+                                orders: parentOrder,
+                                dbcFileId: currentDbcFileId,
+                                transaction: transaction
+                            );
+                            parentNode.Tag = messageId;
+
+                            // 插入或更新信号
+                            long signalId = Convert.ToInt64(signalNode.Tag ?? -1);
+                            signalId = SQLite_Service.UpsertSignal(
+                                conn,
+                                signalId: signalId,
+                                messageId: messageId,
+                                signalName: signalName,
+                                multiplexSignals: multiplexSignals,
+                                systemName: systemName,
+                                unit: unit,
+                                startBit: startBit,
+                                length: length,
+                                byteOrder: byteOrder,
+                                signed: signed,
+                                factor: factor,
+                                offset: offset,
+                                minMax: minMax,
+                                orders: order,
+                                transaction: transaction
+                            );
+                            signalNode.Tag = signalId;
+
+                            // 检查原始ID对应的缓存复用信号
+                            List<ReuseSignal> reuseSignals;
+                            if (originalId < 0 && reuseSignalsCache.ContainsKey(originalId))
+                            {
+                                reuseSignals = reuseSignalsCache[originalId];
+                                SQLite_Service.SaveReuseSignals(
+                                    conn,
+                                    signalId,
+                                    reuseSignals,
+                                    transaction
+                                );
+                                reuseSignalsCache.Remove(originalId);
+                            }
+                            else
+                            {
+                                // 从数据库加载复用信号
+                                reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, signalId);
+                            }
+
+                            var reuseSignalsList = new BindingList<ReuseSignal>(reuseSignals);
+                            using (var reuseForm = new ReuseSignalForm(reuseSignalsList))
+                            {
+                                if (reuseForm.ShowDialog() == DialogResult.OK)
+                                {
+                                    reuseSignalsList = reuseForm.reuseSignals;
+
+                                    // 更新信号名称显示
+                                    if (reuseSignalsList.Count == 0)
+                                        signalNode.SetValue("信号名称", "");
+                                    else
+                                        signalNode.SetValue("信号名称", "已配置");
+
+                                    // 保存复用信号到数据库
+                                    SQLite_Service.SaveReuseSignals(
+                                        conn,
+                                        signalId,
+                                        reuseSignalsList.ToList(),
+                                        transaction
+                                    );
+
+                                    transaction.Commit();
+                                    XtraMessageBox.Show("复用信号保存成功！");
+                                }
+                                else
+                                {
+                                    transaction.Rollback();
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            XtraMessageBox.Show($"复用信号保存失败：{ex.Message}");
+                        }
+                    }
+                }
             }
 
             public void AddNewItem(TreeList treeList, string dbcPath) 
             {
+                treeList.BeginUnboundLoad();
+                try
+                {
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
 
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "Messages") + 1;
+
+                        var newNode = treeList.AppendNode(new object[]
+                        {
+                        "0x", // CAN ID
+                        "扩展帧", // 帧类型
+                        "",
+                        8,      // 数据长度
+                        "", "", "", "", "", "", "", "", "","",""// 信号相关字段
+                        }, null);
+
+                        // 设置初始排序值
+                        newNode.Tag = -1; // 临时标记为新节点
+                        newNode.SetValue("Orders", maxSortOrder);
+
+                        // 设置初始复选框状态
+                        newNode.StateImageIndex = 1; // 默认未选中
+                        newNode.Expanded = true;
+                        treeList.FocusedNode = newNode;
+                    }
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
             }
 
             public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback) 
             {
+                // 获取所有选中的父节点（消息节点）
+                var parentNodesToDelete = treeList.Nodes.Cast<TreeListNode>()
+                    .Where(n => n.ParentNode == null && n.CheckState == CheckState.Checked)
+                    .ToList();
 
+                if (parentNodesToDelete.Count == 0)
+                {
+                    XtraMessageBox.Show("请先选择要删除的报文");
+                    return;
+                }
+
+                // 确认删除
+                if (XtraMessageBox.Show($"确定要删除选中的 {parentNodesToDelete.Count} 条报文及其所有信号吗？",
+                                      "确认删除", MessageBoxButtons.YesNo) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                {
+                    conn.Open();
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 收集要删除的报文ID
+                            var messageIdsToDelete = new List<long>();
+
+                            // 先处理数据库删除（倒序防止索引变化）
+                            for (int i = parentNodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                var node = parentNodesToDelete[i];
+                                long messageId = Convert.ToInt64(node.Tag ?? -1);
+                                if (messageId == -1) continue;
+
+                                // 记录要删除的报文ID
+                                messageIdsToDelete.Add(messageId);
+
+                                // 删除关联数据
+                                SQLite_Service.DeleteMessage(conn, messageId);
+                            }
+
+                            transaction.Commit();
+
+                            // 再删除界面节点（倒序删除）
+                            for (int i = parentNodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                treeList.DeleteNode(parentNodesToDelete[i]);
+                            }
+
+                            // 重新排序剩余的报文
+                            //ReorderMessagesAfterDeletion(conn, messageIdsToDelete);
+
+                            XtraMessageBox.Show($"成功删除 {parentNodesToDelete.Count} 条报文及关联信号！");
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            XtraMessageBox.Show($"删除失败：{ex.Message}");
+                        }
+                    }
+                }
             }
 
             public void AddNewChildItem(TreeList treeList, string dbcPath) 
             {
+                try
+                {
+                    TreeListNode parentNode = treeList.FocusedNode?.ParentNode ?? treeList.FocusedNode;
+                    // 验证选中的是父节点
+                    if (parentNode == null || parentNode.ParentNode != null)
+                    {
+                        XtraMessageBox.Show("请先选择要添加信号的报文节点");
+                        return;
+                    }
 
+                    treeList.BeginUnboundLoad();
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+                        // 获取当前报文ID
+                        long messageId = Convert.ToInt64(parentNode.Tag);
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "Signals", messageId) + 1;
+                        // 创建带默认值的新信号节点
+                        var newNode = treeList.AppendNode(new object[]
+                        {
+                            "", "", "","",
+                            "",             // 信号名称
+                            "否",
+                            "",             // 系统变量名称
+                            "",             // 单位
+                            0,              // 起始位
+                            8,              // 长度
+                            "Inter",     // 字节顺序
+                            "Unsigned",     // 符号
+                            1,            // 系数
+                            0,            // 偏移
+                            ""        // 范围
+                        }, parentNode);
+
+                        // 设置初始排序值
+                        newNode.Tag = -1; // 临时标记为新节点
+                        newNode.SetValue("Orders", maxSortOrder);
+
+                        parentNode.Expanded = true;
+                        treeList.FocusedNode = newNode;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"添加信号失败：{ex.Message}");
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
             }
 
             public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback) 
             {
+                // 获取所有选中的子节点（信号节点）
+                var nodesToDelete = treeList.GetNodeList()
+                    .Where(n => n.ParentNode != null && n.CheckState == CheckState.Checked)
+                    .ToList();
 
+
+                if (nodesToDelete.Count == 0)
+                {
+                    XtraMessageBox.Show("请先选择要删除的信号");
+                    return;
+                }
+
+                // 按父节点分组
+                var groupedByParent = nodesToDelete
+                    .GroupBy(n => n.ParentNode)
+                    .ToList();
+
+                // 确认删除
+                if (XtraMessageBox.Show($"确定要删除选中的 {nodesToDelete.Count} 个信号吗？",
+                                      "确认删除", MessageBoxButtons.YesNo) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                {
+                    conn.Open();
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 收集要删除的信号ID
+                            var signalIdsToDelete = new List<long>();
+
+                            // 先处理数据库删除（倒序）
+                            for (int i = nodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                var node = nodesToDelete[i];
+                                long signalId = Convert.ToInt64(node.Tag ?? -1);
+                                if (signalId == -1) continue;
+
+                                // 记录要删除的信号ID
+                                signalIdsToDelete.Add(signalId);
+
+                                // 删除复用信号
+                                SQLite_Service.DeleteReuseSignals(conn, signalId);
+
+                                // 删除信号
+                                SQLite_Service.DeleteSignal(conn, signalId);
+
+                            }
+
+                            transaction.Commit();
+
+                            // 再删除界面节点（倒序）
+                            for (int i = nodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                treeList.DeleteNode(nodesToDelete[i]);
+                            }
+
+                            // 重新排序每个父节点下的信号
+                            foreach (var group in groupedByParent)
+                            {
+                                if (group.Key != null)
+                                {
+                                    //ReorderSignalsAfterDeletion(conn, group.Key);
+                                }
+                            }
+
+
+                            XtraMessageBox.Show($"成功删除 {nodesToDelete.Count} 个信号！");
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            XtraMessageBox.Show($"删除失败：{ex.Message}");
+                        }
+                    }
+                }
             }
 
             public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
@@ -1634,9 +1990,120 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
+            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
             {
+                // 获取所有消息节点
+                var messageNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
 
+                // 保存消息和信号数据
+                foreach (var messageNode in messageNodes)
+                {
+                    // 处理消息节点
+                    long messageId = ProcessMessageNode(conn, dbcFileId, messageNode, transaction);
+
+                    // 处理信号节点
+                    ProcessSignalNodes(conn, messageId, messageNode, transaction, ref reuseSignalsCache);
+                }
+            }
+
+            private long ProcessMessageNode(SQLiteConnection conn, long dbcFileId, TreeListNode messageNode, SQLiteTransaction transaction)
+            {
+                var msgInfo = new MessageInfo
+                {
+                    MessageID = messageNode.Tag as long? ?? -1,
+                    CANID = messageNode.GetValue("CAN ID").ToString(),
+                    FrameType = messageNode.GetValue("帧类型").ToString(),
+                    MessageName = messageNode.GetValue("消息名称").ToString(),
+                    DataLength = Convert.ToInt32(messageNode.GetValue("数据长度")),
+                    Orders = Convert.ToInt32(messageNode.GetValue("Orders"))
+                };
+
+                return SQLite_Service.UpsertMessage(
+                    conn: conn,
+                    messageId: msgInfo.MessageID,
+                    canId: msgInfo.CANID,
+                    frameType: msgInfo.FrameType,
+                    messageName: msgInfo.MessageName,
+                    dataLength: msgInfo.DataLength,
+                    orders: msgInfo.Orders,
+                    dbcFileId: dbcFileId,
+                    transaction: transaction
+                );
+            }
+
+            private void ProcessSignalNodes(SQLiteConnection conn, long messageId, TreeListNode messageNode, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
+            {
+                foreach (TreeListNode signalNode in messageNode.Nodes)
+                {
+                    // 保存原始ID（可能是临时ID）
+                    long originalId = Convert.ToInt64(signalNode.Tag ?? -1);
+
+                    var sigInfo = new SignalInfo
+                    {
+                        SignalID = signalNode.Tag as long? ?? -1,
+                        SignalName = signalNode.GetValue("信号名称").ToString(),
+                        MultiplexSignals = signalNode.GetValue("是否复用信号").ToString(),
+                        SystemName = signalNode.GetValue("关联系统变量名称").ToString(),
+                        Unit = signalNode.GetValue("单位").ToString(),
+                        StartBit = Convert.ToInt32(signalNode.GetValue("起始位")),
+                        Length = Convert.ToInt32(signalNode.GetValue("长度")),
+                        ByteOrder = signalNode.GetValue("字节顺序").ToString(),
+                        Signed = signalNode.GetValue("符号").ToString(),
+                        Factor = Convert.ToDecimal(signalNode.GetValue("系数")),
+                        Offset = Convert.ToDecimal(signalNode.GetValue("偏移")),
+                        MinMax = signalNode.GetValue("范围").ToString(),
+                        Orders = Convert.ToInt32(signalNode.GetValue("Orders"))
+                    };
+
+                    long sigId = SQLite_Service.UpsertSignal(
+                        conn: conn,
+                        signalId: sigInfo.SignalID,
+                        messageId: messageId,
+                        signalName: sigInfo.SignalName,
+                        multiplexSignals: sigInfo.MultiplexSignals,
+                        systemName: sigInfo.SystemName,
+                        unit: sigInfo.Unit,
+                        startBit: sigInfo.StartBit,
+                        length: sigInfo.Length,
+                        byteOrder: sigInfo.ByteOrder,
+                        signed: sigInfo.Signed,
+                        factor: sigInfo.Factor,
+                        offset: sigInfo.Offset,
+                        minMax: sigInfo.MinMax,
+                        orders: sigInfo.Orders,
+                        transaction: transaction
+                    );
+
+                    signalNode.Tag = sigId;
+
+                    // 检查原始ID对应的缓存复用信号
+                    if (originalId < 0 && reuseSignalsCache.ContainsKey(originalId))
+                    {
+                        var reuseSignals = reuseSignalsCache[originalId];
+                        SQLite_Service.SaveReuseSignals(
+                            conn,
+                            sigId,
+                            reuseSignals,
+                            transaction
+                        );
+                        // 移除已处理的缓存
+                        reuseSignalsCache.Remove(originalId);
+                    }
+                    // 处理现有信号的复用信号（原逻辑保留）
+                    else if (signalNode.Tag is long tempId && tempId < 0)
+                    {
+                        if (reuseSignalsCache.TryGetValue(tempId, out var reuseSignals))
+                        {
+                            SQLite_Service.SaveReuseSignals(
+                                conn,
+                                sigId,
+                                reuseSignals,
+                                transaction
+                            );
+                            reuseSignalsCache.Remove(tempId);
+                        }
+                    }
+                }
             }
 
             public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction) 
@@ -1653,11 +2120,87 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction) 
+            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction)
             {
+                try
+                {
+                    // 1. 复制报文数据
+                    var sourceMessages = SQLite_Service.GetMessagesByDbc(conn, sourceFileId);
+                    var messageMapping = new Dictionary<long, long>(); // 源MessageID -> 新MessageID映射
 
+                    foreach (var sourceMsg in sourceMessages)
+                    {
+                        // 插入新报文记录
+                        long newMessageId = SQLite_Service.UpsertMessage(
+                            conn,
+                            messageId: -1, // 新记录
+                            canId: sourceMsg.CANID,
+                            frameType: sourceMsg.FrameType,
+                            messageName: sourceMsg.MessageName,
+                            dataLength: sourceMsg.DataLength,
+                            orders: sourceMsg.Orders,
+                            dbcFileId: newFileId,
+                            transaction: transaction
+                        );
+
+                        // 保存映射关系
+                        messageMapping.Add(sourceMsg.MessageID, newMessageId);
+                    }
+
+                    // 2. 复制信号数据
+                    foreach (var sourceMsg in sourceMessages)
+                    {
+                        var sourceSignals = SQLite_Service.GetSignalsByMessage(conn, sourceMsg.MessageID);
+                        var signalMapping = new Dictionary<long, long>(); // 源SignalID -> 新SignalID映射
+
+                        foreach (var sourceSig in sourceSignals)
+                        {
+                            // 插入新信号记录
+                            long newSignalId = SQLite_Service.UpsertSignal(
+                                conn,
+                                signalId: -1, // 新记录
+                                messageId: messageMapping[sourceMsg.MessageID],
+                                signalName: sourceSig.SignalName,
+                                multiplexSignals: sourceSig.MultiplexSignals,
+                                systemName: sourceSig.SystemName,
+                                unit: sourceSig.Unit,
+                                startBit: sourceSig.StartBit,
+                                length: sourceSig.Length,
+                                byteOrder: sourceSig.ByteOrder,
+                                signed: sourceSig.Signed,
+                                factor: sourceSig.Factor,
+                                offset: sourceSig.Offset,
+                                minMax: sourceSig.MinMax,
+                                orders: sourceSig.Orders,
+                                transaction: transaction
+                            );
+
+                            // 保存映射关系
+                            signalMapping.Add(sourceSig.SignalID, newSignalId);
+
+                            // 3. 复制复用信号
+                            var reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, sourceSig.SignalID);
+                            if (reuseSignals.Count > 0)
+                            {
+                                SQLite_Service.SaveReuseSignals(
+                                    conn,
+                                    newSignalId,
+                                    reuseSignals,
+                                    transaction
+                                );
+                            }
+                        }
+                    }
+
+                    // 4. 复制协议配置信息（如果有的话）
+                    // 例如：SQLite_Service.CopyProtocolConfig(conn, sourceFileId, newFileId, transaction);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"复制数据失败: {ex.Message}");
+                }
             }
-            
+
             public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) 
             {
                 if (node.Level == 0) // 消息节点
@@ -1693,54 +2236,80 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// Modbus协议处理器
+        /// Modbus-RTU 协议处理器
         /// </summary>
         public class ModbusProtocolHandler : IProtocolHandler
         {
+            // Modbus寄存器类型编辑器
+            private RepositoryItemComboBox _repoRegisterType;
+            private RepositoryItemComboBox _repoDataType;
+            private RepositoryItemComboBox _repoAccessType;
+            private RepositoryItemTextEdit _repositoryTextEdit;
+
+            // 提供对编辑器的访问属性
+            public RepositoryItemComboBox RepoRegisterType => _repoRegisterType;
+            public RepositoryItemComboBox RepoDataType => _repoDataType;
+            public RepositoryItemComboBox RepoAccessType => _repoAccessType;
+            public RepositoryItemTextEdit RepositoryTextEdit => _repositoryTextEdit;
+
+            // Modbus寄存器定义（根据文档）
+            private readonly Dictionary<string, ModbusRegister> _registerDefinitions = new Dictionary<string, ModbusRegister>
+            {
+                {"0x0001", new ModbusRegister("程控", "u16", "rw", "1-REM/0-LOCAL")},
+                {"0x0002", new ModbusRegister("ON/OFF", "u16", "rw", "1-ON/0-OFF")},
+                {"0x0003", new ModbusRegister("最大电压设置", "float", "rw", "")},
+                {"0x0005", new ModbusRegister("最大电流设置", "float", "rw", "")},
+                {"0x0007", new ModbusRegister("电压预设值", "float", "rw", "")},
+                {"0x0009", new ModbusRegister("电流预设值", "float", "rw", "")},
+                {"0x000B", new ModbusRegister("电压采样回检值", "float", "r", "")},
+                {"0x000D", new ModbusRegister("电流采样回检值", "float", "r", "")},
+                {"0x000F", new ModbusRegister("过压设置", "float", "rw", "")},
+                {"0x0011", new ModbusRegister("过流设置", "float", "rw", "")},
+                {"0x0013", new ModbusRegister("电流上升斜率", "float", "rw", "")},
+                {"0x0015", new ModbusRegister("电压上升斜率", "float", "rw", "")},
+                {"0x0017", new ModbusRegister("电流下降斜率", "float", "rw", "")},
+                {"0x0019", new ModbusRegister("电压下降斜率", "float", "rw", "")}
+            };
+
             public void InitializeEditors()
             {
+                _repoRegisterType = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "0x0001", "0x0002", "0x0003", "0x0005", "0x0007", "0x0009", "0x0008", "0x0009", "0x0010", "0x0011", "0x0013", "0x0015", "0x0017", "0x0019" }
+                };
 
+                _repoDataType = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "u16", "float" }
+                };
+
+                _repoAccessType = new RepositoryItemComboBox
+                {
+                    TextEditStyle = TextEditStyles.DisableTextEditor,
+                    Items = { "r", "rw" }
+                };
+
+                _repositoryTextEdit = new RepositoryItemTextEdit();
             }
+
             public void LoadData(SQLiteConnection conn, long dbcFileId, TreeList treeList)
             {
-                var registers = SQLite_Service.GetModbusRegistersByFile(conn, dbcFileId);
+                var registers = SQLite_Service.GetModbusRegistersByDbc(conn, dbcFileId);
 
-                // 根据寄存器类型分组
-                var groupedRegisters = registers.GroupBy(r => r.RegisterType);
-
-                foreach (var group in groupedRegisters)
+                foreach (var reg in registers)
                 {
-                    // 创建寄存器类型节点
-                    var typeNode = treeList.AppendNode(new object[]
+                    treeList.AppendNode(new object[]
                     {
-                        group.Key, // 寄存器类型
-                        "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+                        reg.Address,
+                        reg.Description,
+                        reg.DataType,
+                        reg.AccessType,
+                        reg.Value,
+                        reg.Notes,
+                        reg.Orders
                     }, null);
-
-                    typeNode.Tag = $"TYPE_{group.Key}";
-
-                    // 添加寄存器节点
-                    foreach (var register in group.OrderBy(r => r.Orders))
-                    {
-                        var registerNode = treeList.AppendNode(new object[]
-                        {
-                            "", // 寄存器类型已在父节点显示
-                            register.Address.ToString(),
-                            register.Name,
-                            register.DataType,
-                            register.ByteOrder ?? "",
-                            register.ScalingFactor.ToString(),
-                            register.Offset.ToString(),
-                            register.MinValue?.ToString() ?? "",
-                            register.MaxValue?.ToString() ?? "",
-                            register.Unit ?? "",
-                            register.Description ?? "",
-                            "", "", "", ""
-                        }, typeNode);
-
-                        registerNode.Tag = register.RegisterID;
-                        registerNode.SetValue("Orders", register.Orders);
-                    }
                 }
             }
 
@@ -1748,35 +2317,422 @@ namespace ChargeDebug.Form
             {
                 treeList.Columns.Clear();
                 treeList.Columns.AddRange(new[] {
-                    new TreeListColumn { Caption = "寄存器类型", VisibleIndex = 0, Width = 100 },
-                    new TreeListColumn { Caption = "地址", VisibleIndex = 1, Width = 80 },
-                    new TreeListColumn { Caption = "名称", VisibleIndex = 2, Width = 120 },
-                    new TreeListColumn { Caption = "数据类型", VisibleIndex = 3, Width = 80 },
-                    new TreeListColumn { Caption = "字节顺序", VisibleIndex = 4, Width = 80 },
-                    new TreeListColumn { Caption = "缩放因子", VisibleIndex = 5, Width = 80 },
-                    new TreeListColumn { Caption = "偏移量", VisibleIndex = 6, Width = 80 },
-                    new TreeListColumn { Caption = "最小值", VisibleIndex = 7, Width = 80 },
-                    new TreeListColumn { Caption = "最大值", VisibleIndex = 8, Width = 80 },
-                    new TreeListColumn { Caption = "单位", VisibleIndex = 9, Width = 60 },
-                    new TreeListColumn { Caption = "描述", VisibleIndex = 10, Width = 150 },
+                    new TreeListColumn { Caption = "信号名称", VisibleIndex = 0, Width = 150 },
+                    new TreeListColumn { Caption = "功能码", VisibleIndex = 1, Width = 100 },
+                    new TreeListColumn { Caption = "寄存器地址", VisibleIndex = 2, Width = 100 },
+                    new TreeListColumn { Caption = "寄存器个数", VisibleIndex = 3, Width = 100 },
+                    //new TreeListColumn { Caption = "字节数", VisibleIndex = 4, Width = 100 },
+                    new TreeListColumn { Caption = "关联系统变量名称", VisibleIndex = 5, Width = 150 },
+                    new TreeListColumn { Caption = "单位", VisibleIndex = 6, Width = 80 },
+                    new TreeListColumn { Caption = "字节顺序", VisibleIndex = 7, Width = 100 },
+                    new TreeListColumn { Caption = "符号", VisibleIndex = 8, Width = 100 },
+                    new TreeListColumn { Caption = "系数", VisibleIndex = 9, Width = 100 },
+                    new TreeListColumn { Caption = "偏移", VisibleIndex = 10, Width = 100 },
+                    new TreeListColumn { Caption = "范围", VisibleIndex = 11, Width = 100 },
                     new TreeListColumn { Caption = "Orders", VisibleIndex = treeList.Columns.Count, Visible = false }
                 });
             }
 
-            // 其他方法实现...
-            public void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e) { /* 实现 */ }
-            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn) { /* 实现 */ return true; }
-            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath, long currentDbcFileId) { /* 实现 */ }
-            public void AddNewItem(TreeList treeList, string dbcPath) { /* 实现 */ }
-            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback) { /* 实现 */ }
-            public void AddNewChildItem(TreeList treeList, string dbcPath) { /* 实现 */ }
-            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback) { /* 实现 */ }
-            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) { /* 实现 */ }
-            public void ExportExcel(TreeList treeList, string fileName, string dbcPath) { /* 实现 */ }
-            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) { /* 实现 */ }
-            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction) { /* 实现 */ }
-            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction) { /* 实现 */ }
-            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) { /* 实现 */ }
+            public void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e)
+            {
+                switch (e.Column.Caption)
+                {
+                    case "寄存器地址":
+                        e.RepositoryItem = _repoRegisterType;
+                        break;
+                    case "数据类型":
+                        e.RepositoryItem = _repoDataType;
+                        break;
+                    case "读写权限":
+                        e.RepositoryItem = _repoAccessType;
+                        break;
+                    default:
+                        e.RepositoryItem = _repositoryTextEdit;
+                        break;
+                }
+            }
+
+            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn)
+            {
+                // 不允许编辑Orders列
+                if (focusedColumn.Caption == "Orders") return false;
+
+                // 所有列都可编辑
+                return true;
+            }
+
+            public void HandleDoubleClick(TreeListHitInfo hitInfo, TreeList treeList, string dbcPath,
+                            long currentDbcFileId, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
+            {
+                // Modbus协议不需要复用信号功能
+                XtraMessageBox.Show("Modbus协议不支持复用信号配置");
+            }
+
+            public void AddNewItem(TreeList treeList, string dbcPath)
+            {
+                treeList.BeginUnboundLoad();
+                try
+                {
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "ModbusRegisters") + 1;
+                        var newNode = treeList.AppendNode(new object[]
+                        {
+                            "",       // 信号名称
+                            "0x00",   // 功能码
+                            "0x0001", // 寄存器地址
+                            "1",      // 寄存器个数
+                            "",       // 关联系统变量名称
+                            "",       // 单位
+                            "",       // 字节顺序
+                            "",       // 符号
+                            "",       // 系数
+                            "",       // 偏移
+                            "",       // 范围
+                            maxSortOrder // 排序
+                        }, null);
+
+                        newNode.Tag = -1; // 临时标记为新节点
+                        treeList.FocusedNode = newNode;
+                    }
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+
+            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback)
+            {
+                // 获取所有选中的节点
+                var nodesToDelete = treeList.GetNodeList()
+                    .Where(n => n.CheckState == CheckState.Checked)
+                    .ToList();
+
+                if (nodesToDelete.Count == 0)
+                {
+                    XtraMessageBox.Show("请先选择要删除的寄存器");
+                    return;
+                }
+
+                // 确认删除
+                if (XtraMessageBox.Show($"确定要删除选中的 {nodesToDelete.Count} 个寄存器吗？",
+                                      "确认删除", MessageBoxButtons.YesNo) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                {
+                    conn.Open();
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 先处理数据库删除（倒序）
+                            for (int i = nodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                var node = nodesToDelete[i];
+                                long registerId = Convert.ToInt64(node.Tag ?? -1);
+                                if (registerId == -1) continue;
+
+                                SQLite_Service.DeleteModbusRegister(conn, registerId);
+                            }
+
+                            transaction.Commit();
+
+                            // 再删除界面节点（倒序）
+                            for (int i = nodesToDelete.Count - 1; i >= 0; i--)
+                            {
+                                treeList.DeleteNode(nodesToDelete[i]);
+                            }
+
+                            XtraMessageBox.Show($"成功删除 {nodesToDelete.Count} 个寄存器！");
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            XtraMessageBox.Show($"删除失败：{ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            public void AddNewChildItem(TreeList treeList, string dbcPath)
+            {
+                // Modbus协议没有子项概念
+                XtraMessageBox.Show("Modbus协议不支持添加子项");
+            }
+
+            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback)
+            {
+                // Modbus协议没有子项概念
+                XtraMessageBox.Show("Modbus协议不支持删除子项");
+            }
+
+            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
+            {
+                treeList.BeginUnboundLoad();
+
+                try
+                {
+                    using (var workbook = new XLWorkbook(fileName))
+                    {
+                        var worksheet = workbook.Worksheet(1);
+                        var rows = worksheet.RowsUsed().Skip(1); // 跳过标题行
+
+                        foreach (var row in rows)
+                        {
+                            treeList.AppendNode(new object[]
+                            {
+                        row.Cell(1).Value.ToString(), // 地址
+                        row.Cell(2).Value.ToString(), // 描述
+                        row.Cell(3).Value.ToString(), // 数据类型
+                        row.Cell(4).Value.ToString(), // 读写权限
+                        row.Cell(5).Value.ToString(), // 值
+                        row.Cell(6).Value.ToString(), // 备注
+                        0 // 排序
+                            }, null);
+                        }
+                    }
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+
+            public void ExportExcel(TreeList treeList, string fileName, string dbcPath)
+            {
+                using (var workbook = new XLWorkbook())
+                {
+                    var worksheet = workbook.Worksheets.Add("Modbus协议");
+
+                    // 添加标题行
+                    worksheet.Cell(1, 1).Value = "寄存器地址";
+                    worksheet.Cell(1, 2).Value = "描述";
+                    worksheet.Cell(1, 3).Value = "数据类型";
+                    worksheet.Cell(1, 4).Value = "读写权限";
+                    worksheet.Cell(1, 5).Value = "值";
+                    worksheet.Cell(1, 6).Value = "备注";
+
+                    int rowIndex = 2;
+
+                    // 写入所有节点
+                    foreach (TreeListNode node in treeList.Nodes)
+                    {
+                        worksheet.Cell(rowIndex, 1).Value = node.GetValue("寄存器地址")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 2).Value = node.GetValue("描述")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 3).Value = node.GetValue("数据类型")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 4).Value = node.GetValue("读写权限")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 5).Value = node.GetValue("值")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 6).Value = node.GetValue("备注")?.ToString() ?? "";
+                        rowIndex++;
+                    }
+
+                    workbook.SaveAs(fileName);
+                }
+            }
+
+            public void SaveData(SQLiteConnection conn, long dbcFileId, TreeList treeList, SQLiteTransaction transaction, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
+            {
+                // 获取所有节点
+                var nodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+
+                // 保存寄存器数据
+                foreach (var node in nodes)
+                {
+                    ProcessRegisterNode(conn, dbcFileId, node, transaction);
+                }
+            }
+
+            private void ProcessRegisterNode(SQLiteConnection conn, long dbcFileId, TreeListNode node, SQLiteTransaction transaction)
+            {
+                var regInfo = new ModbusRegisterInfo
+                {
+                    RegisterID = node.Tag as long? ?? -1,
+                    Address = node.GetValue("寄存器地址").ToString(),
+                    Description = node.GetValue("描述").ToString(),
+                    DataType = node.GetValue("数据类型").ToString(),
+                    AccessType = node.GetValue("读写权限").ToString(),
+                    Value = node.GetValue("值").ToString(),
+                    Notes = node.GetValue("备注").ToString(),
+                    Orders = Convert.ToInt32(node.GetValue("Orders") ?? 0)
+                };
+
+                long regId = SQLite_Service.UpsertModbusRegister(
+                    conn: conn,
+                    registerId: regInfo.RegisterID,
+                    address: regInfo.Address,
+                    description: regInfo.Description,
+                    dataType: regInfo.DataType,
+                    accessType: regInfo.AccessType,
+                    value: regInfo.Value,
+                    notes: regInfo.Notes,
+                    orders: regInfo.Orders,
+                    dbcFileId: dbcFileId,
+                    transaction: transaction
+                );
+
+                node.Tag = regId;
+            }
+
+            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction)
+            {
+                long registerId = (long)node.Tag;
+                SQLite_Service.UpdateModbusRegisterOrder(conn, registerId, order, transaction);
+            }
+
+            public void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction)
+            {
+                try
+                {
+                    // 复制Modbus寄存器数据
+                    var sourceRegisters = SQLite_Service.GetModbusRegistersByDbc(conn, sourceFileId);
+
+                    foreach (var sourceReg in sourceRegisters)
+                    {
+                        SQLite_Service.UpsertModbusRegister(
+                            conn,
+                            registerId: -1, // 新记录
+                            address: sourceReg.Address,
+                            description: sourceReg.Description,
+                            dataType: sourceReg.DataType,
+                            accessType: sourceReg.AccessType,
+                            value: sourceReg.Value,
+                            notes: sourceReg.Notes,
+                            orders: sourceReg.Orders,
+                            dbcFileId: newFileId,
+                            transaction: transaction
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"复制Modbus数据失败: {ex.Message}");
+                }
+            }
+
+            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath)
+            {
+                ws.Cell(rowIndex, 1).Value = node.GetValue("寄存器地址")?.ToString() ?? "";
+                ws.Cell(rowIndex, 2).Value = node.GetValue("描述")?.ToString() ?? "";
+                ws.Cell(rowIndex, 3).Value = node.GetValue("数据类型")?.ToString() ?? "";
+                ws.Cell(rowIndex, 4).Value = node.GetValue("读写权限")?.ToString() ?? "";
+                ws.Cell(rowIndex, 5).Value = node.GetValue("值")?.ToString() ?? "";
+                ws.Cell(rowIndex, 6).Value = node.GetValue("备注")?.ToString() ?? "";
+                rowIndex++;
+            }
+
+            // Modbus寄存器信息类
+            private class ModbusRegister
+            {
+                public string Description { get; set; }
+                public string DataType { get; set; }
+                public string AccessType { get; set; }
+                public string Notes { get; set; }
+
+                public ModbusRegister(string desc, string type, string access, string notes)
+                {
+                    Description = desc;
+                    DataType = type;
+                    AccessType = access;
+                    Notes = notes;
+                }
+            }
+        }
+
+        // 需要在SQLite_Service类中添加以下方法支持Modbus协议
+        public static class SQLite_Service_ModbusExtensions
+        {
+            public static List<ModbusRegisterInfo> GetModbusRegistersByDbc(SQLiteConnection conn, long dbcFileId)
+            {
+                var registers = new List<ModbusRegisterInfo>();
+
+                using (var cmd = new SQLiteCommand("SELECT * FROM ModbusRegisters WHERE DbcFileId = @dbcFileId ORDER BY Orders", conn))
+                {
+                    cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            registers.Add(new ModbusRegisterInfo
+                            {
+                                RegisterID = reader.GetInt64(0),
+                                Address = reader.GetString(2),
+                                Description = reader.GetString(3),
+                                DataType = reader.GetString(4),
+                                AccessType = reader.GetString(5),
+                                Value = reader.GetString(6),
+                                Notes = reader.GetString(7),
+                                Orders = reader.GetInt32(8)
+                            });
+                        }
+                    }
+                }
+
+                return registers;
+            }
+
+            public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, string address, string description,
+                                                  string dataType, string accessType, string value, string notes,
+                                                  int orders, long dbcFileId, SQLiteTransaction transaction = null)
+            {
+                SQLiteCommand cmd;
+
+                if (registerId == -1)
+                {
+                    // 插入新记录
+                    cmd = new SQLiteCommand(@"INSERT INTO ModbusRegisters 
+                                    (DbcFileId, Address, Description, DataType, AccessType, Value, Notes, Orders) 
+                                    VALUES (@dbcFileId, @address, @description, @dataType, @accessType, @value, @notes, @orders);
+                                    SELECT last_insert_rowid();", conn, transaction);
+                }
+                else
+                {
+                    // 更新现有记录
+                    cmd = new SQLiteCommand(@"UPDATE ModbusRegisters SET 
+                                    Address = @address, Description = @description, DataType = @dataType, 
+                                    AccessType = @accessType, Value = @value, Notes = @notes, Orders = @orders
+                                    WHERE RegisterID = @registerId;
+                                    SELECT @registerId;", conn, transaction);
+                    cmd.Parameters.AddWithValue("@registerId", registerId);
+                }
+
+                cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+                cmd.Parameters.AddWithValue("@address", address);
+                cmd.Parameters.AddWithValue("@description", description);
+                cmd.Parameters.AddWithValue("@dataType", dataType);
+                cmd.Parameters.AddWithValue("@accessType", accessType);
+                cmd.Parameters.AddWithValue("@value", value);
+                cmd.Parameters.AddWithValue("@notes", notes);
+                cmd.Parameters.AddWithValue("@orders", orders);
+
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+
+            public static void DeleteModbusRegister(SQLiteConnection conn, long registerId, SQLiteTransaction transaction = null)
+            {
+                using (var cmd = new SQLiteCommand("DELETE FROM ModbusRegisters WHERE RegisterID = @registerId", conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@registerId", registerId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            public static void UpdateModbusRegisterOrder(SQLiteConnection conn, long registerId, int order, SQLiteTransaction transaction = null)
+            {
+                using (var cmd = new SQLiteCommand("UPDATE ModbusRegisters SET Orders = @order WHERE RegisterID = @registerId", conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@registerId", registerId);
+                    cmd.Parameters.AddWithValue("@order", order);
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
 
         #endregion

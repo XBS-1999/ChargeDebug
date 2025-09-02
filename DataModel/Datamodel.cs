@@ -5,6 +5,7 @@
         public int EquipmentID { get; set; }
         public string? DeviceNumber { get; set; }
         public string? DeviceName { get; set; }
+        public string? DeviceType { get; set; }
         public string? CanType { get; set; }
         public string? DeviceIP { get; set; }
         public string? DevicePort { get; set; }
@@ -16,6 +17,11 @@
         public string? DCAddress { get; set; }
         public string? CommunicationProtocols { get; set; }
         public string? Whether { get; set; }
+        public string? ComPort { get; set; }
+        public string? BaudRate { get; set; }
+        public string? DataBits { get; set; }
+        public string? Parity { get; set; }
+        public string? StopBits { get; set; }
     }
     public class MessageInfo
     {
@@ -76,21 +82,26 @@
         public string Unit { get; set; }
     }
 
-    public class ModbusRegisterInfo
+    /// <summary>
+    /// Modbus信号信息类
+    /// </summary>
+    public class ModbusSignal
     {
-        public long RegisterID { get; set; }
-        public long FileID { get; set; }
-        public string RegisterType { get; set; }
-        public int Address { get; set; }
-        public string Name { get; set; }
-        public string DataType { get; set; }
-        public string ByteOrder { get; set; }
-        public decimal ScalingFactor { get; set; }
-        public decimal Offset { get; set; }
-        public decimal? MinValue { get; set; }
-        public decimal? MaxValue { get; set; }
-        public string Unit { get; set; }
-        public string Description { get; set; }
+        public long SignalID { get; set; }
+        public long DbcFileId { get; set; }
+        public string? SignalName { get; set; }
+        public string? FunctionCode { get; set; }
+        public string? RegisterAddress { get; set; }
+        public int RegisterCount { get; set; }
+        public string? SystemVariableName { get; set; }
+        public string? Unit { get; set; }
+        public string? ByteOrder { get; set; }
+        public string? Signed { get; set; }
+        public double Factor { get; set; }
+        public double Offset { get; set; }
+        public string? ValueRange { get; set; }
         public int Orders { get; set; }
+        public DateTime CreatedDate { get; set; }
+        public DateTime ModifiedDate { get; set; }
     }
 }
