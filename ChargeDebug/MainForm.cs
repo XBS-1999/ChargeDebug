@@ -345,7 +345,7 @@ namespace ChargeDebug
             RegisterPage(typeof(Faultrecording), new Faultrecording(dbPath, equipmentList));
             RegisterPage(typeof(Upgradeonline), new Upgradeonline(equipmentList));
             RegisterPage(typeof(LogViewer), logViewer); // 注册日志页面
-            RegisterPage(typeof(CalibrationManagement), new CalibrationManagement());
+            RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath));
 
             // 加载历史日志
             //logViewer.LoadInitialLogs(LogService.GetAllLogs());

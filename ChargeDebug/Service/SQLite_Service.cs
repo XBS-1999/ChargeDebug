@@ -161,6 +161,220 @@ namespace ChargeDebug.Service
         }
         #endregion
 
+        #region CalibrationSignals表操作
+        /// <summary>
+        /// 获取CalibrationSignals表
+        /// </summary>
+        public static List<CalibrationSignals> GetCalibrationSignals(SQLiteConnection conn)
+        {
+            var signals = new List<CalibrationSignals>();
+
+            using (var cmd = new SQLiteCommand(@"SELECT * FROM CalibrationSignals ORDER BY [Orders] ASC", conn))
+            {
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        signals.Add(new CalibrationSignals
+                        {
+                            SignalID = (long)reader["SignalID"],
+                            DeviceName = reader["DeviceName"].ToString(),
+                            SignalName = reader["SignalName"].ToString(),
+                            SignalType = reader["SignalType"].ToString(),
+                            ReadTime = (long)reader["ReadTime"],
+                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
+                            CalibrationNumber = (long)reader["CalibrationNumber"],
+                            Orders = (long)reader["Orders"],
+                        });
+                    }
+                }
+            }
+
+            return signals;
+        }
+
+        /// <summary>
+        /// 删除CalibrationSignals表
+        /// </summary>
+        public static bool DeleteCalibrationSignal(SQLiteConnection conn, int signalId)
+        {
+            try
+            {
+                // 准备SQL删除语句
+                string sql = "DELETE FROM CalibrationSignals WHERE SignalID = @SignalID";
+
+                using (SQLiteCommand command = new SQLiteCommand(sql, conn))
+                {
+                    // 添加参数以防止SQL注入
+                    command.Parameters.AddWithValue("@SignalID", signalId);
+
+                    // 执行删除操作
+                    int rowsAffected = command.ExecuteNonQuery();
+
+                    // 如果影响的行数大于0，表示删除成功
+                    return rowsAffected > 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                // 记录错误日志（可选）
+                // Logger.Error($"删除校准信号失败 (SignalID: {signalId}): {ex.Message}");
+                throw new Exception($"删除校准信号失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 更新CalibrationSignals表
+        /// </summary>
+
+        public static long UpsertCalibrationSignals(SQLiteConnection conn, long signalID, string? deviceName,
+            string? signalName, string? signalType, long readTime, string? ratingVoltageCurrent, 
+            long calibrationNumber, long orders, SQLiteTransaction? transaction = null)
+        {
+            if (signalID < 0) // 新增
+            {
+                const string insertSql = @"INSERT INTO CalibrationSignals 
+                                        (DeviceName, SignalName, SignalType, ReadTime, 
+                                         RatingVoltageCurrent, CalibrationNumber, Orders)
+                                        VALUES (@deviceName, @signalName, @signalType, @readTime, 
+                                        @ratingVoltageCurrent, @calibrationNumber, @orders)
+                                        RETURNING SignalID;";
+                using (var cmd = new SQLiteCommand(insertSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@deviceName", deviceName);
+                    cmd.Parameters.AddWithValue("@signalName", signalName);
+                    cmd.Parameters.AddWithValue("@signalType", signalType);
+                    cmd.Parameters.AddWithValue("@readTime", readTime);
+                    cmd.Parameters.AddWithValue("@ratingVoltageCurrent", ratingVoltageCurrent);
+                    cmd.Parameters.AddWithValue("@calibrationNumber", calibrationNumber);
+                    cmd.Parameters.AddWithValue("@orders", orders);
+                    return (long)cmd.ExecuteScalar();
+                }
+            }
+            else // 更新
+            {
+                const string updateSql = @"UPDATE CalibrationSignals SET 
+                                      DeviceName = @deviceName,
+                                      SignalName = @signalName,
+                                      SignalType = @signalType,
+                                      ReadTime = @readTime,
+                                      RatingVoltageCurrent = @ratingVoltageCurrent,
+                                      CalibrationNumber = @calibrationNumber,
+                                      Orders = @orders
+                                      WHERE SignalID = @signalID";
+                using (var cmd = new SQLiteCommand(updateSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@deviceName", deviceName);
+                    cmd.Parameters.AddWithValue("@signalName", signalName);
+                    cmd.Parameters.AddWithValue("@signalType", signalType);
+                    cmd.Parameters.AddWithValue("@readTime", readTime);
+                    cmd.Parameters.AddWithValue("@ratingVoltageCurrent", ratingVoltageCurrent);
+                    cmd.Parameters.AddWithValue("@calibrationNumber", calibrationNumber);
+                    cmd.Parameters.AddWithValue("@orders", orders);
+                    cmd.Parameters.AddWithValue("@signalID", signalID);
+                    cmd.ExecuteNonQuery();
+                    return signalID;
+                }
+            }
+        }
+
+        // 根据ID获取校准信号
+        public static CalibrationSignals GetCalibrationSignalById(SQLiteConnection conn, long signalId)
+        {
+            string query = "SELECT * FROM CalibrationSignals WHERE SignalID = @Id";
+
+            using (var cmd = new SQLiteCommand(query, conn))
+            {
+                cmd.Parameters.AddWithValue("@Id", signalId);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return new CalibrationSignals
+                        {
+                            SignalID = Convert.ToInt64(reader["SignalID"]),
+                            DeviceName = reader["DeviceName"].ToString(),
+                            SignalName = reader["SignalName"].ToString(),
+                            SignalType = reader["SignalType"].ToString(),
+                            ReadTime = Convert.ToInt64(reader["ReadTime"]),
+                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
+                            CalibrationNumber = Convert.ToInt64(reader["CalibrationNumber"])
+                        };
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 获取所有设备名称
+        public static List<string> GetDeviceNames(SQLiteConnection conn)
+        {
+            var deviceNames = new List<string>();
+            string query = "SELECT DISTINCT DeviceName FROM CalibrationSignals";
+
+            using (var cmd = new SQLiteCommand(query, conn))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    deviceNames.Add(reader["DeviceName"].ToString());
+                }
+            }
+            return deviceNames;
+        }
+
+        // 更新校准信号
+        public static void UpdateCalibrationSignal(SQLiteConnection conn, CalibrationSignals signal)
+        {
+            string updateSql = @"
+                UPDATE CalibrationSignals 
+                SET DeviceName = @DeviceName,
+                SignalName = @SignalName,
+                SignalType = @SignalType,
+                ReadTime = @ReadTime,
+                RatingVoltageCurrent = @RatingVoltageCurrent,
+                CalibrationNumber = @CalibrationNumber
+                WHERE SignalID = @Id";
+
+            using (var cmd = new SQLiteCommand(updateSql, conn))
+            {
+                cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
+                cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
+                cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
+                cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+                cmd.Parameters.AddWithValue("@Id", signal.SignalID);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入新校准信号
+        public static void InsertCalibrationSignal(SQLiteConnection conn, CalibrationSignals signal)
+        {
+            string insertSql = @"
+            INSERT INTO CalibrationSignals 
+                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber)
+            VALUES 
+                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber)";
+
+            using (var cmd = new SQLiteCommand(insertSql, conn))
+            {
+                cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
+                cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
+                cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
+                cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        #endregion
+
         #region ModbusSignals表操作
 
         /// <summary>

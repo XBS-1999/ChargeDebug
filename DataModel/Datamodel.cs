@@ -27,9 +27,9 @@
     {
         public long MessageID { get; set; }
         public int Orders { get; set; }
-        public string CANID { get; set; }
-        public string FrameType { get; set; }
-        public string MessageName { get; set; }
+        public string? CANID { get; set; }
+        public string? FrameType { get; set; }
+        public string? MessageName { get; set; }
         public int DataLength { get; set; }
     }
     public class SignalInfo
@@ -104,5 +104,17 @@
         public int Orders { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }
+    }
+
+    public class CalibrationSignals
+    {
+        public long SignalID { get; set; }
+        public string? DeviceName { get; set; }
+        public string? SignalName { get; set; }
+        public string? SignalType { get; set; }
+        public long ReadTime { get; set; }
+        public string? RatingVoltageCurrent { get; set; }
+        public long CalibrationNumber { get; set; }
+        public long Orders { get; set; }
     }
 }

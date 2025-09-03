@@ -2,21 +2,135 @@
 using DevExpress.XtraTreeList;
 using DevExpress.XtraTreeList.Columns;
 using DevExpress.XtraLayout;
-using DevExpress.XtraTreeList.Nodes;
 using DevExpress.Utils;
 using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraEditors.Controls;
-using DocumentFormat.OpenXml.Drawing.ChartDrawing;
-using DevExpress.XtraVerticalGrid.Native;
+using DevExpress.XtraGrid;
+using System.Data.SQLite;
+using System.Data;
+using ClosedXML.Excel;
+using ChargeDebug.Service;
+using DevExpress.XtraVerticalGrid;
+using DbcParserLib.Model;
 
 namespace ChargeDebug.Form
 {
     public partial class CalibrationManagement : XtraUserControl
     {
-        public CalibrationManagement()
+        private string sqladdress = "";
+        private TreeList treeList = new TreeList();
+
+        public CalibrationManagement(string sqladdress)
         {
+            this.sqladdress = sqladdress;
             InitializeComponent();
             InitializeUI();
+            this.Load += CalibrationManagement_Load;
+        }
+
+        private void CalibrationManagement_Load(object? sender, EventArgs e)
+        {
+            // 加载数据
+            LoadData();
+        }
+
+        private void LoadData()
+        {
+            treeList.BeginUpdate();
+            treeList.ClearNodes();
+            try
+            {
+                string connectionString = $"Data Source={sqladdress};Version=3;";
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+
+                    var calibrationsignals = SQLite_Service.GetCalibrationSignals(conn);
+
+                    foreach (var calibrationsignal in calibrationsignals)
+                    {
+                        var node = treeList.AppendNode(new object[]
+                        {
+                            calibrationsignal.DeviceName,
+                            calibrationsignal.SignalName,
+                            calibrationsignal.SignalType,
+                            calibrationsignal.ReadTime,
+                            calibrationsignal.RatingVoltageCurrent,
+                            calibrationsignal.CalibrationNumber
+                        }, null);
+
+                        // 设置节点的 Tag 为信号 ID，以便后续操作
+                        node.Tag = calibrationsignal.SignalID;
+                        // 设置排序值
+                        node.SetValue("Orders", calibrationsignal.Orders);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"加载校准管理数据失败: {ex.Message}");
+            }
+            finally
+            {
+                treeList.EndUpdate();
+            }
+        }
+
+        private void BtnAddSignal_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 创建并显示添加信号的对话框
+                using (var addForm = new AddEditCalibrationSignalForm(null, sqladdress))
+                {
+                    if (addForm.ShowDialog() == DialogResult.OK)
+                    {
+                        // 刷新数据
+                        LoadData();
+                        XtraMessageBox.Show("信号添加成功!");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"添加信号失败: {ex.Message}");
+            }
+        }
+
+        private void BtnEditSignal_Click(object? sender, EventArgs e)
+        {
+            if (treeList.FocusedNode == null)
+            {
+                XtraMessageBox.Show("请先选择一个信号进行编辑!");
+                return;
+            }
+
+            try
+            {
+                // 获取选中信号的ID
+                long signalId = (long)treeList.FocusedNode.Tag;
+
+                // 创建并显示编辑信号的对话框
+                using (var editForm = new AddEditCalibrationSignalForm(signalId, sqladdress))
+                {
+                    if (editForm.ShowDialog() == DialogResult.OK)
+                    {
+                        // 刷新数据
+                        LoadData();
+                        XtraMessageBox.Show("信号编辑成功!");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"编辑信号失败: {ex.Message}");
+            }
+        }
+
+        private void BtnDeleteSignal_Click(object? sender, EventArgs e)
+        {
+
         }
 
         private void InitializeUI()
@@ -127,6 +241,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(cbAmmeter.Right + 50, 10)
             };
+            btnAddSignal.Click += BtnAddSignal_Click;
             buttonPanel.Controls.Add(btnAddSignal);
 
             SimpleButton btnEditSignal = new SimpleButton
@@ -135,6 +250,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnAddSignal.Right + 10, btnAddSignal.Location.Y)
             };
+            btnEditSignal.Click += BtnEditSignal_Click;
             buttonPanel.Controls.Add(btnEditSignal);
 
             SimpleButton btnDeleteSignal = new SimpleButton
@@ -143,6 +259,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnEditSignal.Right + 10, btnEditSignal.Location.Y)
             };
+            btnDeleteSignal.Click += BtnDeleteSignal_Click;
             buttonPanel.Controls.Add(btnDeleteSignal);
 
             SimpleButton btnStartCalibration = new SimpleButton
@@ -174,7 +291,6 @@ namespace ChargeDebug.Form
 
         private Control CreateTreeList()
         {
-            TreeList treeList = new TreeList();
             treeList.OptionsBehavior.Editable = false;
 
             // 添加列
@@ -290,34 +406,10 @@ namespace ChargeDebug.Form
             }
 
             // 启用水平滚动条
-            treeList.HorzScrollVisibility = ScrollVisibility.Auto;
-
-            // 示例数据 (实际使用时应该从数据源绑定)
-            treeList.BeginUnboundLoad();
-
-            // 创建根节点
-            TreeListNode rootNode = treeList.AppendNode(null, null);
-            rootNode.SetValue("SignalName", "电压信号");
-
-            // 添加子节点
-            TreeListNode childNode1 = treeList.AppendNode(null, rootNode);
-            childNode1.SetValue("SignalName", "主电压通道");
-            childNode1.SetValue("ScaleFactor", 1.02m);
-            childNode1.SetValue("ZeroFactor", 0.01m);
-
-            TreeListNode childNode2 = treeList.AppendNode(null, rootNode);
-            childNode2.SetValue("SignalName", "备用电压通道");
-            childNode2.SetValue("ScaleFactor", 1.01m);
-            childNode2.SetValue("ZeroFactor", 0.02m);
-
-            // 添加另一个根节点
-            TreeListNode rootNode2 = treeList.AppendNode(null, null);
-            rootNode2.SetValue("SignalName", "电流信号");
-
-            treeList.EndUnboundLoad();
+            treeList.HorzScrollVisibility = DevExpress.XtraTreeList.ScrollVisibility.Auto;
 
             // 展开所有节点
-            treeList.ExpandAll();
+            //treeList.ExpandAll();
 
             return treeList;
         }
