@@ -1,5 +1,6 @@
 ﻿using DataModel;
 using DbcParserLib.Model;
+using DevExpress.Pdf.Native.BouncyCastle.Cms;
 using System.Data;
 using System.Data.SQLite;
 
@@ -165,15 +166,12 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 获取指定DBC文件的所有信号
         /// </summary>
-        public static List<ModbusSignal> GetModbusRegistersByDbc(SQLiteConnection conn, long dbcFileId)
+        public static List<ModbusSignal> GetModbusSignalsByDbc(SQLiteConnection conn, long dbcFileId)
         {
             var signals = new List<ModbusSignal>();
 
             using (var cmd = new SQLiteCommand(@"
-                       SELECT SignalID, SignalName, FunctionCode, RegisterAddress, RegisterCount, 
-                       SystemVariableName, Unit, ByteOrder, Signed, Factor, Offset, ValueRange, Orders,
-                       CreatedDate, ModifiedDate
-                       FROM ModbusSignals 
+                       SELECT * FROM ModbusSignals 
                        WHERE DbcFileId = @dbcFileId 
                        ORDER BY Orders", conn))
             {
@@ -186,20 +184,19 @@ namespace ChargeDebug.Service
                         signals.Add(new ModbusSignal
                         {
                             SignalID = reader.GetInt64(0),
-                            SignalName = reader.GetString(1),
-                            FunctionCode = reader.GetString(2),
-                            RegisterAddress = reader.GetString(3),
-                            RegisterCount = reader.GetInt32(4),
-                            SystemVariableName = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                            Unit = reader.IsDBNull(6) ? "" : reader.GetString(6),
-                            ByteOrder = reader.IsDBNull(7) ? "Inter" : reader.GetString(7),
-                            Signed = reader.IsDBNull(8) ? "Unsigned" : reader.GetString(8),
-                            Factor = reader.IsDBNull(9) ? 1.0 : reader.GetDouble(9),
-                            Offset = reader.IsDBNull(10) ? 0.0 : reader.GetDouble(10),
-                            ValueRange = reader.IsDBNull(11) ? "" : reader.GetString(11),
-                            Orders = reader.GetInt32(12),
-                            CreatedDate = reader.GetDateTime(13),
-                            ModifiedDate = reader.GetDateTime(14)
+                            SignalName = reader.GetString(2),
+                            CorrespondenceAddress = reader.GetString(3),
+                            FunctionCode = reader.GetString(4),
+                            RegisterAddress = reader.GetString(5),
+                            RegisterCount = reader.GetInt32(6),
+                            SystemVariableName = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                            Unit = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                            ByteOrder = reader.IsDBNull(9) ? "Inter" : reader.GetString(9),
+                            Signed = reader.IsDBNull(10) ? "Unsigned" : reader.GetString(10),
+                            Factor = reader.IsDBNull(11) ? 1.0 : reader.GetDouble(11),
+                            Offset = reader.IsDBNull(12) ? 0.0 : reader.GetDouble(12),
+                            ValueRange = reader.IsDBNull(13) ? "" : reader.GetString(13),
+                            Orders = reader.GetInt32(14)
                         });
                     }
                 }
@@ -211,53 +208,89 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 插入或更新Modbus寄存器
         /// </summary>
-        public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, string address, string description,
-                                              string dataType, string accessType, string value, string notes,
-                                              int orders, long dbcFileId, SQLiteTransaction transaction = null)
+        public static long UpsertModbusSignal(SQLiteConnection conn, 
+            long signalId, long dbcFileId,string signalName, string correspondenceAddress, string functionCode, string registerAddress,
+            int registerCount, string systemVariableName, string unit,string byteOrder, string signed, 
+            double factor, double offset,string valueRange, int orders, SQLiteTransaction transaction = null)
         {
-            SQLiteCommand cmd;
-
-            if (registerId == -1)
+            if (signalId < 0) // 新增
             {
-                // 插入新记录
-                cmd = new SQLiteCommand(@"
-                INSERT INTO ModbusRegisters 
-                (DbcFileId, Address, Description, DataType, AccessType, Value, Notes, Orders) 
-                VALUES (@dbcFileId, @address, @description, @dataType, @accessType, @value, @notes, @orders);
-                SELECT last_insert_rowid();", conn, transaction);
+                const string insertSql = @"INSERT INTO ModbusSignals 
+                                      (DbcFileId, SignalName, CorrespondenceAddress, FunctionCode, RegisterAddress, RegisterCount, 
+                                       SystemVariableName, Unit, ByteOrder, Signed, Factor, Offset, ValueRange, Orders)
+                                      VALUES (@dbcFileId, @signalName, @correspondenceAddress, @functionCode, @registerAddress, @registerCount,
+                                              @systemVariableName, @unit, @byteOrder, @signed, @factor, @offset, @valueRange, @orders)
+                                      RETURNING SignalID;";
+
+                using (var cmd = new SQLiteCommand(insertSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+                    cmd.Parameters.AddWithValue("@signalName", signalName);
+                    cmd.Parameters.AddWithValue("@correspondenceAddress", correspondenceAddress);
+                    cmd.Parameters.AddWithValue("@functionCode", functionCode);
+                    cmd.Parameters.AddWithValue("@registerAddress", registerAddress);
+                    cmd.Parameters.AddWithValue("@registerCount", registerCount);
+                    cmd.Parameters.AddWithValue("@systemVariableName", systemVariableName);
+                    cmd.Parameters.AddWithValue("@unit", unit);
+                    cmd.Parameters.AddWithValue("@byteOrder",byteOrder);
+                    cmd.Parameters.AddWithValue("@signed", signed);
+                    cmd.Parameters.AddWithValue("@factor", factor);
+                    cmd.Parameters.AddWithValue("@offset", offset);
+                    cmd.Parameters.AddWithValue("@valueRange", valueRange);
+                    cmd.Parameters.AddWithValue("@orders", orders);
+                    return (long)cmd.ExecuteScalar();
+                }
             }
             else
             {
-                // 更新现有记录
-                cmd = new SQLiteCommand(@"
-                UPDATE ModbusRegisters SET 
-                Address = @address, Description = @description, DataType = @dataType, 
-                AccessType = @accessType, Value = @value, Notes = @notes, Orders = @orders
-                WHERE RegisterID = @registerId;
-                SELECT @registerId;", conn, transaction);
-                cmd.Parameters.AddWithValue("@registerId", registerId);
+                const string updateSql = @"UPDATE ModbusSignals SET
+                                           DbcFileId = @dbcFileId,
+                                           SignalName = @signalName,
+                                           CorrespondenceAddress = @correspondenceAddress,
+                                           FunctionCode = @functionCode,
+                                           RegisterAddress = @registerAddress, 
+                                           RegisterCount = @registerCount, 
+                                           SystemVariableName = @systemVariableName, 
+                                           Unit = @unit, 
+                                           ByteOrder = @byteOrder, 
+                                           Signed = @signed, 
+                                           Factor = @factor, 
+                                           Offset = @offset,
+                                           ValueRange = @valueRange, 
+                                           Orders = @orders
+                                           WHERE SignalID = @id";
+                
+                using (var cmd = new SQLiteCommand(updateSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@id", signalId);
+                    cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
+                    cmd.Parameters.AddWithValue("@signalName", signalName);
+                    cmd.Parameters.AddWithValue("@correspondenceAddress", correspondenceAddress);
+                    cmd.Parameters.AddWithValue("@functionCode", functionCode);
+                    cmd.Parameters.AddWithValue("@registerAddress", registerAddress);
+                    cmd.Parameters.AddWithValue("@registerCount", registerCount);
+                    cmd.Parameters.AddWithValue("@systemVariableName", systemVariableName);
+                    cmd.Parameters.AddWithValue("@unit", unit);
+                    cmd.Parameters.AddWithValue("@byteOrder", byteOrder);
+                    cmd.Parameters.AddWithValue("@signed", signed);
+                    cmd.Parameters.AddWithValue("@factor", factor);
+                    cmd.Parameters.AddWithValue("@offset", offset);
+                    cmd.Parameters.AddWithValue("@valueRange", valueRange);
+                    cmd.Parameters.AddWithValue("@orders", orders);
+                    cmd.ExecuteNonQuery();
+                    return signalId;
+                }
             }
-
-            cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
-            cmd.Parameters.AddWithValue("@address", address);
-            cmd.Parameters.AddWithValue("@description", description);
-            cmd.Parameters.AddWithValue("@dataType", dataType);
-            cmd.Parameters.AddWithValue("@accessType", accessType);
-            cmd.Parameters.AddWithValue("@value", string.IsNullOrEmpty(value) ? DBNull.Value : (object)value);
-            cmd.Parameters.AddWithValue("@notes", string.IsNullOrEmpty(notes) ? DBNull.Value : (object)notes);
-            cmd.Parameters.AddWithValue("@orders", orders);
-
-            return Convert.ToInt64(cmd.ExecuteScalar());
         }
 
         /// <summary>
         /// 删除Modbus寄存器
         /// </summary>
-        public static void DeleteModbusRegister(SQLiteConnection conn, long registerId, SQLiteTransaction transaction = null)
+        public static void DeleteModbusSignals(SQLiteConnection conn, long signalID, SQLiteTransaction transaction = null)
         {
-            using (var cmd = new SQLiteCommand("DELETE FROM ModbusRegisters WHERE RegisterID = @registerId", conn, transaction))
+            using (var cmd = new SQLiteCommand("DELETE FROM ModbusSignals WHERE SignalID = @signalID", conn, transaction))
             {
-                cmd.Parameters.AddWithValue("@registerId", registerId);
+                cmd.Parameters.AddWithValue("@signalID", signalID);
                 cmd.ExecuteNonQuery();
             }
         }

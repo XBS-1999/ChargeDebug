@@ -273,7 +273,7 @@ namespace ChargeDebug
             buttonItem6.ItemClick += (s, e) => ShowPage(typeof(Faultrecording));
             buttonItem7.ItemClick += (s, e) => ShowPage(typeof(Upgradeonline));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer)); // 日志按钮事件
-            buttonItem9.ItemClick += (s, e) => ShowPage(typeof(Agreement));
+            buttonItem9.ItemClick += (s, e) => ShowPage(typeof(CalibrationManagement));
 
             buttonItem8.ItemClick += (s, e) => SwitchUser();
 
@@ -345,7 +345,8 @@ namespace ChargeDebug
             RegisterPage(typeof(Faultrecording), new Faultrecording(dbPath, equipmentList));
             RegisterPage(typeof(Upgradeonline), new Upgradeonline(equipmentList));
             RegisterPage(typeof(LogViewer), logViewer); // 注册日志页面
-            
+            RegisterPage(typeof(CalibrationManagement), new CalibrationManagement());
+
             // 加载历史日志
             //logViewer.LoadInitialLogs(LogService.GetAllLogs());
 

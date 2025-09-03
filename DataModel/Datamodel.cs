@@ -90,6 +90,7 @@
         public long SignalID { get; set; }
         public long DbcFileId { get; set; }
         public string? SignalName { get; set; }
+        public string? CorrespondenceAddress { get; set; }
         public string? FunctionCode { get; set; }
         public string? RegisterAddress { get; set; }
         public int RegisterCount { get; set; }

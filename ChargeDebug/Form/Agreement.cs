@@ -18,6 +18,7 @@ using System.ComponentModel;
 using ChargeDebug.Service;
 using System.Globalization;
 using DataModel;
+using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 
 namespace ChargeDebug.Form
 {
@@ -231,9 +232,8 @@ namespace ChargeDebug.Form
             else if (protocolType == "Modbus" && _currentProtocolHandler is ModbusProtocolHandler modbusHandler)
             {
                 treeList.RepositoryItems.AddRange(new RepositoryItem[] {
-                    modbusHandler.RepoRegisterType,
-                    modbusHandler.RepoDataType,
-                    modbusHandler.RepoAccessType,
+                    modbusHandler.RepoByteOrder,
+                    modbusHandler.RepoSigned,
                     modbusHandler.RepositoryTextEdit
                 });
             }
@@ -2241,15 +2241,13 @@ namespace ChargeDebug.Form
         public class ModbusProtocolHandler : IProtocolHandler
         {
             // Modbus寄存器类型编辑器
-            private RepositoryItemComboBox _repoRegisterType;
-            private RepositoryItemComboBox _repoDataType;
-            private RepositoryItemComboBox _repoAccessType;
+            private RepositoryItemComboBox _repoByteOrder;
+            private RepositoryItemComboBox _repoSigned;
             private RepositoryItemTextEdit _repositoryTextEdit;
 
             // 提供对编辑器的访问属性
-            public RepositoryItemComboBox RepoRegisterType => _repoRegisterType;
-            public RepositoryItemComboBox RepoDataType => _repoDataType;
-            public RepositoryItemComboBox RepoAccessType => _repoAccessType;
+            public RepositoryItemComboBox RepoByteOrder => _repoByteOrder;
+            public RepositoryItemComboBox RepoSigned => _repoSigned;
             public RepositoryItemTextEdit RepositoryTextEdit => _repositoryTextEdit;
 
             // Modbus寄存器定义（根据文档）
@@ -2273,22 +2271,16 @@ namespace ChargeDebug.Form
 
             public void InitializeEditors()
             {
-                _repoRegisterType = new RepositoryItemComboBox
+                _repoByteOrder = new RepositoryItemComboBox
                 {
                     TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "0x0001", "0x0002", "0x0003", "0x0005", "0x0007", "0x0009", "0x0008", "0x0009", "0x0010", "0x0011", "0x0013", "0x0015", "0x0017", "0x0019" }
+                    Items = { "Motorola", "Inter" }
                 };
 
-                _repoDataType = new RepositoryItemComboBox
+                _repoSigned = new RepositoryItemComboBox
                 {
                     TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "u16", "float" }
-                };
-
-                _repoAccessType = new RepositoryItemComboBox
-                {
-                    TextEditStyle = TextEditStyles.DisableTextEditor,
-                    Items = { "r", "rw" }
+                    Items = { "Signed", "Unsigned" }
                 };
 
                 _repositoryTextEdit = new RepositoryItemTextEdit();
@@ -2296,20 +2288,51 @@ namespace ChargeDebug.Form
 
             public void LoadData(SQLiteConnection conn, long dbcFileId, TreeList treeList)
             {
-                var registers = SQLite_Service.GetModbusRegistersByDbc(conn, dbcFileId);
-
-                foreach (var reg in registers)
+                // 开始批量操作（防止界面闪烁）
+                treeList.BeginUnboundLoad();
+                try
                 {
-                    treeList.AppendNode(new object[]
+                    // 清空现有节点
+                    treeList.ClearNodes();
+
+                    // 从数据库加载 Modbus 信号数据
+                    var signals = SQLite_Service.GetModbusSignalsByDbc(conn, dbcFileId);
+
+                    // 将数据添加到 TreeList
+                    foreach (var signal in signals)
                     {
-                        reg.Address,
-                        reg.Description,
-                        reg.DataType,
-                        reg.AccessType,
-                        reg.Value,
-                        reg.Notes,
-                        reg.Orders
-                    }, null);
+                        var node = treeList.AppendNode(new object[]
+                        {
+                            signal.SignalName,
+                            signal.CorrespondenceAddress,
+                            signal.FunctionCode,
+                            signal.RegisterAddress,
+                            signal.RegisterCount,
+                            signal.SystemVariableName,
+                            signal.Unit,
+                            signal.ByteOrder,
+                            signal.Signed,
+                            signal.Factor,
+                            signal.Offset,
+                            signal.ValueRange
+                        }, null);
+
+                        // 设置节点的 Tag 为信号 ID，以便后续操作
+                        node.Tag = signal.SignalID;
+
+                        // 设置排序值
+                        node.SetValue("Orders", signal.Orders);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 记录错误日志或显示错误消息
+                    XtraMessageBox.Show($"加载 Modbus 数据失败: {ex.Message}");
+                }
+                finally
+                {
+                    // 结束批量操作
+                    treeList.EndUnboundLoad();
                 }
             }
 
@@ -2318,9 +2341,10 @@ namespace ChargeDebug.Form
                 treeList.Columns.Clear();
                 treeList.Columns.AddRange(new[] {
                     new TreeListColumn { Caption = "信号名称", VisibleIndex = 0, Width = 150 },
-                    new TreeListColumn { Caption = "功能码", VisibleIndex = 1, Width = 100 },
-                    new TreeListColumn { Caption = "寄存器地址", VisibleIndex = 2, Width = 100 },
-                    new TreeListColumn { Caption = "寄存器个数", VisibleIndex = 3, Width = 100 },
+                    new TreeListColumn { Caption = "通讯地址", VisibleIndex = 1, Width = 100 },
+                    new TreeListColumn { Caption = "功能码", VisibleIndex = 2, Width = 100 },
+                    new TreeListColumn { Caption = "寄存器地址", VisibleIndex = 3, Width = 100 },
+                    new TreeListColumn { Caption = "寄存器个数", VisibleIndex = 4, Width = 100 },
                     //new TreeListColumn { Caption = "字节数", VisibleIndex = 4, Width = 100 },
                     new TreeListColumn { Caption = "关联系统变量名称", VisibleIndex = 5, Width = 150 },
                     new TreeListColumn { Caption = "单位", VisibleIndex = 6, Width = 80 },
@@ -2337,14 +2361,11 @@ namespace ChargeDebug.Form
             {
                 switch (e.Column.Caption)
                 {
-                    case "寄存器地址":
-                        e.RepositoryItem = _repoRegisterType;
+                    case "字节顺序":
+                        e.RepositoryItem = _repoByteOrder;
                         break;
-                    case "数据类型":
-                        e.RepositoryItem = _repoDataType;
-                        break;
-                    case "读写权限":
-                        e.RepositoryItem = _repoAccessType;
+                    case "符号":
+                        e.RepositoryItem = _repoSigned;
                         break;
                     default:
                         e.RepositoryItem = _repositoryTextEdit;
@@ -2378,19 +2399,20 @@ namespace ChargeDebug.Form
                         conn.Open();
 
                         // 获取最大排序值
-                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "ModbusRegisters") + 1;
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "ModbusSignals") + 1;
                         var newNode = treeList.AppendNode(new object[]
                         {
                             "",       // 信号名称
+                            "0x00",   // 地址码
                             "0x00",   // 功能码
                             "0x0001", // 寄存器地址
                             "1",      // 寄存器个数
                             "",       // 关联系统变量名称
                             "",       // 单位
-                            "",       // 字节顺序
-                            "",       // 符号
-                            "",       // 系数
-                            "",       // 偏移
+                            "Inter",       // 字节顺序
+                            "Signed",       // 符号
+                            "1",       // 系数
+                            "0",       // 偏移
                             "",       // 范围
                             maxSortOrder // 排序
                         }, null);
@@ -2414,12 +2436,12 @@ namespace ChargeDebug.Form
 
                 if (nodesToDelete.Count == 0)
                 {
-                    XtraMessageBox.Show("请先选择要删除的寄存器");
+                    XtraMessageBox.Show("请先选择要删除的信号");
                     return;
                 }
 
                 // 确认删除
-                if (XtraMessageBox.Show($"确定要删除选中的 {nodesToDelete.Count} 个寄存器吗？",
+                if (XtraMessageBox.Show($"确定要删除选中的 {nodesToDelete.Count} 个信号吗？",
                                       "确认删除", MessageBoxButtons.YesNo) != DialogResult.Yes)
                 {
                     return;
@@ -2439,7 +2461,7 @@ namespace ChargeDebug.Form
                                 long registerId = Convert.ToInt64(node.Tag ?? -1);
                                 if (registerId == -1) continue;
 
-                                SQLite_Service.DeleteModbusRegister(conn, registerId);
+                                SQLite_Service.DeleteModbusSignals(conn, registerId);
                             }
 
                             transaction.Commit();
@@ -2450,7 +2472,7 @@ namespace ChargeDebug.Form
                                 treeList.DeleteNode(nodesToDelete[i]);
                             }
 
-                            XtraMessageBox.Show($"成功删除 {nodesToDelete.Count} 个寄存器！");
+                            XtraMessageBox.Show($"成功删除 {nodesToDelete.Count} 个信号！");
                         }
                         catch (Exception ex)
                         {
@@ -2542,42 +2564,59 @@ namespace ChargeDebug.Form
                 // 获取所有节点
                 var nodes = treeList.Nodes.Cast<TreeListNode>().ToList();
 
-                // 保存寄存器数据
+                // 保存信号数据
                 foreach (var node in nodes)
                 {
-                    ProcessRegisterNode(conn, dbcFileId, node, transaction);
+                    ProcessSignalNode(conn, dbcFileId, node, transaction);
                 }
             }
 
-            private void ProcessRegisterNode(SQLiteConnection conn, long dbcFileId, TreeListNode node, SQLiteTransaction transaction)
+            /// <summary>
+            /// 处理单个信号节点并保存到数据库
+            /// </summary>
+            private void ProcessSignalNode(SQLiteConnection conn, long dbcFileId, TreeListNode node, SQLiteTransaction transaction)
             {
-                var regInfo = new ModbusRegisterInfo
-                {
-                    RegisterID = node.Tag as long? ?? -1,
-                    Address = node.GetValue("寄存器地址").ToString(),
-                    Description = node.GetValue("描述").ToString(),
-                    DataType = node.GetValue("数据类型").ToString(),
-                    AccessType = node.GetValue("读写权限").ToString(),
-                    Value = node.GetValue("值").ToString(),
-                    Notes = node.GetValue("备注").ToString(),
-                    Orders = Convert.ToInt32(node.GetValue("Orders") ?? 0)
-                };
+                // 保存原始ID（可能是临时ID）
+                long originalId = Convert.ToInt64(node.Tag ?? -1);
 
-                long regId = SQLite_Service.UpsertModbusRegister(
+                // 获取节点的值
+                string signalName = node.GetValue("信号名称")?.ToString() ?? "";
+                string correspondenceAddress = node.GetValue("通讯地址")?.ToString() ?? "";
+                string functionCode = node.GetValue("功能码")?.ToString() ?? "";
+                string registerAddress = node.GetValue("寄存器地址")?.ToString() ?? "";
+                int registerCount = Convert.ToInt32(node.GetValue("寄存器个数") ?? 1);
+                string systemVariableName = node.GetValue("关联系统变量名称")?.ToString() ?? "";
+                string unit = node.GetValue("单位")?.ToString() ?? "";
+                string byteOrder = node.GetValue("字节顺序")?.ToString() ?? "Inter";
+                string signed = node.GetValue("符号")?.ToString() ?? "Unsigned";
+                double factor = Convert.ToDouble(node.GetValue("系数") ?? 1.0);
+                double offset = Convert.ToDouble(node.GetValue("偏移") ?? 0.0);
+                string valueRange = node.GetValue("范围")?.ToString() ?? "";
+                int order = Convert.ToInt32(node.GetValue("Orders") ?? 0);
+
+                // 插入或更新信号
+                long signalId = SQLite_Service.UpsertModbusSignal(
                     conn: conn,
-                    registerId: regInfo.RegisterID,
-                    address: regInfo.Address,
-                    description: regInfo.Description,
-                    dataType: regInfo.DataType,
-                    accessType: regInfo.AccessType,
-                    value: regInfo.Value,
-                    notes: regInfo.Notes,
-                    orders: regInfo.Orders,
+                    signalId: originalId,
                     dbcFileId: dbcFileId,
+                    signalName: signalName,
+                    correspondenceAddress: correspondenceAddress,
+                    functionCode: functionCode,
+                    registerAddress: registerAddress,
+                    registerCount: registerCount,
+                    systemVariableName: systemVariableName,
+                    unit: unit,
+                    byteOrder: byteOrder,
+                    signed: signed,
+                    factor: factor,
+                    offset: offset,
+                    valueRange: valueRange,
+                    orders: order,
                     transaction: transaction
                 );
 
-                node.Tag = regId;
+                // 更新节点的Tag为数据库ID
+                node.Tag = signalId;
             }
 
             public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction)
@@ -2591,23 +2630,23 @@ namespace ChargeDebug.Form
                 try
                 {
                     // 复制Modbus寄存器数据
-                    var sourceRegisters = SQLite_Service.GetModbusRegistersByDbc(conn, sourceFileId);
+                    var sourceRegisters = SQLite_Service.GetModbusSignalsByDbc(conn, sourceFileId);
 
                     foreach (var sourceReg in sourceRegisters)
                     {
-                        SQLite_Service.UpsertModbusRegister(
-                            conn,
-                            registerId: -1, // 新记录
-                            address: sourceReg.Address,
-                            description: sourceReg.Description,
-                            dataType: sourceReg.DataType,
-                            accessType: sourceReg.AccessType,
-                            value: sourceReg.Value,
-                            notes: sourceReg.Notes,
-                            orders: sourceReg.Orders,
-                            dbcFileId: newFileId,
-                            transaction: transaction
-                        );
+                        //SQLite_Service.UpsertModbusRegister(
+                        //    conn,
+                        //    registerId: -1, // 新记录
+                        //    address: sourceReg.Address,
+                        //    description: sourceReg.Description,
+                        //    dataType: sourceReg.DataType,
+                        //    accessType: sourceReg.AccessType,
+                        //    value: sourceReg.Value,
+                        //    notes: sourceReg.Notes,
+                        //    orders: sourceReg.Orders,
+                        //    dbcFileId: newFileId,
+                        //    transaction: transaction
+                        //);
                     }
                 }
                 catch (Exception ex)
@@ -2641,96 +2680,6 @@ namespace ChargeDebug.Form
                     DataType = type;
                     AccessType = access;
                     Notes = notes;
-                }
-            }
-        }
-
-        // 需要在SQLite_Service类中添加以下方法支持Modbus协议
-        public static class SQLite_Service_ModbusExtensions
-        {
-            public static List<ModbusRegisterInfo> GetModbusRegistersByDbc(SQLiteConnection conn, long dbcFileId)
-            {
-                var registers = new List<ModbusRegisterInfo>();
-
-                using (var cmd = new SQLiteCommand("SELECT * FROM ModbusRegisters WHERE DbcFileId = @dbcFileId ORDER BY Orders", conn))
-                {
-                    cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            registers.Add(new ModbusRegisterInfo
-                            {
-                                RegisterID = reader.GetInt64(0),
-                                Address = reader.GetString(2),
-                                Description = reader.GetString(3),
-                                DataType = reader.GetString(4),
-                                AccessType = reader.GetString(5),
-                                Value = reader.GetString(6),
-                                Notes = reader.GetString(7),
-                                Orders = reader.GetInt32(8)
-                            });
-                        }
-                    }
-                }
-
-                return registers;
-            }
-
-            public static long UpsertModbusRegister(SQLiteConnection conn, long registerId, string address, string description,
-                                                  string dataType, string accessType, string value, string notes,
-                                                  int orders, long dbcFileId, SQLiteTransaction transaction = null)
-            {
-                SQLiteCommand cmd;
-
-                if (registerId == -1)
-                {
-                    // 插入新记录
-                    cmd = new SQLiteCommand(@"INSERT INTO ModbusRegisters 
-                                    (DbcFileId, Address, Description, DataType, AccessType, Value, Notes, Orders) 
-                                    VALUES (@dbcFileId, @address, @description, @dataType, @accessType, @value, @notes, @orders);
-                                    SELECT last_insert_rowid();", conn, transaction);
-                }
-                else
-                {
-                    // 更新现有记录
-                    cmd = new SQLiteCommand(@"UPDATE ModbusRegisters SET 
-                                    Address = @address, Description = @description, DataType = @dataType, 
-                                    AccessType = @accessType, Value = @value, Notes = @notes, Orders = @orders
-                                    WHERE RegisterID = @registerId;
-                                    SELECT @registerId;", conn, transaction);
-                    cmd.Parameters.AddWithValue("@registerId", registerId);
-                }
-
-                cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
-                cmd.Parameters.AddWithValue("@address", address);
-                cmd.Parameters.AddWithValue("@description", description);
-                cmd.Parameters.AddWithValue("@dataType", dataType);
-                cmd.Parameters.AddWithValue("@accessType", accessType);
-                cmd.Parameters.AddWithValue("@value", value);
-                cmd.Parameters.AddWithValue("@notes", notes);
-                cmd.Parameters.AddWithValue("@orders", orders);
-
-                return Convert.ToInt64(cmd.ExecuteScalar());
-            }
-
-            public static void DeleteModbusRegister(SQLiteConnection conn, long registerId, SQLiteTransaction transaction = null)
-            {
-                using (var cmd = new SQLiteCommand("DELETE FROM ModbusRegisters WHERE RegisterID = @registerId", conn, transaction))
-                {
-                    cmd.Parameters.AddWithValue("@registerId", registerId);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-
-            public static void UpdateModbusRegisterOrder(SQLiteConnection conn, long registerId, int order, SQLiteTransaction transaction = null)
-            {
-                using (var cmd = new SQLiteCommand("UPDATE ModbusRegisters SET Orders = @order WHERE RegisterID = @registerId", conn, transaction))
-                {
-                    cmd.Parameters.AddWithValue("@registerId", registerId);
-                    cmd.Parameters.AddWithValue("@order", order);
-                    cmd.ExecuteNonQuery();
                 }
             }
         }

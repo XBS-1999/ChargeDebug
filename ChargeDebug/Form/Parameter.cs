@@ -660,6 +660,7 @@ namespace ChargeDebug.Form
                     Appearance = { TextOptions = { HAlignment = DevExpress.Utils.HorzAlignment.Far } }
                 };
                 group.Controls.Add(labelControl);
+                
                 // 创建输入框
                 TextEdit textEdit = new TextEdit
                 {
