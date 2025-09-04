@@ -4,7 +4,6 @@ using System.Text;
 using System.Diagnostics;
 using DataModel;
 using Log;
-using System;
 
 namespace ChargeDebug.Service
 {
@@ -296,12 +295,36 @@ namespace ChargeDebug.Service
 
         #region 公共方法
 
-        // 添加发送控制方法
-        //public static void SetGlobalSendingEnabled(bool enabled)
-        //{
-        //    _globalSendingEnabled = enabled;
-        //    LogService.Log($"全局发送状态: {(enabled ? "启用" : "禁用")}");
-        //}
+        public bool IsChannelConnected(string channelKey)
+        {
+            try
+            {
+                // 检查连接状态字典中是否有该通道的记录
+                if (_connectionStatus.TryGetValue(channelKey, out bool isConnected))
+                {
+                    return isConnected;
+                }
+
+                // 如果没有记录，检查设备句柄字典
+                if (_deviceHandles.ContainsKey(channelKey))
+                {
+                    // 如果有设备句柄但连接状态字典中没有记录，可能是刚注册但状态还未更新
+                    // 尝试获取接收队列状态作为辅助判断
+                    if (_receiveQueues.TryGetValue(channelKey, out var queue))
+                    {
+                        // 如果有接收队列存在，认为连接是活跃的
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"检查通道 {channelKey} 连接状态失败: {ex.Message}");
+                return false;
+            }
+        }
 
         /*
          * 注册CAN通道
@@ -322,8 +345,8 @@ namespace ChargeDebug.Service
             //Init();
             lock (_registerLock)
             {
-                int deviceIndex = equipment.DeviceIndex;
-                int channelIndex = equipment.CanIndex;
+                int? deviceIndex = equipment.DeviceIndex;
+                int? channelIndex = equipment.CanIndex;
                 string key = GetChannelKey(deviceIndex, channelIndex);
 
                 if (_deviceHandles.ContainsKey(key) && !isReconnect)
@@ -407,25 +430,6 @@ namespace ChargeDebug.Service
                     UpdateConnectionStatus(key, true);
                     _lastReceiveTime[key] = DateTime.Now;
 
-                    // +++ 重连成功后关键修复 +++
-                    // 1. 确保接收队列存在
-                    //_receiveQueues[key] = new ConcurrentQueue<ZCAN_Receive_Data>();
-                    //// 2. 重新注册数据处理器
-                    //if (isReconnect && _dataHandlers.TryGetValue(key, out var handler))
-                    //{
-                    //    // 重新绑定处理器
-                    //    _dataHandlers[key] = handler;
-
-                    //    // 3. 重新注册信号定义
-                    //    if (_equipmentInfo.TryGetValue(key, out var eq))
-                    //    {
-                    //        foreach (var kvp in eq.SignalDefinitions)
-                    //        {
-                    //            RegisterSignals(kvp.Key, kvp.Value);
-                    //        }
-                    //    }
-                    //}
-
                     _receiveQueues.GetOrAdd(key, new ConcurrentQueue<ZCAN_Receive_Data>());
 
                     //logger.Info($"通道{(isReconnect ? "重连" : "启动")}成功: {key}");
@@ -465,7 +469,7 @@ namespace ChargeDebug.Service
          * 功能：
          * 为指定通道注册数据接收处理函数
          */
-        public void RegisterDataHandler(int deviceIndex, int channelIndex, Action<List<ZCAN_Receive_Data>> handler)
+        public void RegisterDataHandler(int? deviceIndex, int? channelIndex, Action<List<ZCAN_Receive_Data>> handler)
         {
             string key = GetChannelKey(deviceIndex, channelIndex);
             _dataHandlers.AddOrUpdate(key, handler, (k, oldHandler) => oldHandler + handler);
@@ -477,7 +481,7 @@ namespace ChargeDebug.Service
          * 功能：
          * 移除指定通道的数据处理函数
          */
-        public void UnregisterDataHandler(int deviceNumber, int channelIndex, Action<List<ZCAN_Receive_Data>> handler)
+        public void UnregisterDataHandler(int? deviceNumber, int? channelIndex, Action<List<ZCAN_Receive_Data>> handler)
         {
             string key = GetChannelKey(deviceNumber, channelIndex);
             if (_dataHandlers.TryGetValue(key, out var existingHandler))
@@ -581,7 +585,7 @@ namespace ChargeDebug.Service
          * 功能：
          * 向指定通道发送CAN帧
          */
-        public void SendCommand(int deviceNumber, int channelIndex, uint canId, byte[] data)
+        public void SendCommand(int? deviceNumber, int? channelIndex, uint canId, byte[] data)
         {
             // 检查全局发送状态
             if (!_globalSendingEnabled)
@@ -655,7 +659,7 @@ namespace ChargeDebug.Service
          * 功能：
          * 生成设备号-通道号的唯一标识字符串
          */
-        public static string GetChannelKey(int deviceNumber, int channelIndex)
+        public static string GetChannelKey(int? deviceNumber, int? channelIndex)
         {
             return $"{deviceNumber}-{channelIndex}";
         }
@@ -945,7 +949,7 @@ namespace ChargeDebug.Service
             FullReset();  // 使用统一的重置方法
         }
 
-        public void UnregisterChannel(int deviceIndex, int canIndex)
+        public void UnregisterChannel(int? deviceIndex, int? canIndex)
         {
             string key = GetChannelKey(deviceIndex, canIndex);
 

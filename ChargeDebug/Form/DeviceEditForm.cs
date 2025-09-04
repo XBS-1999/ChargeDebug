@@ -138,11 +138,12 @@ namespace ChargeDebug.Form
             labelDeviceType = new LabelControl { Text = "设备类型:", Location = new Point(70, 62) };
             deviceType = new ComboBoxEdit { Location = new Point(150, 60), Width = 150 };
             deviceType.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            deviceType.Properties.Items.AddRange(new[] { "充放电设备", "电池BMS", "校准电压源", "校准万用表" });
+            deviceType.Properties.Items.AddRange(new[] { "充放电设备", "电池BMS", "电压源", "电压表", "电流表" });
             deviceType.SelectedIndexChanged += DeviceType_SelectedIndexChanged;
 
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
+            cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.Properties.Items.AddRange(new[] { "CANET-2E-U", "RS485-MODBUS" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
@@ -154,9 +155,9 @@ namespace ChargeDebug.Form
 
             labelWhether = new LabelControl { Text = "是否启用设备:", Location = new Point(340, 102) };
             whether = new ComboBoxEdit { Location = new Point(450, 100), Width = 150 };
-            whether.Properties.Items.AddRange(new[] { "启用", "禁用" });
             whether.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-
+            whether.Properties.Items.AddRange(new[] { "启用", "禁用" });
+            
             // 设备配置分组
             equipmentGroup = new GroupControl
             {
@@ -224,25 +225,30 @@ namespace ChargeDebug.Form
 
             labelComPort = new LabelControl { Text = "串口号:", Location = new Point(70, 32) };
             comPort = new ComboBoxEdit { Location = new Point(150, 30), Width = 150 };
+            comPort.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             LoadComPorts();
 
             labelBaudRate = new LabelControl { Text = "波特率:", Location = new Point(340, 32) };
             baudRate = new ComboBoxEdit { Location = new Point(450, 30), Width = 150 };
+            baudRate.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             baudRate.Properties.Items.AddRange(new object[] { "9600", "19200", "38400", "57600", "115200" });
             baudRate.Text = "9600";
 
             labelDataBits = new LabelControl { Text = "数据位:", Location = new Point(70, 72) };
             dataBits = new ComboBoxEdit { Location = new Point(150, 70), Width = 150 };
+            dataBits.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             dataBits.Properties.Items.AddRange(new object[] { "5", "6", "7", "8" });
             dataBits.Text = "8";
 
             labelParity = new LabelControl { Text = "校验位:", Location = new Point(340, 72) };
             parity = new ComboBoxEdit { Location = new Point(450, 70), Width = 150 };
+            parity.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             parity.Properties.Items.AddRange(new object[] { "无", "奇校验", "偶校验", "Mark", "空格校验" });
             parity.Text = "无";
 
             labelStopBits = new LabelControl { Text = "停止位:", Location = new Point(70, 112) };
             stopBits = new ComboBoxEdit { Location = new Point(150, 110), Width = 150 };
+            stopBits.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             stopBits.Properties.Items.AddRange(new object[] { "1", "1.5", "2" });
             stopBits.Text = "1";
 

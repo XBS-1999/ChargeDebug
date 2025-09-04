@@ -12,16 +12,31 @@ using ClosedXML.Excel;
 using ChargeDebug.Service;
 using DevExpress.XtraVerticalGrid;
 using DbcParserLib.Model;
+using DataModel;
+using Aspose.Pdf.Devices;
+using DevExpress.Diagram.Core.Shapes;
+using static ChargeDebug.Service.CANManager;
+using System.Diagnostics.Metrics;
+using Aspose.Pdf.Operators;
+using Log;
+using Aspose.Pdf.Annotations;
 
 namespace ChargeDebug.Form
 {
     public partial class CalibrationManagement : XtraUserControl
     {
         private string sqladdress = "";
-        private TreeList treeList = new TreeList();
+        private TreeList treeList;
+        private List<EquipmentModel> equipmentList;
 
-        public CalibrationManagement(string sqladdress)
+        // 添加组合框字段
+        private ComboBoxEdit cbVoltageSource;
+        private ComboBoxEdit cbVoltmeter;
+        private ComboBoxEdit cbAmmeter;
+
+        public CalibrationManagement(string sqladdress, List<EquipmentModel> equipmentList)
         {
+            this.equipmentList = equipmentList;
             this.sqladdress = sqladdress;
             InitializeComponent();
             InitializeUI();
@@ -82,7 +97,7 @@ namespace ChargeDebug.Form
             try
             {
                 // 创建并显示添加信号的对话框
-                using (var addForm = new AddEditCalibrationSignalForm(null, sqladdress))
+                using (var addForm = new AddEditCalibrationSignalForm(null, sqladdress, equipmentList))
                 {
                     if (addForm.ShowDialog() == DialogResult.OK)
                     {
@@ -112,7 +127,7 @@ namespace ChargeDebug.Form
                 long signalId = (long)treeList.FocusedNode.Tag;
 
                 // 创建并显示编辑信号的对话框
-                using (var editForm = new AddEditCalibrationSignalForm(signalId, sqladdress))
+                using (var editForm = new AddEditCalibrationSignalForm(signalId, sqladdress,equipmentList))
                 {
                     if (editForm.ShowDialog() == DialogResult.OK)
                     {
@@ -130,7 +145,86 @@ namespace ChargeDebug.Form
 
         private void BtnDeleteSignal_Click(object? sender, EventArgs e)
         {
+            // 获取所有选中的节点
+            var selectedNodes = treeList.Selection;
+            int num = selectedNodes.Count;
 
+            if (selectedNodes.Count == 0)
+            {
+                XtraMessageBox.Show("请先选择要删除的信号!");
+                return;
+            }
+
+            // 构建确认消息
+            string message = selectedNodes.Count == 1
+                ? $"确定要删除设备 '{selectedNodes[0].GetValue("DeviceName")}' 的信号 '{selectedNodes[0].GetValue("SignalName")}' 吗？"
+                : $"确定要删除选中的 {num} 个信号吗？";
+
+            // 确认删除对话框
+            if (XtraMessageBox.Show(message,
+                                  "确认删除",
+                                  MessageBoxButtons.YesNo,
+                                  MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    conn.Open();
+
+                    // 开始事务
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 获取要删除的信号ID列表
+                            var signalIds = selectedNodes
+                                .Select(node => (long)node.Tag)
+                                .ToList();
+
+                            // 执行批量删除操作
+                            bool deleteSuccess = SQLite_Service.DeleteCalibrationSignals(conn, signalIds);
+
+                            if (deleteSuccess)
+                            {
+                                // 重新排序剩余的信号
+                                bool reorderSuccess = SQLite_Service.ReorderCalibrationSignals(conn);
+
+                                if (reorderSuccess)
+                                {
+                                    transaction.Commit();
+
+                                    // 刷新数据
+                                    LoadData();
+                                    XtraMessageBox.Show($"成功删除 {num} 个信号!");
+                                }
+                                else
+                                {
+                                    transaction.Rollback();
+                                    XtraMessageBox.Show("重新排序失败，操作已回滚!");
+                                }
+                            }
+                            else
+                            {
+                                transaction.Rollback();
+                                XtraMessageBox.Show("删除失败，操作已回滚!");
+                            }
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"删除信号失败: {ex.Message}");
+            }
         }
 
         private void InitializeUI()
@@ -174,6 +268,124 @@ namespace ChargeDebug.Form
             progressGroupItem.MaxSize = new Size(0, 60);
         }
 
+        
+
+        private async void BtnVoltageCalibration_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 1. 获取选中的设备
+                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
+                string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(voltageSourceName) || string.IsNullOrEmpty(voltmeterName))
+                {
+                    XtraMessageBox.Show("请先选择所有必要的校准设备!");
+                    return;
+                }
+
+                // 2. 从设备列表中查找设备信息
+                var voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
+                var voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
+                if (voltageSource == null || voltmeter == null)
+                {
+                    XtraMessageBox.Show("未找到选定的设备配置信息!");
+                    return;
+                }
+
+                // 3. 根据设备通讯类型启动设备
+                bool voltageSourceStarted = await StartEquipment(voltageSource);
+                bool voltmeterStarted = await StartEquipment(voltmeter);
+                if (!voltageSourceStarted || !voltmeterStarted)
+                {
+                    XtraMessageBox.Show("设备启动失败，请检查设备连接!");
+                    return;
+                }
+
+                // 4. 检查充放电设备CAN盒连接
+                //bool canConnected = await CheckChargingDischargingCANConnection();
+                //if (!canConnected)
+                //{
+                //    XtraMessageBox.Show("充放电设备CAN盒连接失败，请检查连接!");
+                //    return;
+                //}
+
+                // 5. 所有设备启动成功，开始电压校准流程
+                LogService.Log("所有校准设备启动成功，开始电压校准流程!");
+                // 这里可以调用具体的电压校准方法
+                await StartVoltageCalibration(voltageSource, voltmeter);
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"电压校准失败: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> StartEquipment(EquipmentModel equipment)
+        {
+            try
+            {
+                // 根据设备通讯类型调用不同的启动方法
+                switch (equipment.CanType)
+                {
+                    case "CANET-2E-U":
+                        // 使用CAN管理器启动CAN设备
+                        CANManager.Instance.RegisterChannel(equipment);
+                        // 等待设备连接确认
+                        await Task.Delay(500); // 给设备一些时间连接
+                        // 检查设备是否成功连接
+                        string key = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+                        return CANManager.Instance.IsChannelConnected(key);
+
+                    case "RS485-MODBUS":
+                        // 使用RS485管理器启动设备
+                        bool connected = RS485Manager.Instance.RegisterChannel(equipment);
+                        if (!connected)
+                        {
+                            return false;
+                        }
+                        return true;
+
+                    default:
+                        XtraMessageBox.Show($"不支持的通讯类型: {equipment.CanType}");
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"启动设备 {equipment.DeviceName} 失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task StartVoltageCalibration(EquipmentModel voltageSource, EquipmentModel voltmeter)
+        {
+            try
+            {
+                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x01 };
+                // 发送校准命令
+                bool sendSuccess = RS485Manager.Instance.SendData(voltageSource.ComPort, calibrationCommand);
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+
+        private void BtnStopCalibration_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x00 };
+                // 发送校准命令
+                bool sendSuccess = RS485Manager.Instance.SendData("COM3", calibrationCommand);
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
         private Control CreateButtonContainer()
         {
             // 创建按钮容器面板
@@ -193,12 +405,20 @@ namespace ChargeDebug.Form
             };
             buttonPanel.Controls.Add(lblVoltageSource);
 
-            ComboBoxEdit cbVoltageSource = new ComboBoxEdit
+            cbVoltageSource = new ComboBoxEdit
             {
-                Size = new Size(120, 30),
+                Size = new Size(160, 30),
                 Location = new Point(lblVoltageSource.Right + 10, 12),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
+
+            // 从equipmentList中筛选电压源型号
+            var voltageSources = equipmentList
+                .Where(e => e.DeviceType == "电压源")
+                .Select(e => e.DeviceName)
+                .ToList();
+            cbVoltageSource.Properties.Items.AddRange(voltageSources);
+            cbVoltageSource.SelectedIndex = 0;
             buttonPanel.Controls.Add(cbVoltageSource);
 
             // 电压表型号
@@ -210,12 +430,20 @@ namespace ChargeDebug.Form
             };
             buttonPanel.Controls.Add(lblVoltmeter);
 
-            ComboBoxEdit cbVoltmeter = new ComboBoxEdit
+            cbVoltmeter = new ComboBoxEdit
             {
-                Size = new Size(120, 30),
+                Size = new Size(160, 30),
                 Location = new Point(lblVoltmeter.Right + 10, 12),
-                Properties ={ TextEditStyle = TextEditStyles.DisableTextEditor }
+                Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
+
+            // 从equipmentList中筛选电压表型号
+            var voltmeters = equipmentList
+                .Where(e => e.DeviceType == "电压表")
+                .Select(e => e.DeviceName)
+                .ToList();
+            cbVoltmeter.Properties.Items.AddRange(voltmeters);
+            cbVoltmeter.SelectedIndex = 0;
             buttonPanel.Controls.Add(cbVoltmeter);
 
             // 电流表型号
@@ -226,12 +454,20 @@ namespace ChargeDebug.Form
             };
             buttonPanel.Controls.Add(lblAmmeter);
 
-            ComboBoxEdit cbAmmeter = new ComboBoxEdit
+            cbAmmeter = new ComboBoxEdit
             {
-                Size = new Size(120, 30),
+                Size = new Size(160, 30),
                 Location = new Point(lblAmmeter.Right + 10, 12),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
+
+            // 从equipmentList中筛选电流表型号
+            var ammeters = equipmentList
+                .Where(e => e.DeviceType == "电流表")
+                .Select(e => e.DeviceName)
+                .ToList();
+            cbAmmeter.Properties.Items.AddRange(ammeters);
+            cbAmmeter.SelectedIndex = 0;
             buttonPanel.Controls.Add(cbAmmeter);
 
             // 添加按钮到面板
@@ -262,20 +498,47 @@ namespace ChargeDebug.Form
             btnDeleteSignal.Click += BtnDeleteSignal_Click;
             buttonPanel.Controls.Add(btnDeleteSignal);
 
-            SimpleButton btnStartCalibration = new SimpleButton
+            //SimpleButton btnCalibrationEquipment = new SimpleButton
+            //{
+            //    Text = "打开校准设备",
+            //    Size = new Size(110, 30),
+            //    Location = new Point(btnDeleteSignal.Right + 10, 10)
+            //};
+            //btnCalibrationEquipment.Click += BtnCalibrationEquipment_Click;
+            //buttonPanel.Controls.Add(btnCalibrationEquipment);
+
+            SimpleButton btnVoltageCalibration = new SimpleButton
             {
-                Text = "开始校准",
-                Size = new Size(80, 30),
+                Text = "开始电压校准",
+                Size = new Size(110, 30),
                 Location = new Point(btnDeleteSignal.Right + 10, 10)
             };
-            buttonPanel.Controls.Add(btnStartCalibration);
+            btnVoltageCalibration.Click += BtnVoltageCalibration_Click;
+            buttonPanel.Controls.Add(btnVoltageCalibration);
+
+            SimpleButton btnChargingCurrentCalibration = new SimpleButton
+            {
+                Text = "开始充电电流校准",
+                Size = new Size(140, 30),
+                Location = new Point(btnVoltageCalibration.Right + 10, 10)
+            };
+            buttonPanel.Controls.Add(btnChargingCurrentCalibration);
+
+            SimpleButton btnDischargingCurrentCalibration = new SimpleButton
+            {
+                Text = "开始放电电流校准",
+                Size = new Size(140, 30),
+                Location = new Point(btnChargingCurrentCalibration.Right + 10, 10)
+            };
+            buttonPanel.Controls.Add(btnDischargingCurrentCalibration);
 
             SimpleButton btnStopCalibration = new SimpleButton
             {
                 Text = "停止校准",
                 Size = new Size(80, 30),
-                Location = new Point(btnStartCalibration.Right + 10, 10)
+                Location = new Point(btnDischargingCurrentCalibration.Right + 10, 10)
             };
+            btnStopCalibration.Click += BtnStopCalibration_Click;
             buttonPanel.Controls.Add(btnStopCalibration);
 
             SimpleButton btnExportData = new SimpleButton
@@ -291,6 +554,10 @@ namespace ChargeDebug.Form
 
         private Control CreateTreeList()
         {
+            treeList = new TreeList();
+            // 启用多选
+            treeList.OptionsSelection.MultiSelect = true;
+            treeList.OptionsSelection.UseIndicatorForSelection = true;
             treeList.OptionsBehavior.Editable = false;
 
             // 添加列
@@ -444,6 +711,16 @@ namespace ChargeDebug.Form
             progressPanel.Controls.Add(progressBar);
 
             return progressPanel;
+        }
+
+        public void UpdateDcNumber(List<EquipmentModel> equipmentList)
+        {
+            this.equipmentList = equipmentList;
+            //清除所有旧布局
+            this.Controls.Clear();
+            InitializeUI();
+            // 加载数据
+            LoadData();
         }
     }
 }

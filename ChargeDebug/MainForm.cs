@@ -145,6 +145,13 @@ namespace ChargeDebug
                     upgradeonline.UpdateDcNumber(equipmentList);
                     LogService.Log("在线升级页面已更新");
                 }
+
+                if (pages.TryGetValue(typeof(CalibrationManagement), out var calibrationmanagementPage)
+                && calibrationmanagementPage is CalibrationManagement calibrationmanagement)
+                {
+                    calibrationmanagement.UpdateDcNumber(equipmentList);
+                    LogService.Log("校准页面已更新");
+                }
             }
 
             // 更新Agreement页面
@@ -345,7 +352,7 @@ namespace ChargeDebug
             RegisterPage(typeof(Faultrecording), new Faultrecording(dbPath, equipmentList));
             RegisterPage(typeof(Upgradeonline), new Upgradeonline(equipmentList));
             RegisterPage(typeof(LogViewer), logViewer); // 注册日志页面
-            RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath));
+            RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath, equipmentList));
 
             // 加载历史日志
             //logViewer.LoadInitialLogs(LogService.GetAllLogs());

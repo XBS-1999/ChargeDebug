@@ -447,6 +447,8 @@ namespace ChargeDebug.Form
                         }
 
                         LoadData();
+                        // 保存成功后触发事件
+                        ConfigUpdated?.Invoke(this, EventArgs.Empty);
                         XtraMessageBox.Show("设备添加成功！", "提示",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }

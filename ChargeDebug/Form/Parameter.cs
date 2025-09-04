@@ -41,8 +41,8 @@ namespace ChargeDebug.Form
         // 在类开头添加 TabControlInfo 内部类
         private class TabPageInfo
         {
-            public int DeviceIndex { get; set; }
-            public int CanIndex { get; set; }
+            public int? DeviceIndex { get; set; }
+            public int? CanIndex { get; set; }
             public string WriteCANID { get; set; }
             public string ReadCANID { get; set; }
             public string ReceiveCANID { get; set; }

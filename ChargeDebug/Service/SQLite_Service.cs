@@ -181,10 +181,10 @@ namespace ChargeDebug.Service
                             DeviceName = reader["DeviceName"].ToString(),
                             SignalName = reader["SignalName"].ToString(),
                             SignalType = reader["SignalType"].ToString(),
-                            ReadTime = (long)reader["ReadTime"],
-                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
-                            CalibrationNumber = (long)reader["CalibrationNumber"],
-                            Orders = (long)reader["Orders"],
+                            ReadTime = Convert.ToInt32(reader["ReadTime"]),
+                            RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
+                            CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
+                            Orders = Convert.ToInt32(reader["Orders"]),
                         });
                     }
                 }
@@ -196,30 +196,60 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 删除CalibrationSignals表
         /// </summary>
-        public static bool DeleteCalibrationSignal(SQLiteConnection conn, int signalId)
+        public static bool DeleteCalibrationSignals(SQLiteConnection conn, List<long> signalIds)
         {
             try
             {
-                // 准备SQL删除语句
-                string sql = "DELETE FROM CalibrationSignals WHERE SignalID = @SignalID";
+                // 使用IN子句批量删除
+                string ids = string.Join(",", signalIds);
+                string deleteSql = $"DELETE FROM CalibrationSignals WHERE SignalID IN ({ids})";
 
-                using (SQLiteCommand command = new SQLiteCommand(sql, conn))
+                using (var cmd = new SQLiteCommand(deleteSql, conn))
                 {
-                    // 添加参数以防止SQL注入
-                    command.Parameters.AddWithValue("@SignalID", signalId);
-
-                    // 执行删除操作
-                    int rowsAffected = command.ExecuteNonQuery();
-
-                    // 如果影响的行数大于0，表示删除成功
+                    int rowsAffected = cmd.ExecuteNonQuery();
                     return rowsAffected > 0;
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // 记录错误日志（可选）
-                // Logger.Error($"删除校准信号失败 (SignalID: {signalId}): {ex.Message}");
-                throw new Exception($"删除校准信号失败: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        public static bool ReorderCalibrationSignals(SQLiteConnection conn)
+        {
+            try
+            {
+                // 获取所有剩余的信号，按当前Orders排序
+                string selectSql = "SELECT SignalID FROM CalibrationSignals ORDER BY Orders";
+
+                List<long> remainingSignalIds = new List<long>();
+                using (var cmd = new SQLiteCommand(selectSql, conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        remainingSignalIds.Add(reader.GetInt64(0));
+                    }
+                }
+
+                // 更新Orders为连续的顺序
+                for (int i = 0; i < remainingSignalIds.Count; i++)
+                {
+                    string updateSql = "UPDATE CalibrationSignals SET Orders = @NewOrder WHERE SignalID = @SignalID";
+                    using (var updateCmd = new SQLiteCommand(updateSql, conn))
+                    {
+                        updateCmd.Parameters.AddWithValue("@NewOrder", i);
+                        updateCmd.Parameters.AddWithValue("@SignalID", remainingSignalIds[i]);
+                        updateCmd.ExecuteNonQuery();
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -297,9 +327,10 @@ namespace ChargeDebug.Service
                             DeviceName = reader["DeviceName"].ToString(),
                             SignalName = reader["SignalName"].ToString(),
                             SignalType = reader["SignalType"].ToString(),
-                            ReadTime = Convert.ToInt64(reader["ReadTime"]),
-                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
-                            CalibrationNumber = Convert.ToInt64(reader["CalibrationNumber"])
+                            ReadTime = Convert.ToInt32(reader["ReadTime"]),
+                            RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
+                            CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
+                            Orders = Convert.ToInt32(reader["Orders"]) // 读取排序字段
                         };
                     }
                 }
@@ -324,6 +355,22 @@ namespace ChargeDebug.Service
             return deviceNames;
         }
 
+        // 获取最大排序值
+        public static int GetMaxOrderValue(SQLiteConnection conn)
+        {
+            string query = "SELECT MAX(Orders) FROM CalibrationSignals";
+
+            using (var cmd = new SQLiteCommand(query, conn))
+            {
+                var result = cmd.ExecuteScalar();
+                if (result != null && result != DBNull.Value)
+                {
+                    return Convert.ToInt32(result);
+                }
+            }
+            return 0; // 如果没有记录，返回0
+        }
+
         // 更新校准信号
         public static void UpdateCalibrationSignal(SQLiteConnection conn, CalibrationSignals signal)
         {
@@ -334,7 +381,8 @@ namespace ChargeDebug.Service
                 SignalType = @SignalType,
                 ReadTime = @ReadTime,
                 RatingVoltageCurrent = @RatingVoltageCurrent,
-                CalibrationNumber = @CalibrationNumber
+                CalibrationNumber = @CalibrationNumber,
+                Orders = @Orders
                 WHERE SignalID = @Id";
 
             using (var cmd = new SQLiteCommand(updateSql, conn))
@@ -345,6 +393,7 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+                cmd.Parameters.AddWithValue("@Orders", signal.Orders);
                 cmd.Parameters.AddWithValue("@Id", signal.SignalID);
 
                 cmd.ExecuteNonQuery();
@@ -356,9 +405,9 @@ namespace ChargeDebug.Service
         {
             string insertSql = @"
             INSERT INTO CalibrationSignals 
-                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber)
+                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, Orders)
             VALUES 
-                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber)";
+                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @Orders)";
 
             using (var cmd = new SQLiteCommand(insertSql, conn))
             {
@@ -368,7 +417,33 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+                cmd.Parameters.AddWithValue("@Orders", signal.Orders);
 
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 获取信号的所有校准点数量
+        public static int GetCalibrationPointsCount(SQLiteConnection conn, long signalId)
+        {
+            string query = "SELECT COUNT(*) FROM CalibrationPoints WHERE SignalID = @SignalID";
+
+            using (var cmd = new SQLiteCommand(query, conn))
+            {
+                cmd.Parameters.AddWithValue("@SignalID", signalId);
+                var result = cmd.ExecuteScalar();
+                return Convert.ToInt32(result);
+            }
+        }
+
+        // 删除信号的所有校准点
+        public static void DeleteCalibrationPoints(SQLiteConnection conn, long signalId)
+        {
+            string deleteSql = "DELETE FROM CalibrationPoints WHERE SignalID = @SignalID";
+
+            using (var cmd = new SQLiteCommand(deleteSql, conn))
+            {
+                cmd.Parameters.AddWithValue("@SignalID", signalId);
                 cmd.ExecuteNonQuery();
             }
         }
@@ -1075,16 +1150,17 @@ namespace ChargeDebug.Service
                             model.DevicePort = reader["DevicePort"] is DBNull ? null : reader["DevicePort"].ToString();
                             model.ACAddress = reader["ACAddress"] is DBNull ? null : reader["ACAddress"].ToString();
                             model.DCAddress = reader["DCAddress"] is DBNull ? null : reader["DCAddress"].ToString();
+                            model.ComPort = reader["ComPort"] is DBNull ? null : reader["ComPort"].ToString();
                             model.BaudRate = reader["BaudRate"] is DBNull ? null : reader["BaudRate"].ToString();
                             model.DataBits = reader["DataBits"] is DBNull ? null : reader["DataBits"].ToString();
                             model.Parity = reader["Parity"] is DBNull ? null : reader["Parity"].ToString();
                             model.StopBits = reader["StopBits"] is DBNull ? null : reader["StopBits"].ToString();
                             // 处理可能为null的整数字段
-                            model.DeviceIndex = reader["DeviceIndex"] is DBNull ? 0 : Convert.ToInt32(reader["DeviceIndex"]);
-                            model.CanIndex = reader["CanIndex"] is DBNull ? 0 : Convert.ToInt32(reader["CanIndex"]);
-                            model.ACNumber = reader["ACNumber"] is DBNull ? 0 : Convert.ToInt32(reader["ACNumber"]);
-                            model.DCNumber = reader["DCNumber"] is DBNull ? 0 : Convert.ToInt32(reader["DCNumber"]);
-                            
+                            model.DeviceIndex = reader["DeviceIndex"] is DBNull ? null : Convert.ToInt32(reader["DeviceIndex"]);
+                            model.CanIndex = reader["CanIndex"] is DBNull ? null : Convert.ToInt32(reader["CanIndex"]);
+                            model.ACNumber = reader["ACNumber"] is DBNull ? null : Convert.ToInt32(reader["ACNumber"]);
+                            model.DCNumber = reader["DCNumber"] is DBNull ? null : Convert.ToInt32(reader["DCNumber"]);
+
                             equipment.Add(model);
                         }
                     }

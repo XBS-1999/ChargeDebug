@@ -88,7 +88,7 @@ namespace ChargeDebug.Form
                 {
                     surequipmentList.Add(equipmentLists);
                     // 获取最大通道数（AC和DC中的较大值）
-                    int channel = Math.Max(equipmentLists.ACNumber, equipmentLists.DCNumber);
+                    int channel = Math.Max(Convert.ToByte(equipmentLists.ACNumber), Convert.ToByte(equipmentLists.DCNumber));
                     channels += channel;
                 }
             }
@@ -200,7 +200,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 获取最大通道数（AC和DC中的较大值）
-                    int maxChannels = Math.Max(equipment.ACNumber, equipment.DCNumber);
+                    int maxChannels = Math.Max(Convert.ToByte(equipment.ACNumber), Convert.ToByte(equipment.DCNumber));
 
                     //获取AC,DC起始地址
                     int acnum = Convert.ToInt32(equipment.ACAddress.Substring(equipment.ACAddress.Length - 1));
@@ -363,7 +363,7 @@ namespace ChargeDebug.Form
             foreach (var equipment in surequipmentList)
             {
                 var timer = new System.Threading.Timer(SendDevicePeriodicMessage, equipment, 1000, 1000);
-                _deviceTimers[equipment.DeviceIndex] = timer;
+                _deviceTimers[Convert.ToByte(equipment.DeviceIndex)] = timer;
             }
         }
 

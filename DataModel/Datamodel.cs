@@ -1,4 +1,6 @@
-﻿namespace DataModel
+﻿using System.IO.Ports;
+
+namespace DataModel
 {
     public class EquipmentModel
     {
@@ -9,11 +11,11 @@
         public string? CanType { get; set; }
         public string? DeviceIP { get; set; }
         public string? DevicePort { get; set; }
-        public int DeviceIndex { get; set; }
-        public int CanIndex { get; set; }
-        public int ACNumber { get; set; }
+        public int? DeviceIndex { get; set; }
+        public int? CanIndex { get; set; }
+        public int? ACNumber { get; set; }
         public string? ACAddress { get; set; }
-        public int DCNumber { get; set; }
+        public int? DCNumber { get; set; }
         public string? DCAddress { get; set; }
         public string? CommunicationProtocols { get; set; }
         public string? Whether { get; set; }
@@ -112,9 +114,9 @@
         public string? DeviceName { get; set; }
         public string? SignalName { get; set; }
         public string? SignalType { get; set; }
-        public long ReadTime { get; set; }
-        public string? RatingVoltageCurrent { get; set; }
-        public long CalibrationNumber { get; set; }
-        public long Orders { get; set; }
+        public int ReadTime { get; set; }
+        public int RatingVoltageCurrent { get; set; }
+        public int CalibrationNumber { get; set; }
+        public int Orders { get; set; }
     }
 }
