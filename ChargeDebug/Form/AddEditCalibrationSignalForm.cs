@@ -296,7 +296,8 @@ namespace ChargeDebug.Form
             
             foreach (var equipment in equipmentList)
             {
-                // 处理AC通道
+                //devicename.Properties.Items.Add($"{equipment.DeviceName}");
+                //// 处理AC通道
                 for (int i = 0; i < equipment.ACNumber; i++)
                 {
                     devicename.Properties.Items.Add($"{equipment.DeviceName}-AC{i + 1}");

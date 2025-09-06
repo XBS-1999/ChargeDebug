@@ -5,21 +5,14 @@ using DevExpress.XtraLayout;
 using DevExpress.Utils;
 using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraEditors.Controls;
-using DevExpress.XtraGrid;
+using System.Linq;
 using System.Data.SQLite;
 using System.Data;
-using ClosedXML.Excel;
 using ChargeDebug.Service;
-using DevExpress.XtraVerticalGrid;
-using DbcParserLib.Model;
 using DataModel;
-using Aspose.Pdf.Devices;
-using DevExpress.Diagram.Core.Shapes;
-using static ChargeDebug.Service.CANManager;
-using System.Diagnostics.Metrics;
-using Aspose.Pdf.Operators;
 using Log;
-using Aspose.Pdf.Annotations;
+using CommunicationProtocols;
+using DevExpress.XtraTreeList.Nodes;
 
 namespace ChargeDebug.Form
 {
@@ -33,6 +26,10 @@ namespace ChargeDebug.Form
         private ComboBoxEdit cbVoltageSource;
         private ComboBoxEdit cbVoltmeter;
         private ComboBoxEdit cbAmmeter;
+
+        private List<ModbusSignal> voltageSourceProtocols = new List<ModbusSignal>();
+        private List<ModbusSignal> voltmeterProtocols = new List<ModbusSignal>();
+        private List<SignalInfo> treeSignalProtocols = new List<SignalInfo>();
 
         public CalibrationManagement(string sqladdress, List<EquipmentModel> equipmentList)
         {
@@ -292,27 +289,29 @@ namespace ChargeDebug.Form
                     return;
                 }
 
-                // 3. 根据设备通讯类型启动设备
+                // 3. 加载校准设备指令协议
+                var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
+
+                // 分离电压源和电压表的协议
+                voltageSourceProtocols = protocols.Where(p => p.DeviceName == voltageSource.DeviceName).ToList();
+                voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
+
+                // 4.加载树形图信号名称协议
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
+
+                // 5. 根据设备通讯类型启动设备
                 bool voltageSourceStarted = await StartEquipment(voltageSource);
                 bool voltmeterStarted = await StartEquipment(voltmeter);
                 if (!voltageSourceStarted || !voltmeterStarted)
                 {
                     XtraMessageBox.Show("设备启动失败，请检查设备连接!");
+                    LogService.Log("设备启动失败，请检查设备连接!");
                     return;
                 }
-
-                // 4. 检查充放电设备CAN盒连接
-                //bool canConnected = await CheckChargingDischargingCANConnection();
-                //if (!canConnected)
-                //{
-                //    XtraMessageBox.Show("充放电设备CAN盒连接失败，请检查连接!");
-                //    return;
-                //}
-
-                // 5. 所有设备启动成功，开始电压校准流程
                 LogService.Log("所有校准设备启动成功，开始电压校准流程!");
-                // 这里可以调用具体的电压校准方法
-                await StartVoltageCalibration(voltageSource, voltmeter);
+
+                // 6.开始电压校准，传入设备信息和协议
+                await StartVoltageCalibration(voltageSource, voltmeter, voltageSourceProtocols, voltmeterProtocols, treeSignalProtocols);
             }
             catch (Exception ex)
             {
@@ -320,57 +319,385 @@ namespace ChargeDebug.Form
             }
         }
 
-        private async Task<bool> StartEquipment(EquipmentModel equipment)
+        private async Task<List<ModbusSignal>> LoadProtocolsAsync(EquipmentModel voltageSource, EquipmentModel voltmeter)
+        {
+            try
+            {
+                string connectionString = $"Data Source={sqladdress};Version=3;";
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    // 1. 加载设备协议（电压源设备和电压表设备）
+                    var equipmentProtocols = new List<EquipmentModel> { voltageSource, voltmeter };
+                    var allModbusSignals = new List<ModbusSignal>();
+
+                    foreach (var equipment in equipmentProtocols)
+                    {
+                        if (!string.IsNullOrEmpty(equipment.CommunicationProtocols))
+                        {
+                            // 查询DbcFile表获取DbcFileID
+                            long fileId = SQLite_Service.GetDbcFileId(conn, equipment.CommunicationProtocols);
+
+                            if (equipment.CanType == "CANET-2E-U")
+                            {
+                                // 加载CAN协议信号
+                                //var canSignals = SQLite_Service.GetCanSignalsByDbc(conn, fileId);
+                                // 将CAN信号转换为Modbus信号（如果需要统一接口）
+                                // 这里可以根据需要将CAN信号转换为Modbus信号格式
+                                // var convertedSignals = ConvertCanToModbusSignals(canSignals);
+                                // allModbusSignals.AddRange(convertedSignals);
+                            }
+                            else if (equipment.CanType == "RS485-MODBUS")
+                            {
+                                // 查询ModbusSignals表所有信息
+                                var modbusSignals = SQLite_Service.GetModbusSignalsByDbc(conn, fileId);
+
+                                // 为每个信号添加设备名称
+                                foreach (var signal in modbusSignals)
+                                {
+                                    signal.DeviceName = equipment.DeviceName;
+                                }
+
+                                allModbusSignals.AddRange(modbusSignals);
+                            }
+                            else if (equipment.CanType == "USB-SCPI")
+                            {
+                                // 加载SCPI协议命令
+                                //var scpiCommands = SQLite_Service.GetScpiCommandsByDevice(conn, equipment.DeviceName);
+                                // 将SCPI命令转换为Modbus信号格式（如果需要统一接口）
+                                // var convertedSignals = ConvertScpiToModbusSignals(scpiCommands);
+                                // allModbusSignals.AddRange(convertedSignals);
+                            }
+                        }
+                    }
+
+                    return allModbusSignals;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"加载设备协议失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task<List<SignalInfo>> LoadTreeSignalsProtocolAsync()
+        {
+            try
+            {
+                // 获取所有树节点
+                var messageNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+                string connectionString = $"Data Source={sqladdress};Version=3;";
+                var signalInfos = new List<SignalInfo>();
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    foreach (var node in messageNodes)
+                    {
+                        // 获取设备名称和信号名称
+                        string deviceName = node.GetValue("DeviceName")?.ToString().Split('-')[0];
+                        string signalName = node.GetValue("SignalName")?.ToString();
+                        string signaltype = node.GetValue("SignalType")?.ToString();
+                        string readtime = node.GetValue("ReadTime")?.ToString();
+                        string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString();
+                        string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString();
+
+                        if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName))
+                        {
+                            // 根据设备名称获取协议名称
+                            string protocolName = SQLite_Service.GetProtocolNameByDeviceName(conn, deviceName);
+
+                            if (!string.IsNullOrEmpty(protocolName))
+                            {
+                                // 获取协议文件ID
+                                long fileId = SQLite_Service.GetDbcFileId(conn, protocolName);
+
+                                // 获取所有相关的MessageID
+                                var messageIds = SQLite_Service.GetMessageIds(conn, fileId);
+
+                                // 遍历所有MessageID，查找匹配的信号
+                                foreach (var messageId in messageIds)
+                                {
+                                    // 根据MessageID和信号名称查询信号信息
+                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, messageId, signalName);
+
+                                    if (signalInfo != null)
+                                    {
+                                        signalInfos.Add(signalInfo);
+                                        break; // 找到匹配的信号后跳出循环
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return signalInfos;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"加载树形图信号协议失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        private static Task<bool> StartEquipment(EquipmentModel equipment)
         {
             try
             {
                 // 根据设备通讯类型调用不同的启动方法
                 switch (equipment.CanType)
                 {
-                    case "CANET-2E-U":
-                        // 使用CAN管理器启动CAN设备
-                        CANManager.Instance.RegisterChannel(equipment);
-                        // 等待设备连接确认
-                        await Task.Delay(500); // 给设备一些时间连接
-                        // 检查设备是否成功连接
-                        string key = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
-                        return CANManager.Instance.IsChannelConnected(key);
+                    //case "CANET-2E-U":
+                    //    // 使用CAN管理器启动CAN设备
+                    //    CANManager.Instance.RegisterChannel(equipment);
+                    //    // 等待设备连接确认
+                    //    await Task.Delay(500); // 给设备一些时间连接
+                    //    // 检查设备是否成功连接
+                    //    string key = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+                    //    return CANManager.Instance.IsChannelConnected(key);
 
                     case "RS485-MODBUS":
                         // 使用RS485管理器启动设备
-                        bool connected = RS485Manager.Instance.RegisterChannel(equipment);
-                        if (!connected)
+                        bool rs485modbus = RS485Manager.Instance.RegisterChannel(equipment);
+                        if (!rs485modbus)
                         {
-                            return false;
+                            return Task.FromResult(false);
                         }
-                        return true;
+                        return Task.FromResult(true);
+
+                    case "USB-SCPI":
+                        // 使用USB-SCPI管理器启动设备
+                        bool usbscpi = Keysight34465A_Communicator.Instance.Connect();
+                        if (!usbscpi)
+                        {
+                            return Task.FromResult(false);
+                        }
+                        return Task.FromResult(true);
 
                     default:
                         XtraMessageBox.Show($"不支持的通讯类型: {equipment.CanType}");
-                        return false;
+                        return Task.FromResult(false);
                 }
             }
             catch (Exception ex)
             {
                 LogService.Log($"启动设备 {equipment.DeviceName} 失败: {ex.Message}");
-                return false;
+                return Task.FromResult(false);
             }
         }
 
-        private async Task StartVoltageCalibration(EquipmentModel voltageSource, EquipmentModel voltmeter)
+        private async Task StartVoltageCalibration(EquipmentModel voltageSource, EquipmentModel voltmeter,
+                                                   List<ModbusSignal> voltageSourceSignals,
+                                                   List<ModbusSignal> voltmeterSignals,
+                                                   List<SignalInfo> treeSignals)
         {
             try
             {
-                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x01 };
-                // 发送校准命令
-                bool sendSuccess = RS485Manager.Instance.SendData(voltageSource.ComPort, calibrationCommand);
+                // 1. 设置设备模式（恒压模式）
+                LogService.Log("设置电压源为程控模式...");
+                bool modeSet = await SetEquipmentMode(voltageSource,voltageSourceSignals);
+                if (!modeSet)
+                {
+                    XtraMessageBox.Show("设置设备模式失败!");
+                    return;
+                }
+
+                // 2. 设置初始电压值（从0开始）
+                //LogService.Log("设置初始电压值...");
+                //bool voltageSet = await SetVoltage(voltageSource, 0, voltageSourceSignals);
+                //if (!voltageSet)
+                //{
+                //    XtraMessageBox.Show("设置初始电压失败!");
+                //    return;
+                //}
+
+                // 3. 开机/启用输出
+                //LogService.Log("启用电压源输出...");
+                //bool outputEnabled = await EnableOutput(voltageSource, true, voltageSourceSignals);
+                //if (!outputEnabled)
+                //{
+                //    XtraMessageBox.Show("启用输出失败!");
+                //    return;
+                //}
+
+                // 4. 获取校准点信息
+                //var calibrationPoints = await GetCalibrationPoints(treeSignals);
+
+                // 5. 遍历每个校准点进行校准
+                // 6. 完成校准后关闭输出
+                //LogService.Log("校准完成，关闭输出...");
+                //await EnableOutput(voltageSource, false, voltageSourceSignals);
+
+                XtraMessageBox.Show("电压校准完成!");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                throw;
+                LogService.Log($"电压校准过程中出错: {ex.Message}");
+                XtraMessageBox.Show($"电压校准失败: {ex.Message}");
             }
         }
 
+        private Task<bool> SetEquipmentMode(EquipmentModel equipment, List<ModbusSignal> protocols)
+        {
+            try
+            {
+                // 筛选出SystemVariableName = "模式设置指令"的信号
+                var modeSettingSignal = protocols
+                    .FirstOrDefault(s => s.SystemVariableName == "模式设置指令");
+
+                if (modeSettingSignal == null)
+                {
+                    LogService.Log("未找到模式设置指令信号");
+                    return Task.FromResult(false);
+                }
+
+                // 构建设置模式的命令
+                byte[] myByteArray = new byte[] {};
+                //通讯地址
+                myByteArray[0] = HexStringToByte(modeSettingSignal.CorrespondenceAddress);
+                //功能码
+                myByteArray[1] = HexStringToByte(modeSettingSignal.FunctionCode);
+                //寄存器地址
+                myByteArray[2] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[0];
+                myByteArray[3] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[1];
+                //寄存器个数
+                myByteArray[4] = (byte)(modeSettingSignal.RegisterCount << 8);
+                myByteArray[5] = (byte)modeSettingSignal.RegisterCount;
+                //字节数
+                myByteArray[6] = (byte)(2 * modeSettingSignal.RegisterCount);
+                //写入的数据
+                myByteArray[7] = 0x00;
+                myByteArray[8] = 0x01;
+
+                // 发送命令
+                return Task.FromResult(RS485Manager.Instance.SendData(equipment.ComPort, myByteArray));
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"设置设备模式时发生错误: {ex.Message}");
+                return Task.FromResult(false);
+            }
+        }
+
+        /// <summary>
+        /// 将十六进制字符串转换为字节数组
+        /// </summary>
+        /// <param name="hexString">十六进制字符串（可以包含"0x"前缀）</param>
+        /// <returns>转换后的字节数组</returns>
+        /// <exception cref="ArgumentException">当输入字符串不是有效的十六进制格式时抛出</exception>
+        public static byte[] HexStringToByteArray(string? hexString)
+        {
+            if (string.IsNullOrEmpty(hexString))
+            {
+                throw new ArgumentException("输入字符串不能为空", nameof(hexString));
+            }
+
+            // 去掉"0x"前缀（如果存在）
+            string cleanHex = hexString;
+            if (cleanHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanHex = cleanHex.Substring(2);
+            }
+
+            // 确保字符串长度为偶数（每两个字符表示一个字节）
+            if (cleanHex.Length % 2 != 0)
+            {
+                cleanHex = "0" + cleanHex; // 在前面补0
+            }
+
+            // 将十六进制字符串转换为字节数组
+            byte[] bytes = new byte[cleanHex.Length / 2];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                try
+                {
+                    bytes[i] = Convert.ToByte(cleanHex.Substring(i * 2, 2), 16);
+                }
+                catch (FormatException)
+                {
+                    throw new ArgumentException($"字符串 '{hexString}' 不是有效的十六进制格式", nameof(hexString));
+                }
+                catch (OverflowException)
+                {
+                    throw new ArgumentException($"字符串 '{hexString}' 表示的数值超出了字节的范围 (0-255)", nameof(hexString));
+                }
+            }
+
+            return bytes;
+        }
+
+        private static byte HexStringToByte(string? hexString)
+        {
+            if (string.IsNullOrEmpty(hexString))
+                throw new ArgumentException("十六进制字符串不能为空");
+
+            // 去掉0x前缀
+            if (hexString.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                hexString = hexString.Substring(2);
+
+            return Convert.ToByte(hexString, 16);
+        }
+
+        private Task<bool> SetVoltage(EquipmentModel equipment, double voltage)
+        {
+            byte[] command;
+            int voltageValue = (int)(voltage * 100); // 转换为设备单位(假设设备单位为0.01V)
+
+            switch (equipment.CanType)
+            {
+                case "CANET-2E-U":
+                    // CAN协议指令: 设置电压值
+                    byte[] voltageBytes = BitConverter.GetBytes(voltageValue);
+                    command = new byte[] { 0xAA, 0x55, 0x01, 0x03, voltageBytes[0], voltageBytes[1], 0x00, 0xEE };
+                    return Task.FromResult(true);
+
+                case "RS485-MODBUS":
+                    // MODBUS协议指令: 设置电压值 (功能码06，保持寄存器40002)
+                    byte[] valueBytes = BitConverter.GetBytes(voltageValue);
+                    Array.Reverse(valueBytes); // MODBUS为大端格式
+                    return Task.FromResult(true);
+
+                default:
+                    throw new NotSupportedException($"不支持的通讯类型: {equipment.CanType}");
+            }
+        }
+
+        private Task<bool> EnableOutput(EquipmentModel equipment, bool enable)
+        {
+            byte[] command;
+
+            switch (equipment.CanType)
+            {
+                case "CANET-2E-U":
+                    // CAN协议指令: 启用/禁用输出
+                    command = new byte[] { 0xAA, 0x55, 0x01, 0x01, enable ? (byte)0x01 : (byte)0x00, 0x00, 0x00, 0xEE };
+                    CANManager.Instance.SendCommand(equipment.DeviceIndex, 
+                                                    equipment.CanIndex,
+                                                    0x120,
+                                                    command);
+                    return Task.FromResult(true);
+
+                case "RS485-MODBUS":
+                    // MODBUS协议指令: 启用/禁用输出 (功能码05，线圈00001)
+                    command = new byte[] {
+                        //equipment,  // 设备地址
+                        //0x05,                    // 功能码: 写单个线圈
+                        //0x00, 0x00,              // 线圈地址: 00001 (实际地址0x0000)
+                        //enable ? (byte)0xFF : (byte)0x00, // 值: ON
+                        //0x00,                    // 默认值
+                        //0x00, 0x00               // CRC校验(实际应用中需要计算)
+                    };
+                    return Task.FromResult(RS485Manager.Instance.SendData(equipment.ComPort, command));
+
+                default:
+                    throw new NotSupportedException($"不支持的通讯类型: {equipment.CanType}");
+            }
+        }
 
         private void BtnStopCalibration_Click(object? sender, EventArgs e)
         {
@@ -565,7 +892,7 @@ namespace ChargeDebug.Form
 
             // 设备名称列
             column = treeList.Columns.Add();
-            column.Caption = "设备名称";
+            column.Caption = "设备名称及通道号";
             column.FieldName = "DeviceName";
             column.VisibleIndex = 0;
             column.Width = 120;
@@ -597,7 +924,7 @@ namespace ChargeDebug.Form
             column.VisibleIndex = 4;
             column.Width = 100;
 
-            column = treeList.Columns.Add();
+            column = treeList.Columns.Add(); 
             column.Caption = "校准点个数";
             column.FieldName = "CalibrationNumber";
             column.VisibleIndex = 5;

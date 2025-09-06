@@ -405,9 +405,9 @@ namespace ChargeDebug.Service
         {
             string insertSql = @"
             INSERT INTO CalibrationSignals 
-                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, Orders)
+                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, Orders )
             VALUES 
-                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @Orders)";
+                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @Orders )";
 
             using (var cmd = new SQLiteCommand(insertSql, conn))
             {
@@ -625,6 +625,38 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@id", messageId);
                 cmd.ExecuteNonQuery();
             }
+        }
+
+        /// <summary>
+        /// 根据DBC文件ID查询所有相关的MessageID
+        /// </summary>
+        /// <param name="conn">SQLite连接</param>
+        /// <param name="dbcFileId">DBC文件ID</param>
+        /// <returns>MessageID列表，如果没有找到则返回空列表</returns>
+        public static List<long> GetMessageIds(SQLiteConnection conn, long dbcFileId)
+        {
+            List<long> messageIds = new List<long>();
+
+            string sql = @"SELECT MessageID FROM Messages
+                   WHERE DbcFileID = @DbcFileID";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@DbcFileID", dbcFileId);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!reader.IsDBNull(0))
+                        {
+                            messageIds.Add(Convert.ToInt64(reader["MessageID"]));
+                        }
+                    }
+                }
+            }
+
+            return messageIds;
         }
 
         /// <summary>
@@ -909,6 +941,59 @@ namespace ChargeDebug.Service
         }
 
         /// <summary>
+        /// 根据MessageID和SystemName查询特定信号的所有信息
+        /// </summary>
+        public static SignalInfo GetSignalByMessageAndSystemName(SQLiteConnection conn, long messageId, string systemName)
+        {
+            const string sql = @"SELECT 
+                    s.SignalID, s.SignalName,
+                    s.MultiplexSignals, s.SystemName,
+                    s.Unit, s.StartBit,
+                    s.Length, s.ByteOrder,
+                    s.Signed, s.Factor,
+                    s.Offset, s.MinMax,
+                    s.orders, m.CANID 
+                    FROM Signals s JOIN Messages m 
+                    ON s.MessageID = m.MessageID
+                    WHERE s.MessageID = @msgId AND s.SystemName = @systemName";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@msgId", messageId);
+                cmd.Parameters.AddWithValue("@systemName", systemName);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        var signal = new SignalInfo
+                        {
+                            SignalID = (long)reader["SignalID"],
+                            SignalName = reader["SignalName"].ToString(),
+                            MultiplexSignals = reader["MultiplexSignals"].ToString(),
+                            SystemName = reader["SystemName"].ToString(),
+                            Unit = reader["Unit"].ToString(),
+                            StartBit = Convert.ToInt32(reader["StartBit"]),
+                            Length = Convert.ToInt32(reader["Length"]),
+                            ByteOrder = reader["ByteOrder"].ToString(),
+                            Signed = reader["Signed"].ToString(),
+                            Factor = Convert.ToDecimal(reader["Factor"]),
+                            Offset = Convert.ToDecimal(reader["Offset"]),
+                            MinMax = reader["MinMax"].ToString(),
+                            Orders = Convert.ToInt32(reader["orders"]),
+                            CANID = reader["CANID"].ToString()
+                        };
+                        // 加载复用信号配置
+                        signal.ReuseSignals = GetReuseSignalsBySignals(conn, signal.SignalID);
+                        return signal;
+                    }
+                }
+            }
+
+            return null; // 如果没有找到匹配的信号，返回null
+        }
+
+        /// <summary>
         /// 根据SystemName获取报文下的信号
         /// </summary>
         public static List<SignalInfo> GetSignalsByMessage(SQLiteConnection conn, long messageID, string? systemName)
@@ -1167,6 +1252,25 @@ namespace ChargeDebug.Service
                 }
             }
             return equipment;
+        }
+
+        /// <summary>
+        /// 根据设备名称及是否开启设备获取协议名称
+        /// </summary>
+        /// <param name="conn">SQLite连接</param>
+        /// <param name="deviceName">设备名称</param>
+        /// <returns>协议名称，如果找不到则返回null</returns>
+        public static string GetProtocolNameByDeviceName(SQLiteConnection conn, string deviceName)
+        {
+            const string query = "SELECT CommunicationProtocols FROM Equipment WHERE DeviceName = @deviceName AND Whether = '启用'";
+
+            using (var cmd = new SQLiteCommand(query, conn))
+            {
+                cmd.Parameters.AddWithValue("@deviceName", deviceName);
+
+                object result = cmd.ExecuteScalar();
+                return result != null ? result.ToString() : null;
+            }
         }
 
         #endregion

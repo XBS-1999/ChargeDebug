@@ -144,7 +144,7 @@ namespace ChargeDebug.Form
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cantype.Properties.Items.AddRange(new[] { "CANET-2E-U", "RS485-MODBUS" });
+            cantype.Properties.Items.AddRange(new[] { "CANET-2E-U", "RS485-MODBUS", "USB-SCPI" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
 
@@ -395,16 +395,40 @@ namespace ChargeDebug.Form
                     serialGroup.Location = new Point(0, 140);
                 }
             }
+            else if (cantype.Text == "USB-SCPI")
+            {
+                // 隐藏网口和串口配置
+                networkGroup.Visible = false;
+                serialGroup.Visible = false;
+            }
 
             // 调整按钮位置
             int buttonY = 0;
             if (deviceType.Text == "充放电设备")
             {
-                buttonY = Math.Max(cantype.Text == "CANET-2E-U" ? networkGroup.Bottom : serialGroup.Bottom, equipmentGroup.Bottom);
+                buttonY = equipmentGroup.Bottom;
+
+                if (cantype.Text == "CANET-2E-U")
+                {
+                    buttonY = networkGroup.Bottom;
+                }
+                else if (cantype.Text == "RS485-MODBUS")
+                {
+                    buttonY = serialGroup.Bottom;
+                }
             }
             else
             {
-                buttonY = Math.Max(cantype.Text == "CANET-2E-U" ? networkGroup.Bottom : serialGroup.Bottom, 140);
+                buttonY = 140;
+
+                if (cantype.Text == "CANET-2E-U")
+                {
+                    buttonY = networkGroup.Bottom;
+                }
+                else if (cantype.Text == "RS485-MODBUS")
+                {
+                    buttonY = serialGroup.Bottom;
+                }
             }
 
             btnOK.Location = new Point(200, buttonY + 20);
@@ -431,6 +455,10 @@ namespace ChargeDebug.Form
                     else if (cantype.Text == "RS485-MODBUS")
                     {
                         agreementType = "MODBUS";
+                    }
+                    else if (cantype.Text == "USB-SCPI")
+                    {
+                        agreementType = "SCPI";
                     }
 
                     // 如果没有选择通讯类型，则返回
@@ -465,6 +493,10 @@ namespace ChargeDebug.Form
                             if (communicationprotocols.Properties.Items.Count > 0)
                             {
                                 communicationprotocols.SelectedIndex = 0;
+                            }
+                            else
+                            {
+                                communicationprotocols.Text = string.Empty;
                             }
                         }
                     }
@@ -518,6 +550,10 @@ namespace ChargeDebug.Form
                 dataBits.Text = row.Table.Columns.Contains("DataBits") ? row["DataBits"].ToString() : "8";
                 parity.Text = row.Table.Columns.Contains("Parity") ? row["Parity"].ToString() : "无";
                 stopBits.Text = row.Table.Columns.Contains("StopBits") ? row["StopBits"].ToString() : "1";
+            }
+            else if (cantype.Text == "USB-SCPI")
+            {
+
             }
 
             deviceindex.Text = row["DeviceIndex"].ToString();
@@ -629,6 +665,11 @@ namespace ChargeDebug.Form
                     return false;
                 }
             }
+            else if (cantype.Text == "USB-SCPI")
+            {
+                // USB-SCPI不需要额外的网络或串口配置验证
+                // 可以在这里添加特定于USB-SCPI的验证逻辑
+            }
 
             // 如果设备类型是充放电设备，验证AC/DC配置
             if (deviceType.Text == "充放电设备")
@@ -663,11 +704,11 @@ namespace ChargeDebug.Form
             }
 
             // 验证通讯协议
-            if (string.IsNullOrWhiteSpace(communicationprotocols.Text))
-            {
-                ShowError("通讯协议不能为空！", communicationprotocols);
-                return false;
-            }
+            //if (string.IsNullOrWhiteSpace(communicationprotocols.Text))
+            //{
+            //    ShowError("通讯协议不能为空！", communicationprotocols);
+            //    return false;
+            //}
 
             // 验证是否启用设备
             if (string.IsNullOrWhiteSpace(whether.Text))

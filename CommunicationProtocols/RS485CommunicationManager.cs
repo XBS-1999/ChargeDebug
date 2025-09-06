@@ -162,7 +162,7 @@ namespace ChargeDebug.Service
         /// <param name="portName">串口名称</param>
         /// <param name="data">要发送的数据字节数组</param>
         /// <returns>成功返回true，失败返回false</returns>
-        public bool SendData(string portName, byte[] data)
+        public bool SendData(string? portName, byte[] data)
         {
             if (!_serialPorts.TryGetValue(portName, out SerialPort serialPort))
             {
