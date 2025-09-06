@@ -557,7 +557,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 构建设置模式的命令
-                byte[] myByteArray = new byte[] {};
+                byte[] myByteArray = new byte[] { };
                 //通讯地址
                 myByteArray[0] = HexStringToByte(modeSettingSignal.CorrespondenceAddress);
                 //功能码
