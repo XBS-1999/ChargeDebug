@@ -1,12 +1,22 @@
-﻿using DevExpress.XtraEditors;
+﻿using ChargeDebug.Service;
+using DataModel;
+using DevExpress.XtraBars;
+using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
+using DevExpress.XtraRichEdit.Model;
+using Ivi.Visa;
+using Ivi.Visa.ConflictManager;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.ServiceModel.Channels;
 using System.Text;
+using System.Threading.Channels;
 using TcpCommunicationLib;
+using static ChargeDebug.Service.CANManager;
 
 namespace TcpAssistant
 {
@@ -34,6 +44,10 @@ namespace TcpAssistant
 
         // 在类级别添加以下字段
         private Dictionary<string, HexFileData> hexFileCache = new Dictionary<string, HexFileData>();
+
+        // CAN接收队列
+        //private ConcurrentQueue<CANManager.ZCAN_Receive_Data> canReceiveQueue = 
+        //    new ConcurrentQueue<CANManager.ZCAN_Receive_Data>();
 
         public MainForm()
         {
@@ -194,35 +208,17 @@ namespace TcpAssistant
                 string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
                 string systemModel = cbSystemModell.SelectedItem?.ToString() ?? "";
                 string filePath = btnSelectFile.Text;
+                string protocol = cbProtocolType.SelectedItem?.ToString() ?? "";
 
-                // 步骤1: 发送升级标志指令 (0x05)
-                if (!await SendCommandAndVerify("升级标志指令", 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+                // 根据协议类型选择不同的升级流程
+                if (protocol == "CAN")
                 {
-                    AppendInfo("❌ 升级标志指令发送失败，停止升级");
-                    return;
+                    await StartCANUpgrade(firmwareModel, systemModel, filePath);
                 }
-
-                await Task.Delay(100); //延时100ms
-                // 步骤2: 发送请求升级指令 (0x01)
-                if (!await SendCommandAndVerify("请求升级指令", 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+                else
                 {
-                    AppendInfo("❌ 请求升级指令发送失败，停止升级");
-                    return;
+                    await StartTCPUpgrade(firmwareModel, systemModel, filePath);
                 }
-
-                // 步骤3: 发送启动升级指令 (0x03)
-                if (!await SendCommandAndVerify("启动升级指令", 0x03, 0xA1, 0xB2, 0xC3, 0xD4))
-                {
-                    AppendInfo("❌ 启动升级指令发送失败，停止升级");
-                    return;
-                }
-
-                // 步骤4-6: 分块传输固件数据
-                await TransferFirmwareDataInBlocks(filePath);
-
-                // 断开当前连接
-                Disconnect();
-                AppendInfo("✅ 固件升级完成！");
             }
             catch (Exception ex)
             {
@@ -235,7 +231,512 @@ namespace TcpAssistant
             }
         }
 
-        private async Task TransferFirmwareDataInBlocks(string filePath)
+        // TCP升级流程
+        private async Task StartTCPUpgrade(string firmwareModel, string systemModel, string filePath)
+        {
+            // 步骤1: 发送升级标志指令 (0x05)
+            if (!await SendTCPCommandAndVerify("升级标志指令", 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+            {
+                AppendInfo("❌ 升级标志指令发送失败，停止升级");
+                return;
+            }
+
+            await Task.Delay(100); //延时100ms
+            
+            // 步骤2: 发送请求升级指令 (0x01)
+            if (!await SendTCPCommandAndVerify("请求升级指令", 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+            {
+                AppendInfo("❌ 请求升级指令发送失败，停止升级");
+                return;
+            }
+
+            // 步骤3: 发送启动升级指令 (0x03)
+            if (!await SendTCPCommandAndVerify("启动升级指令", 0x03, 0xA1, 0xB2, 0xC3, 0xD4))
+            {
+                AppendInfo("❌ 启动升级指令发送失败，停止升级");
+                return;
+            }
+
+            // 步骤4-6: 分块传输固件数据
+            await TransferFirmwareDataInBlocksTCP(filePath);
+
+            // 断开当前连接
+            Disconnect();
+            AppendInfo("✅ 固件升级完成！");
+        }
+
+        // CAN升级流程
+        private async Task StartCANUpgrade(string firmwareModel, string systemModel, string filePath)
+        {
+            // 检查CAN连接状态
+            if (!IsCANConnected())
+            {
+                AppendInfo("❌ CAN连接未建立，请先打开CAN连接");
+                return;
+            }
+
+            // 步骤1: 发送请求升级指令 (0x05)
+            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                new byte[] { 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                "升级标志指令", "升级标志"))
+            {
+                return;
+            }
+
+            await Task.Delay(100); //延时100ms
+
+            // 步骤2: 发送请求升级指令 (0x01)
+            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                new byte[] { 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                "请求升级指令", "请求升级"))
+            {
+                return;
+            }
+
+            // 步骤3: 发送启动升级指令 (0x03)
+            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                    new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                    "启动升级指令", "启动升级"))
+            {
+                if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                "启动升级指令", "启动升级"))
+                {
+                    return;
+                }
+            }
+
+            // 步骤4-6: 分块传输固件数据
+            await TransferFirmwareDataInBlocksCAN(filePath);
+
+            DisconnectCAN();
+            AppendInfo("✅ 固件升级完成！");
+        }
+
+        private async Task TransferFirmwareDataInBlocksCAN(string filePath)
+        {
+            try
+            {
+                if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
+                {
+                    AppendInfo("❌ 未找到缓存的HEX文件数据");
+                    return;
+                }
+
+                // 直接使用解析时生成的块
+                for (int i = 0; i < hexData.Blocks.Count; i++)
+                {
+                    DataBlock block = hexData.Blocks[i];
+                    bool blockSuccess = false;
+                    int retryCount = 0;
+                    const int maxRetries = 5;
+                    int times = 15;
+
+                    // 重试机制：最多尝试5次
+                    while (!blockSuccess && retryCount < maxRetries)
+                    {
+                        try
+                        {
+                            await SendBlock(0, 0,
+                                           block.StartAddress,
+                                           block.Data,
+                                           block.BlockIndex,
+                                           hexData.Blocks.Count,
+                                           times);
+
+                            blockSuccess = true; // 标记成功
+                        }
+                        catch (Exception ex)
+                        {
+                            retryCount++;
+                            times += 5;
+                            AppendInfo($"❌ 第 {block.BlockIndex} 包数据第 {retryCount} 次重试失败: {ex.Message}");
+
+                            if (retryCount >= maxRetries)
+                            {
+                                AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
+                                throw; // 抛出异常终止升级
+                            }
+
+                            // 重试前延迟
+                            await Task.Delay(100);
+                        }
+                    }
+
+                    // 更新进度条
+                    int progress = (i + 1) * 100 / hexData.Blocks.Count;
+                    this.Invoke((Action)(() => { progressBar.EditValue = progress; }));
+
+                    await Task.Delay(5);
+                }
+                AppendInfo("✅ 所有数据包传输完成，升级成功！");
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ 数据传输异常: {ex.Message}");
+                progressBar.Visible = false;
+                XtraMessageBox.Show($"升级失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async Task<bool> SendAddressAndLength(int deviceIndex, int channelIndex,
+             uint startAddress, uint byteLength)
+        {
+            try
+            {
+                // 准备指令数据
+                byte[] data = new byte[8];
+                data[0] = 0x06; // 指令码
+
+                // 地址 (小端序: 低字节在前)
+                data[1] = (byte)(startAddress & 0xFF);         // LSB
+                data[2] = (byte)((startAddress >> 8) & 0xFF);
+                data[3] = (byte)((startAddress >> 16) & 0xFF);
+                data[4] = (byte)((startAddress >> 24) & 0xFF); // MSB
+
+                // 字节长度
+                data[5] = (byte)(byteLength & 0xFF);
+                data[6] = (byte)((byteLength >> 8) & 0xFF);
+                data[7] = 0x00; // 保留
+
+                // 发送指令
+                string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                CANManager.Instance.ClearQueue(channelKey);
+                CANManager.Instance.SendCommand(
+                    deviceIndex,
+                    channelIndex,
+                    0x0000AA01,
+                    data
+                );
+
+                // 接收响应
+                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, 0x0000BB01, 2000);
+                uint canId = response.can_id & 0x1FFFFFFF;
+
+                if (canId == 0x0000BB01)
+                {
+                    if (response.data[0] == 0x06 && response.data[1] == 0x00)
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        AppendInfo($"❌ 地址和包数设置失败: 错误代码 0x{response.data[1]:X2}");
+                        return false;
+                    }
+                }
+                else
+                {
+                    AppendInfo("❌ 未收到地址和包数设置的响应");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ 地址和包数设置异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> SendDataPackets(int deviceIndex, int channelIndex,
+            byte[] blockData, int blockIndex, int totalBlocks, int times)
+        {
+            try
+            {
+                int packetsNeeded = (blockData.Length + 7) / 8;
+                //AppendInfo($"块 {blockIndex}/{totalBlocks} 大小: {blockData.Length}字节, " +
+                //         $"需要 {packetsNeeded} 个数据包");
+
+                for (int packetIndex = 0; packetIndex < packetsNeeded; packetIndex++)
+                {
+                    int offset = packetIndex * 8;
+                    int length = Math.Min(8, blockData.Length - offset);
+
+                    byte[] packetData = new byte[8];
+                    Array.Copy(blockData, offset, packetData, 0, length);
+
+                    // 填充剩余字节
+                    for (int i = length; i < 8; i++)
+                    {
+                        packetData[i] = 0x00;
+                    }
+
+                    // ===== 每两个字节交换顺序 =====
+                    byte[] swappedData = new byte[8];
+                    for (int i = 0; i < 8; i += 2)
+                    {
+                        if (i + 1 < 8) // 确保有下一个字节可以交换
+                        {
+                            swappedData[i] = packetData[i + 1];
+                            swappedData[i + 1] = packetData[i];
+                        }
+                        else
+                        {
+                            swappedData[i] = packetData[i]; // 奇数位置保留原值
+                        }
+                    }
+
+                    //CANManager.Instance.ClearQueue(channelKey);
+                    CANManager.Instance.SendCommand(
+                        deviceIndex,channelIndex,
+                        0x0000AA02,
+                        swappedData
+                    );
+
+                    //string hexDataStr = BitConverter.ToString(swappedData).Replace("-", " ");
+                    //AppendInfo($"{device.DeviceNumber} | 发送烧写地址和长度指令 | " +
+                    //           $"CAN ID: 0x{0x0000AA02:X8} | 数据: {hexDataStr}");
+
+                    // 更新进度
+                    int packetProgress = (packetIndex + 1) * 100 / packetsNeeded;
+                    int totalProgress = (blockIndex - 1) * 100 / totalBlocks +
+                                         packetIndex * 100 / (totalBlocks * packetsNeeded);
+
+                    // 添加少量延迟防止CAN总线过载
+                    await Task.Delay(times);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ 数据包发送异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> VerifyDataBlock(int deviceIndex, int channelIndex, int blockIndex, int totalBlocks)
+        {
+            try
+            {
+                // 获取当前块的数据
+                string filePath = btnSelectFile.Text;
+                if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
+                {
+                    string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
+                    hexData = HexFile.ParseHexFile(filePath, firmwareModel);
+                    hexFileCache[filePath] = hexData;
+                }
+
+                // 计算当前块的CRC16校验值 (使用MODBUS CRC16算法)
+                byte[] blockData = GetBlockData(hexData, blockIndex); // 需要实现GetBlockData方法
+                ushort crc = CalculateCrc16(blockData);
+
+                // 准备校验指令
+                byte[] verifyData = new byte[8];
+                verifyData[0] = (byte)((blockIndex - 1) & 0xFF); // 块序号低字节
+                verifyData[1] = (byte)(((blockIndex - 1) >> 8) & 0xFF); // 块序号高字节
+                verifyData[2] = (byte)(crc & 0xFF); // CRC低字节
+                verifyData[3] = (byte)((crc >> 8) & 0xFF); // CRC高字节
+                verifyData[4] = (byte)(totalBlocks & 0xFF); // 总块数低字节
+                verifyData[5] = (byte)((totalBlocks >> 8) & 0xFF); // 总块数高字节
+                verifyData[6] = 0x00; // 保留
+                verifyData[7] = 0x00; // 保留
+
+                string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                CANManager.Instance.ClearQueue(channelKey);
+                CANManager.Instance.SendCommand(
+                    deviceIndex,
+                    channelIndex,
+                    0x0000AA03,
+                    verifyData
+                );
+
+                // 等待校验响应
+                var verifyResponse = await CANManager.Instance.ReceiveFrameAsync(channelKey, 0x0000BB03, 3000);
+                uint verifyCanId = verifyResponse.can_id & 0x1FFFFFFF;
+
+                if (verifyCanId == 0x0000BB03)
+                {
+                    // 修改点：正确解析两个字节的块序号
+                    ushort receivedBlockIndex = (ushort)(verifyResponse.data[0] | (verifyResponse.data[1] << 8));
+                    if ((receivedBlockIndex == blockIndex - 1) && (verifyResponse.data[2] == 0x00))
+                    {
+                        AppendInfo($"✅ 第 {blockIndex} 包数据烧写成功");
+                        return true;
+                    }
+                    else
+                    {
+                        AppendInfo($"❌ 块 {blockIndex} 校验失败: 错误代码 0x{verifyResponse.data[2]:X2}-{receivedBlockIndex + 1}");
+                        return false;
+                    }
+                }
+                else
+                {
+                    AppendInfo("❌ 未收到块校验响应");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ 块校验异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private ushort CalculateCrc16(byte[] data)
+        {
+            ushort crc = 0xFFFF;
+            for (int i = 0; i < data.Length; i++)
+            {
+                crc ^= data[i];
+                for (int j = 0; j < 8; j++)
+                {
+                    bool lsb = (crc & 1) != 0;
+                    crc >>= 1;
+                    if (lsb)
+                        crc ^= 0xA001;
+                }
+            }
+            return crc;
+        }
+
+        private byte[] GetBlockData(HexFileData hexData, int blockIndex)
+        {
+            // 这里需要根据您的数据块管理逻辑实现
+            // 示例：假设hexData包含所有块的数据列表
+            if (blockIndex > 0 && blockIndex <= hexData.Blocks.Count)
+            {
+                return hexData.Blocks[blockIndex - 1].Data;
+            }
+            throw new ArgumentException($"无效的块索引: {blockIndex}");
+        }
+
+        private async Task SendBlock(int deviceIndex, int channelIndex,uint startAddress, 
+            byte[] blockData, int blockIndex, int totalBlocks, int times)
+        {
+            // 1. 发送烧写地址和长度
+            if (!await SendAddressAndLength(deviceIndex, channelIndex,
+                                   startAddress,
+                                   (uint)blockData.Length)) // 这里传入字节长度
+            {
+                throw new Exception($"第 {blockIndex} 包数据地址和长度设置失败");
+            }
+
+            // 2. 发送数据
+            if (!await SendDataPackets(deviceIndex, channelIndex, blockData, blockIndex, totalBlocks, times))
+            {
+                throw new Exception($"第 {blockIndex} 包数据传输失败");
+            }
+
+            // 3. 校验数据
+            if (!await VerifyDataBlock(deviceIndex, channelIndex, blockIndex, totalBlocks))
+            {
+                throw new Exception($"第 {blockIndex} 包数据校验失败");
+            }
+        }
+
+        // 辅助方法：发送命令并验证响应
+        private async Task<bool> SendAndVerifyCommand(
+            int deviceIndex,  int channelIndex,
+            uint sendCanId,
+            uint receiveCanId,
+            byte[] data,
+            string commandName,
+            string operationName)
+        {
+            int maxRetries = 5;
+            int retryCount = 0;
+
+            while (retryCount < maxRetries)
+            {
+                try
+                {
+                    // 发送命令
+                    string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                    CANManager.Instance.ClearQueue(channelKey);
+                    CANManager.Instance.SendCommand(
+                        deviceIndex,
+                        channelIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    string hexData = BitConverter.ToString(data).Replace("-", " ");
+                    AppendInfo($"{channelKey} | 发送{commandName} | " +
+                               $"CAN ID: 0x{sendCanId:X8} | 数据: {hexData}");
+
+                    // 接收响应
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 2000);
+                    uint canId = response.can_id & 0x1FFFFFFF;
+
+                    if (canId == receiveCanId)
+                    {
+                        string responseHex = BitConverter.ToString(response.data).Replace("-", " ");
+                        AppendInfo($"{channelKey} | 接收响应 | " +
+                                   $"CAN ID: 0x{canId:X8} | 数据: {responseHex}");
+
+                        if (response.data[0] == data[0] && response.data[1] == 0x00)
+                        {
+                            AppendInfo($"✅ {operationName}成功");
+                            return true;
+                        }
+                        else
+                        {
+                            AppendErrorResponse(operationName, response.data[1]);
+                        }
+                    }
+                    else
+                    {
+                        if (commandName == "升级标志指令")
+                        {
+                            maxRetries = 1;
+                            AppendInfo("✅ 已进入Bootloader模式，请开始升级");
+                            return true;
+                        }
+                        AppendInfo($"❌ {operationName}失败: 未收到响应");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendInfo($"❌ {operationName}异常: {ex.Message}");
+                }
+
+                // 重试前等待
+                retryCount++;
+                if (retryCount < maxRetries)
+                {
+                    AppendInfo($"↻ {operationName} 重试中 ({retryCount}/{maxRetries})...");
+                    await Task.Delay(100); // 指数退避
+                }
+            }
+            AppendInfo($"❌ {operationName} 失败: 超过最大重试次数({maxRetries})");
+            return false;
+        }
+
+        private void AppendErrorResponse(string operation, byte errorCode)
+        {
+            string errorMessage = $"❌ {operation}失败: ";
+
+            switch (errorCode)
+            {
+                case 0x01:
+                    errorMessage += "系统型号错误";
+                    break;
+                case 0x02:
+                    errorMessage += "软件版本错误";
+                    break;
+                case 0x03:
+                    errorMessage += "文件长度错误";
+                    break;
+                case 0x04:
+                    errorMessage += "其他错误，不能升级";
+                    break;
+                case 0x05:
+                    errorMessage += "密钥错误";
+                    break;
+                case 0x06:
+                    errorMessage += "Flash操作失败";
+                    break;
+                default:
+                    errorMessage += $"未知错误代码 0x{errorCode:X2}";
+                    break;
+            }
+
+            AppendInfo(errorMessage);
+        }
+
+        private async Task TransferFirmwareDataInBlocksTCP(string filePath)
         {
             try
             {
@@ -344,18 +845,37 @@ namespace TcpAssistant
 
         private byte GetCpuByte(string firmwareModel)
         {
-            // 将固件型号转换为对应的字节值
-            return firmwareModel switch
+            string protocol = cbProtocolType.SelectedItem?.ToString();
+
+            if (protocol == "CAN")
             {
-                "CPU1" => 0x10,
-                "CPU2" => 0x11,
-                "CPU3" => 0x12,
-                "ARM1" => 0x20,
-                "ARM2" => 0x21,
-                "FPGA1" => 0x30,
-                "FPGA2" => 0x31,
-                _ => 0xFF,
-            };
+                return firmwareModel switch
+                {
+                    "CPU1" => 0x01,
+                    "CPU2" => 0x02,
+                    "CPU3" => 0x03,
+                    "ARM1" => 0x04,
+                    "ARM2" => 0x05,
+                    "FPGA1" => 0x06,
+                    "FPGA2" => 0x07,
+                    _ => 0xFF,
+                };
+            }
+            else
+            {
+                // 将固件型号转换为对应的字节值
+                return firmwareModel switch
+                {
+                    "CPU1" => 0x10,
+                    "CPU2" => 0x11,
+                    "CPU3" => 0x12,
+                    "ARM1" => 0x20,
+                    "ARM2" => 0x21,
+                    "FPGA1" => 0x30,
+                    "FPGA2" => 0x31,
+                    _ => 0xFF,
+                };
+            }
         }
 
         private byte GetChannelByte(string systemModel)
@@ -377,7 +897,7 @@ namespace TcpAssistant
             };
         }
 
-        private async Task<bool> SendCommandAndVerify(string commandName, byte command, params byte[] data)
+        private async Task<bool> SendTCPCommandAndVerify(string commandName, byte command, params byte[] data)
         {
             int maxRetries = 5;
             int retryCount = 0;
@@ -501,14 +1021,123 @@ namespace TcpAssistant
         // 实现按钮点击事件处理方法
         private void BtnOpenAndClose_Click()
         {
-            // 直接根据当前TCP状态判断，而不是本地变量
-            if (tcpHelper?.IsConnected == true)
+            string protocol = cbProtocolType.SelectedItem?.ToString();
+
+            if (protocol == "CAN")
             {
-                Disconnect();
+                // CAN连接处理
+                if (IsCANConnected())
+                {
+                    DisconnectCAN();
+                }
+                else
+                {
+                    ConnectCAN();
+                }
             }
             else
             {
-                Connect();
+                // TCP连接处理
+                if (tcpHelper?.IsConnected == true)
+                {
+                    Disconnect();
+                }
+                else
+                {
+                    Connect();
+                }
+            }
+        }
+
+        // CAN连接方法
+        private void ConnectCAN()
+        {
+            try
+            {
+                int deviceIndex = 0;
+                int channelIndex = 0;
+                // 创建设备模型
+                EquipmentModel equipment = new EquipmentModel
+                {
+                    DeviceIndex = deviceIndex,
+                    CanIndex = channelIndex,
+                    DeviceIP = txtIPAddress.Text, // CAN设备不需要IP，但接口要求
+                    DevicePort = txtPort.Text // CAN设备不需要端口，但接口要求
+                };
+
+                // 注册CAN通道
+                if(CANManager.Instance.RegisterChannels(equipment))
+                {
+                    // 注册数据处理器
+                    //string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                    //CANManager.Instance.RegisterDataHandler(deviceIndex, channelIndex, HandleCANData);
+                    btnOpenAndClose.Text = "关闭";
+                    AppendInfo($"✅ CAN设备 {deviceIndex} 通道 {channelIndex} 连接成功");
+                }
+                else
+                {
+                    AppendInfo("❌ CAN连接失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ CAN连接失败: {ex.Message}");
+            }
+        }
+
+        // 检查CAN连接状态
+        private bool IsCANConnected()
+        {
+            try
+            {
+                int deviceIndex = 0;
+                int channelIndex = 0;
+                string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                return CANManager.Instance.IsChannelConnected(channelKey);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // CAN数据处理
+        private void HandleCANData(List<CANManager.ZCAN_Receive_Data> frames)
+        {
+            foreach (var frame in frames)
+            {
+                // 将CAN帧数据加入接收队列
+                //canReceiveQueue.Enqueue(frame);
+
+                // 记录接收到的数据
+                if (frame.data != null && frame.data.Length > 0)
+                {
+                    string hexData = BitConverter.ToString(frame.data).Replace("-", " ");
+                    AppendInfo($"← CAN接收: ID=0x{frame.can_id:X8}, 数据={hexData}");
+                }
+            }
+        }
+
+        // CAN断开连接方法
+        private void DisconnectCAN()
+        {
+            try
+            {
+                int deviceIndex = 0;
+                int channelIndex = 0;
+
+                // 注销数据处理器
+                //CANManager.Instance.UnregisterDataHandler(deviceIndex, channelIndex, HandleCANData);
+
+                // 注销CAN通道
+                CANManager.Instance.UnregisterChannel(deviceIndex, channelIndex);
+
+                btnOpenAndClose.Text = "打开";
+                AppendInfo($"✅ CAN设备 {deviceIndex} 通道 {channelIndex} 已断开");
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ CAN断开失败: {ex.Message}");
             }
         }
 

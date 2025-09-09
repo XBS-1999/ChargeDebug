@@ -240,6 +240,17 @@ namespace ChargeDebug.Service
         }
 
         /// <summary>
+        /// 清空指定串口的输入缓冲区
+        /// </summary>
+        public void ClearBuffer(string portName)
+        {
+            if (_serialPorts.TryGetValue(portName, out SerialPort serialPort) && serialPort.IsOpen)
+            {
+                serialPort.DiscardInBuffer();
+            }
+        }
+
+        /// <summary>
         /// 从指定RS485通道同步读取数据
         /// </summary>
         /// <param name="portName">串口名称</param>

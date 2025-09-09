@@ -151,7 +151,7 @@ namespace TcpAssistant
             if (currentData.Count == 0) return;
 
             // 确保数据大小是8的倍数（调用处已处理，此处为双重保障）
-            PadToMultipleOf8(ref currentData);
+            //PadToMultipleOf8(ref currentData);
 
             blocks.Add(new DataBlock
             {

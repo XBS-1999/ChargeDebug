@@ -5,9 +5,7 @@ using DevExpress.XtraLayout;
 using DevExpress.Utils;
 using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraEditors.Controls;
-using System.Linq;
 using System.Data.SQLite;
-using System.Data;
 using ChargeDebug.Service;
 using DataModel;
 using Log;
@@ -16,21 +14,40 @@ using DevExpress.XtraTreeList.Nodes;
 
 namespace ChargeDebug.Form
 {
+    /// <summary>
+    /// 校准管理用户控件
+    /// 负责管理校准信号、执行电压/电流校准操作
+    /// </summary>
     public partial class CalibrationManagement : XtraUserControl
     {
+        #region 字段声明
+
         private string sqladdress = "";
         private TreeList treeList;
         private List<EquipmentModel> equipmentList;
 
-        // 添加组合框字段
+        // 组合框控件
         private ComboBoxEdit cbVoltageSource;
         private ComboBoxEdit cbVoltmeter;
         private ComboBoxEdit cbAmmeter;
 
+        // 协议列表
         private List<ModbusSignal> voltageSourceProtocols = new List<ModbusSignal>();
         private List<ModbusSignal> voltmeterProtocols = new List<ModbusSignal>();
         private List<SignalInfo> treeSignalProtocols = new List<SignalInfo>();
 
+        // 进度条控件
+        private ProgressBarControl progressBar;
+
+        #endregion
+
+        #region 构造函数和初始化
+
+        /// <summary>
+        /// 构造函数
+        /// </summary>
+        /// <param name="sqladdress">SQLite数据库地址</param>
+        /// <param name="equipmentList">设备列表</param>
         public CalibrationManagement(string sqladdress, List<EquipmentModel> equipmentList)
         {
             this.equipmentList = equipmentList;
@@ -40,12 +57,21 @@ namespace ChargeDebug.Form
             this.Load += CalibrationManagement_Load;
         }
 
+        /// <summary>
+        /// 窗体加载事件处理
+        /// </summary>
         private void CalibrationManagement_Load(object? sender, EventArgs e)
         {
-            // 加载数据
             LoadData();
         }
 
+        #endregion
+
+        #region 数据管理方法
+
+        /// <summary>
+        /// 从数据库加载校准信号数据
+        /// </summary>
         private void LoadData()
         {
             treeList.BeginUpdate();
@@ -89,6 +115,27 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 更新设备列表
+        /// </summary>
+        /// <param name="equipmentList">新的设备列表</param>
+        public void UpdateDcNumber(List<EquipmentModel> equipmentList)
+        {
+            this.equipmentList = equipmentList;
+            // 清除所有旧布局
+            this.Controls.Clear();
+            InitializeUI();
+            // 加载数据
+            LoadData();
+        }
+
+        #endregion
+
+        #region 事件处理方法
+
+        /// <summary>
+        /// 添加信号按钮点击事件
+        /// </summary>
         private void BtnAddSignal_Click(object? sender, EventArgs e)
         {
             try
@@ -110,6 +157,9 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 编辑信号按钮点击事件
+        /// </summary>
         private void BtnEditSignal_Click(object? sender, EventArgs e)
         {
             if (treeList.FocusedNode == null)
@@ -124,7 +174,7 @@ namespace ChargeDebug.Form
                 long signalId = (long)treeList.FocusedNode.Tag;
 
                 // 创建并显示编辑信号的对话框
-                using (var editForm = new AddEditCalibrationSignalForm(signalId, sqladdress,equipmentList))
+                using (var editForm = new AddEditCalibrationSignalForm(signalId, sqladdress, equipmentList))
                 {
                     if (editForm.ShowDialog() == DialogResult.OK)
                     {
@@ -140,6 +190,9 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 删除信号按钮点击事件
+        /// </summary>
         private void BtnDeleteSignal_Click(object? sender, EventArgs e)
         {
             // 获取所有选中的节点
@@ -224,49 +277,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        private void InitializeUI()
-        {
-            // 主布局控件，填充整个用户控件
-            LayoutControl layoutControl = new LayoutControl
-            {
-                Parent = this,
-                Dock = DockStyle.Fill
-            };
-
-            // 4. 创建根布局组（垂直方向）
-            LayoutControlGroup rootGroup = new LayoutControlGroup();
-            rootGroup.TextVisible = false;
-            rootGroup.GroupBordersVisible = false;
-            rootGroup.DefaultLayoutType = LayoutType.Vertical; //垂直排列
-            layoutControl.Root.Add(rootGroup);
-
-            // 5. 添加按钮组到根组
-            LayoutControlItem buttonGroupItem = rootGroup.AddItem();
-            buttonGroupItem.Control = CreateButtonContainer();
-            buttonGroupItem.TextVisible = false;
-            buttonGroupItem.SizeConstraintsType = SizeConstraintsType.Custom;
-            buttonGroupItem.MinSize = new Size(0, 60);
-            buttonGroupItem.MaxSize = new Size(0, 60);
-
-            // 6. 添加TreeList到根组
-            LayoutControlItem layoutControlItemForTreeList = rootGroup.AddItem();
-            layoutControlItemForTreeList.Control = CreateTreeList();
-            layoutControlItemForTreeList.TextVisible = false;
-            layoutControlItemForTreeList.SizeConstraintsType = SizeConstraintsType.Custom;
-            layoutControlItemForTreeList.MinSize = new Size(0, 0);
-            layoutControlItemForTreeList.MaxSize = new Size(0, 800);
-
-            // 7. 添加底部进度条面板到根组
-            LayoutControlItem progressGroupItem = rootGroup.AddItem();
-            progressGroupItem.Control = CreateProgressContainer();
-            progressGroupItem.TextVisible = false;
-            progressGroupItem.SizeConstraintsType = SizeConstraintsType.Custom;
-            progressGroupItem.MinSize = new Size(0, 60);
-            progressGroupItem.MaxSize = new Size(0, 60);
-        }
-
-        
-
+        /// <summary>
+        /// 电压校准按钮点击事件
+        /// </summary>
         private async void BtnVoltageCalibration_Click(object? sender, EventArgs e)
         {
             try
@@ -319,6 +332,90 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 停止校准按钮点击事件
+        /// </summary>
+        private void BtnStopCalibration_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 发送停止校准命令
+                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x00 };
+                bool sendSuccess = RS485Manager.Instance.SendData("COM3", calibrationCommand);
+
+                if (sendSuccess)
+                {
+                    XtraMessageBox.Show("已发送停止校准命令!");
+                }
+                else
+                {
+                    XtraMessageBox.Show("发送停止校准命令失败!");
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"停止校准失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 充电电流校准按钮点击事件
+        /// </summary>
+        private void BtnChargingCurrentCalibration_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 实现充电电流校准逻辑
+                XtraMessageBox.Show("充电电流校准功能尚未实现");
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"充电电流校准失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 放电电流校准按钮点击事件
+        /// </summary>
+        private void BtnDischargingCurrentCalibration_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 实现放电电流校准逻辑
+                XtraMessageBox.Show("放电电流校准功能尚未实现");
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"放电电流校准失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 导出数据按钮点击事件
+        /// </summary>
+        private void BtnExportData_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 实现数据导出逻辑
+                XtraMessageBox.Show("数据导出功能尚未实现");
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"数据导出失败: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region 设备通信和校准方法
+
+        /// <summary>
+        /// 加载设备协议
+        /// </summary>
+        /// <param name="voltageSource">电压源设备</param>
+        /// <param name="voltmeter">电压表设备</param>
+        /// <returns>协议列表</returns>
         private async Task<List<ModbusSignal>> LoadProtocolsAsync(EquipmentModel voltageSource, EquipmentModel voltmeter)
         {
             try
@@ -383,6 +480,10 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 加载树形图信号协议
+        /// </summary>
+        /// <returns>信号信息列表</returns>
         private async Task<List<SignalInfo>> LoadTreeSignalsProtocolAsync()
         {
             try
@@ -445,6 +546,11 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 启动设备
+        /// </summary>
+        /// <param name="equipment">设备模型</param>
+        /// <returns>启动是否成功</returns>
         private static Task<bool> StartEquipment(EquipmentModel equipment)
         {
             try
@@ -491,6 +597,14 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 开始电压校准流程
+        /// </summary>
+        /// <param name="voltageSource">电压源设备</param>
+        /// <param name="voltmeter">电压表设备</param>
+        /// <param name="voltageSourceSignals">电压源信号</param>
+        /// <param name="voltmeterSignals">电压表信号</param>
+        /// <param name="treeSignals">树形信号</param>
         private async Task StartVoltageCalibration(EquipmentModel voltageSource, EquipmentModel voltmeter,
                                                    List<ModbusSignal> voltageSourceSignals,
                                                    List<ModbusSignal> voltmeterSignals,
@@ -498,9 +612,9 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 1. 设置设备模式（恒压模式）
+                // 1. 设置设备模式
                 LogService.Log("设置电压源为程控模式...");
-                bool modeSet = await SetEquipmentMode(voltageSource,voltageSourceSignals);
+                bool modeSet = await SendEquipmentCommand(CommandType.SetMode, voltageSource, voltageSourceSignals);
                 if (!modeSet)
                 {
                     XtraMessageBox.Show("设置设备模式失败!");
@@ -508,22 +622,22 @@ namespace ChargeDebug.Form
                 }
 
                 // 2. 设置初始电压值（从0开始）
-                //LogService.Log("设置初始电压值...");
-                //bool voltageSet = await SetVoltage(voltageSource, 0, voltageSourceSignals);
-                //if (!voltageSet)
-                //{
-                //    XtraMessageBox.Show("设置初始电压失败!");
-                //    return;
-                //}
+                LogService.Log("设置初始电压值...");
+                bool voltageSet = await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceSignals, 0.0);
+                if (!voltageSet)
+                {
+                    XtraMessageBox.Show("设置初始电压失败!");
+                    return;
+                }
 
                 // 3. 开机/启用输出
-                //LogService.Log("启用电压源输出...");
-                //bool outputEnabled = await EnableOutput(voltageSource, true, voltageSourceSignals);
-                //if (!outputEnabled)
-                //{
-                //    XtraMessageBox.Show("启用输出失败!");
-                //    return;
-                //}
+                LogService.Log("启用电压源输出...");
+                bool outputEnabled = await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceSignals, true);
+                if (!outputEnabled)
+                {
+                    XtraMessageBox.Show("启用输出失败!");
+                    return;
+                }
 
                 // 4. 获取校准点信息
                 //var calibrationPoints = await GetCalibrationPoints(treeSignals);
@@ -542,131 +656,206 @@ namespace ChargeDebug.Form
             }
         }
 
-        private Task<bool> SetEquipmentMode(EquipmentModel equipment, List<ModbusSignal> protocols)
+        /// <summary>
+        /// 发送设备命令
+        /// </summary>
+        /// <param name="commandType">命令类型</param>
+        /// <param name="equipment">设备</param>
+        /// <param name="protocols">协议</param>
+        /// <param name="parameters">参数</param>
+        /// <returns>发送是否成功</returns>
+        private async Task<bool> SendEquipmentCommand(CommandType commandType, EquipmentModel equipment, List<ModbusSignal> protocols, params object[] parameters)
         {
             try
             {
-                // 筛选出SystemVariableName = "模式设置指令"的信号
-                var modeSettingSignal = protocols
-                    .FirstOrDefault(s => s.SystemVariableName == "模式设置指令");
+                byte[] command = null;
+                bool isModbus = equipment.CanType == "RS485-MODBUS";
 
-                if (modeSettingSignal == null)
+                switch (commandType)
                 {
-                    LogService.Log("未找到模式设置指令信号");
-                    return Task.FromResult(false);
+                    case CommandType.SetMode:
+                        if (isModbus)
+                        {
+                            // 查找模式设置指令的信号
+                            var modeSettingSignal = protocols.FirstOrDefault(s => s.SystemVariableName == "模式设置指令");
+                            if (modeSettingSignal == null) return false;
+
+                            // 构建设置模式的Modbus命令
+                            command = new byte[]
+                            {
+                                HexStringToByte(modeSettingSignal.CorrespondenceAddress),
+                                HexStringToByte(modeSettingSignal.FunctionCode),
+                                HexStringToByteArray(modeSettingSignal.RegisterAddress)[0],
+                                HexStringToByteArray(modeSettingSignal.RegisterAddress)[1],
+                                (byte)(modeSettingSignal.RegisterCount >> 8),
+                                (byte)(modeSettingSignal.RegisterCount & 0xFF),
+                                (byte)(2 * modeSettingSignal.RegisterCount),
+                                0x00, 0x01  // 设置为恒压模式
+                            };
+                        }
+                        // 可以添加其他设备类型的处理
+                        break;
+
+                    case CommandType.SetVoltage:
+                        double voltageValue = (double)parameters[0];
+                        if (isModbus)
+                        {
+                            // 查找电压设置指令的信号
+                            var voltageSettingSignal = protocols.FirstOrDefault(s => s.SystemVariableName == "电压设置指令");
+                            if (voltageSettingSignal == null) return false;
+
+                            int voltageInUnits = (int)(voltageValue * 100); // 转换为设备单位
+                            byte[] valueBytes = BitConverter.GetBytes(voltageInUnits);
+                            if (BitConverter.IsLittleEndian)
+                                Array.Reverse(valueBytes); // Modbus为大端格式
+
+                            command = new byte[]
+                            {
+                                HexStringToByte(voltageSettingSignal.CorrespondenceAddress),
+                                HexStringToByte(voltageSettingSignal.FunctionCode),
+                                HexStringToByteArray(voltageSettingSignal.RegisterAddress)[0],
+                                HexStringToByteArray(voltageSettingSignal.RegisterAddress)[1],
+                                valueBytes[0],
+                                valueBytes[1]
+                            };
+                        }
+                        // 可以添加其他设备类型的处理
+                        break;
+
+                    case CommandType.EnableOutput:
+                        bool enable = (bool)parameters[0];
+                        if (isModbus)
+                        {
+                            // 查找输出控制指令的信号
+                            var outputControlSignal = protocols.FirstOrDefault(s => s.SystemVariableName == "输出控制指令");
+                            if (outputControlSignal == null) return false;
+
+                            command = new byte[]
+                            {
+                                HexStringToByte(outputControlSignal.CorrespondenceAddress),
+                                HexStringToByte(outputControlSignal.FunctionCode),
+                                HexStringToByteArray(outputControlSignal.RegisterAddress)[0],
+                                HexStringToByteArray(outputControlSignal.RegisterAddress)[1],
+                                enable ? (byte)0xFF : (byte)0x00,
+                                0x00
+                            };
+                        }
+                        // 可以添加其他设备类型的处理
+                        break;
                 }
 
                 // 构建设置模式的命令
                 byte[] myByteArray = new byte[] { };
                 //通讯地址
-                myByteArray[0] = HexStringToByte(modeSettingSignal.CorrespondenceAddress);
-                //功能码
-                myByteArray[1] = HexStringToByte(modeSettingSignal.FunctionCode);
-                //寄存器地址
-                myByteArray[2] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[0];
-                myByteArray[3] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[1];
-                //寄存器个数
-                myByteArray[4] = (byte)(modeSettingSignal.RegisterCount << 8);
-                myByteArray[5] = (byte)modeSettingSignal.RegisterCount;
-                //字节数
-                myByteArray[6] = (byte)(2 * modeSettingSignal.RegisterCount);
+                //myByteArray[0] = HexStringToByte(modeSettingSignal.CorrespondenceAddress);
+                ////功能码
+                //myByteArray[1] = HexStringToByte(modeSettingSignal.FunctionCode);
+                ////寄存器地址
+                //myByteArray[2] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[0];
+                //myByteArray[3] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[1];
+                ////寄存器个数
+                //myByteArray[4] = (byte)(modeSettingSignal.RegisterCount << 8);
+                //myByteArray[5] = (byte)modeSettingSignal.RegisterCount;
+                ////字节数
+                //myByteArray[6] = (byte)(2 * modeSettingSignal.RegisterCount);
                 //写入的数据
                 myByteArray[7] = 0x00;
                 myByteArray[8] = 0x01;
 
+                if (command == null)
+                {
+                    LogService.Log($"不支持的设备类型或命令: {equipment.CanType}, {commandType}");
+                    return false;
+                }
+
                 // 发送命令
-                return Task.FromResult(RS485Manager.Instance.SendData(equipment.ComPort, myByteArray));
+                bool sendSuccess = false;
+                switch (equipment.CanType)
+                {
+                    case "RS485-MODBUS":
+                        RS485Manager.Instance.ClearBuffer(equipment.ComPort);
+                        sendSuccess = RS485Manager.Instance.SendData(equipment.ComPort, command);
+                        break;
+                        // 可以添加其他设备类型的发送逻辑
+                }
+
+                if (!sendSuccess)
+                {
+                    LogService.Log("发送命令失败");
+                    return false;
+                }
+
+                // 等待设备响应
+                await Task.Delay(200);
+
+                // 读取并验证响应
+                byte[] response = null;
+                switch (equipment.CanType)
+                {
+                    case "RS485-MODBUS":
+                        response = RS485Manager.Instance.ReadAllData(equipment.ComPort);
+                        break;
+                        // 可以添加其他设备类型的响应读取逻辑
+                }
+
+                return ValidateResponse(response, command, commandType);
             }
             catch (Exception ex)
             {
-                LogService.Log($"设置设备模式时发生错误: {ex.Message}");
-                return Task.FromResult(false);
+                LogService.Log($"发送命令时发生错误: {ex.Message}");
+                return false;
             }
         }
 
         /// <summary>
-        /// 将十六进制字符串转换为字节数组
+        /// 验证设备响应
         /// </summary>
-        /// <param name="hexString">十六进制字符串（可以包含"0x"前缀）</param>
-        /// <returns>转换后的字节数组</returns>
-        /// <exception cref="ArgumentException">当输入字符串不是有效的十六进制格式时抛出</exception>
-        public static byte[] HexStringToByteArray(string? hexString)
+        /// <param name="response">设备响应</param>
+        /// <param name="sentCommand">发送的命令</param>
+        /// <param name="commandType">命令类型</param>
+        /// <returns>响应是否有效</returns>
+        private bool ValidateResponse(byte[] response, byte[] sentCommand, CommandType commandType)
         {
-            if (string.IsNullOrEmpty(hexString))
+            if (response == null || response.Length == 0)
             {
-                throw new ArgumentException("输入字符串不能为空", nameof(hexString));
+                LogService.Log("未收到设备响应");
+                return false;
             }
 
-            // 去掉"0x"前缀（如果存在）
-            string cleanHex = hexString;
-            if (cleanHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            // 根据命令类型和设备协议进行响应验证
+            // 这里需要根据实际协议实现具体的验证逻辑
+            // 以下是一个简单的示例，实际应用中需要根据设备协议调整
+            switch (commandType)
             {
-                cleanHex = cleanHex.Substring(2);
-            }
+                case CommandType.SetMode:
+                    // 验证模式设置响应
+                    return response.Length >= 8 &&
+                           response[0] == sentCommand[0] &&
+                           response[1] == sentCommand[1];
 
-            // 确保字符串长度为偶数（每两个字符表示一个字节）
-            if (cleanHex.Length % 2 != 0)
-            {
-                cleanHex = "0" + cleanHex; // 在前面补0
-            }
+                case CommandType.SetVoltage:
+                    // 验证电压设置响应
+                    return response.Length >= 6 &&
+                           response[0] == sentCommand[0] &&
+                           response[1] == sentCommand[1];
 
-            // 将十六进制字符串转换为字节数组
-            byte[] bytes = new byte[cleanHex.Length / 2];
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                try
-                {
-                    bytes[i] = Convert.ToByte(cleanHex.Substring(i * 2, 2), 16);
-                }
-                catch (FormatException)
-                {
-                    throw new ArgumentException($"字符串 '{hexString}' 不是有效的十六进制格式", nameof(hexString));
-                }
-                catch (OverflowException)
-                {
-                    throw new ArgumentException($"字符串 '{hexString}' 表示的数值超出了字节的范围 (0-255)", nameof(hexString));
-                }
-            }
-
-            return bytes;
-        }
-
-        private static byte HexStringToByte(string? hexString)
-        {
-            if (string.IsNullOrEmpty(hexString))
-                throw new ArgumentException("十六进制字符串不能为空");
-
-            // 去掉0x前缀
-            if (hexString.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                hexString = hexString.Substring(2);
-
-            return Convert.ToByte(hexString, 16);
-        }
-
-        private Task<bool> SetVoltage(EquipmentModel equipment, double voltage)
-        {
-            byte[] command;
-            int voltageValue = (int)(voltage * 100); // 转换为设备单位(假设设备单位为0.01V)
-
-            switch (equipment.CanType)
-            {
-                case "CANET-2E-U":
-                    // CAN协议指令: 设置电压值
-                    byte[] voltageBytes = BitConverter.GetBytes(voltageValue);
-                    command = new byte[] { 0xAA, 0x55, 0x01, 0x03, voltageBytes[0], voltageBytes[1], 0x00, 0xEE };
-                    return Task.FromResult(true);
-
-                case "RS485-MODBUS":
-                    // MODBUS协议指令: 设置电压值 (功能码06，保持寄存器40002)
-                    byte[] valueBytes = BitConverter.GetBytes(voltageValue);
-                    Array.Reverse(valueBytes); // MODBUS为大端格式
-                    return Task.FromResult(true);
+                case CommandType.EnableOutput:
+                    // 验证输出控制响应
+                    return response.Length >= 6 &&
+                           response[0] == sentCommand[0] &&
+                           response[1] == sentCommand[1];
 
                 default:
-                    throw new NotSupportedException($"不支持的通讯类型: {equipment.CanType}");
+                    return false;
             }
         }
 
+        /// <summary>
+        /// 启用/禁用设备输出
+        /// </summary>
+        /// <param name="equipment">设备</param>
+        /// <param name="enable">是否启用</param>
+        /// <returns>操作是否成功</returns>
         private Task<bool> EnableOutput(EquipmentModel equipment, bool enable)
         {
             byte[] command;
@@ -676,7 +865,7 @@ namespace ChargeDebug.Form
                 case "CANET-2E-U":
                     // CAN协议指令: 启用/禁用输出
                     command = new byte[] { 0xAA, 0x55, 0x01, 0x01, enable ? (byte)0x01 : (byte)0x00, 0x00, 0x00, 0xEE };
-                    CANManager.Instance.SendCommand(equipment.DeviceIndex, 
+                    CANManager.Instance.SendCommand(equipment.DeviceIndex,
                                                     equipment.CanIndex,
                                                     0x120,
                                                     command);
@@ -699,20 +888,58 @@ namespace ChargeDebug.Form
             }
         }
 
-        private void BtnStopCalibration_Click(object? sender, EventArgs e)
+        #endregion
+
+        #region UI创建方法
+
+        /// <summary>
+        /// 初始化用户界面
+        /// </summary>
+        private void InitializeUI()
         {
-            try
+            // 主布局控件，填充整个用户控件
+            LayoutControl layoutControl = new LayoutControl
             {
-                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x00 };
-                // 发送校准命令
-                bool sendSuccess = RS485Manager.Instance.SendData("COM3", calibrationCommand);
-            }
-            catch (Exception)
-            {
-                throw;
-            }
+                Parent = this,
+                Dock = DockStyle.Fill
+            };
+
+            // 4. 创建根布局组（垂直方向）
+            LayoutControlGroup rootGroup = new LayoutControlGroup();
+            rootGroup.TextVisible = false;
+            rootGroup.GroupBordersVisible = false;
+            rootGroup.DefaultLayoutType = LayoutType.Vertical; //垂直排列
+            layoutControl.Root.Add(rootGroup);
+
+            // 5. 添加按钮组到根组
+            LayoutControlItem buttonGroupItem = rootGroup.AddItem();
+            buttonGroupItem.Control = CreateButtonContainer();
+            buttonGroupItem.TextVisible = false;
+            buttonGroupItem.SizeConstraintsType = SizeConstraintsType.Custom;
+            buttonGroupItem.MinSize = new Size(0, 60);
+            buttonGroupItem.MaxSize = new Size(0, 60);
+
+            // 6. 添加TreeList到根组
+            LayoutControlItem layoutControlItemForTreeList = rootGroup.AddItem();
+            layoutControlItemForTreeList.Control = CreateTreeList();
+            layoutControlItemForTreeList.TextVisible = false;
+            layoutControlItemForTreeList.SizeConstraintsType = SizeConstraintsType.Custom;
+            layoutControlItemForTreeList.MinSize = new Size(0, 0);
+            layoutControlItemForTreeList.MaxSize = new Size(0, 800);
+
+            // 7. 添加底部进度条面板到根组
+            LayoutControlItem progressGroupItem = rootGroup.AddItem();
+            progressGroupItem.Control = CreateProgressContainer();
+            progressGroupItem.TextVisible = false;
+            progressGroupItem.SizeConstraintsType = SizeConstraintsType.Custom;
+            progressGroupItem.MinSize = new Size(0, 60);
+            progressGroupItem.MaxSize = new Size(0, 60);
         }
 
+        /// <summary>
+        /// 创建按钮容器
+        /// </summary>
+        /// <returns>按钮容器控件</returns>
         private Control CreateButtonContainer()
         {
             // 创建按钮容器面板
@@ -825,15 +1052,6 @@ namespace ChargeDebug.Form
             btnDeleteSignal.Click += BtnDeleteSignal_Click;
             buttonPanel.Controls.Add(btnDeleteSignal);
 
-            //SimpleButton btnCalibrationEquipment = new SimpleButton
-            //{
-            //    Text = "打开校准设备",
-            //    Size = new Size(110, 30),
-            //    Location = new Point(btnDeleteSignal.Right + 10, 10)
-            //};
-            //btnCalibrationEquipment.Click += BtnCalibrationEquipment_Click;
-            //buttonPanel.Controls.Add(btnCalibrationEquipment);
-
             SimpleButton btnVoltageCalibration = new SimpleButton
             {
                 Text = "开始电压校准",
@@ -849,6 +1067,7 @@ namespace ChargeDebug.Form
                 Size = new Size(140, 30),
                 Location = new Point(btnVoltageCalibration.Right + 10, 10)
             };
+            btnChargingCurrentCalibration.Click += BtnChargingCurrentCalibration_Click;
             buttonPanel.Controls.Add(btnChargingCurrentCalibration);
 
             SimpleButton btnDischargingCurrentCalibration = new SimpleButton
@@ -857,6 +1076,7 @@ namespace ChargeDebug.Form
                 Size = new Size(140, 30),
                 Location = new Point(btnChargingCurrentCalibration.Right + 10, 10)
             };
+            btnDischargingCurrentCalibration.Click += BtnDischargingCurrentCalibration_Click;
             buttonPanel.Controls.Add(btnDischargingCurrentCalibration);
 
             SimpleButton btnStopCalibration = new SimpleButton
@@ -874,11 +1094,16 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnStopCalibration.Right + 10, 10)
             };
+            btnExportData.Click += BtnExportData_Click;
             buttonPanel.Controls.Add(btnExportData);
 
             return buttonPanel;
         }
 
+        /// <summary>
+        /// 创建树形列表
+        /// </summary>
+        /// <returns>树形列表控件</returns>
         private Control CreateTreeList()
         {
             treeList = new TreeList();
@@ -924,7 +1149,7 @@ namespace ChargeDebug.Form
             column.VisibleIndex = 4;
             column.Width = 100;
 
-            column = treeList.Columns.Add(); 
+            column = treeList.Columns.Add();
             column.Caption = "校准点个数";
             column.FieldName = "CalibrationNumber";
             column.VisibleIndex = 5;
@@ -1008,6 +1233,10 @@ namespace ChargeDebug.Form
             return treeList;
         }
 
+        /// <summary>
+        /// 创建进度条容器
+        /// </summary>
+        /// <returns>进度条容器控件</returns>
         private Control CreateProgressContainer()
         {
             // 创建进度条容器面板
@@ -1027,7 +1256,7 @@ namespace ChargeDebug.Form
             };
 
             // 添加进度条
-            ProgressBarControl progressBar = new ProgressBarControl
+            progressBar = new ProgressBarControl
             {
                 Size = new Size(2000, 40),
                 Location = new Point(label.Left + 10, (progressPanel.Height - 40) / 2),
@@ -1040,14 +1269,88 @@ namespace ChargeDebug.Form
             return progressPanel;
         }
 
-        public void UpdateDcNumber(List<EquipmentModel> equipmentList)
+        #endregion
+
+        #region 辅助方法
+
+        /// <summary>
+        /// 将十六进制字符串转换为字节数组
+        /// </summary>
+        /// <param name="hexString">十六进制字符串（可以包含"0x"前缀）</param>
+        /// <returns>转换后的字节数组</returns>
+        /// <exception cref="ArgumentException">当输入字符串不是有效的十六进制格式时抛出</exception>
+        public static byte[] HexStringToByteArray(string? hexString)
         {
-            this.equipmentList = equipmentList;
-            //清除所有旧布局
-            this.Controls.Clear();
-            InitializeUI();
-            // 加载数据
-            LoadData();
+            if (string.IsNullOrEmpty(hexString))
+            {
+                throw new ArgumentException("输入字符串不能为空", nameof(hexString));
+            }
+
+            // 去掉"0x"前缀（如果存在）
+            string cleanHex = hexString;
+            if (cleanHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanHex = cleanHex.Substring(2);
+            }
+
+            // 确保字符串长度为偶数（每两个字符表示一个字节）
+            if (cleanHex.Length % 2 != 0)
+            {
+                cleanHex = "0" + cleanHex; // 在前面补0
+            }
+
+            // 将十六进制字符串转换为字节数组
+            byte[] bytes = new byte[cleanHex.Length / 2];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                try
+                {
+                    bytes[i] = Convert.ToByte(cleanHex.Substring(i * 2, 2), 16);
+                }
+                catch (FormatException)
+                {
+                    throw new ArgumentException($"字符串 '{hexString}' 不是有效的十六进制格式", nameof(hexString));
+                }
+                catch (OverflowException)
+                {
+                    throw new ArgumentException($"字符串 '{hexString}' 表示的数值超出了字节的范围 (0-255)", nameof(hexString));
+                }
+            }
+
+            return bytes;
         }
+
+        /// <summary>
+        /// 将十六进制字符串转换为字节
+        /// </summary>
+        /// <param name="hexString">十六进制字符串</param>
+        /// <returns>转换后的字节</returns>
+        private static byte HexStringToByte(string? hexString)
+        {
+            if (string.IsNullOrEmpty(hexString))
+                throw new ArgumentException("十六进制字符串不能为空");
+
+            // 去掉0x前缀
+            if (hexString.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                hexString = hexString.Substring(2);
+
+            return Convert.ToByte(hexString, 16);
+        }
+
+        #endregion
+
+        #region 枚举定义
+
+        /// <summary>
+        /// 命令类型枚举
+        /// </summary>
+        private enum CommandType
+        {
+            SetMode,
+            SetVoltage,
+            EnableOutput
+        }
+
+        #endregion
     }
 }

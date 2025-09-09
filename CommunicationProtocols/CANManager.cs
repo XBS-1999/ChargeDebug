@@ -447,6 +447,93 @@ namespace ChargeDebug.Service
             }
         }
 
+        public bool RegisterChannels(EquipmentModel equipment)
+        {
+            //Init();
+            lock (_registerLock)
+            {
+                int? deviceIndex = equipment.DeviceIndex;
+                int? channelIndex = equipment.CanIndex;
+                string key = GetChannelKey(deviceIndex, channelIndex);
+
+                try
+                {
+                    // 保存设备信息（无论成功与否）
+                    //_equipmentInfo[key] = equipment;
+                    //UpdateConnectionStatus(key, false);
+
+                    // 打开设备
+                    IntPtr deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
+                    if (deviceHandle == IntPtr.Zero)
+                    {
+                        LogService.Log($"{equipment.DeviceNumber}打开失败");
+                        return false;
+                    }
+
+                    // 设置网络参数
+                    ZCAN_SetValue(deviceHandle, $"{channelIndex}/work_mode", Encoding.ASCII.GetBytes("0"));
+                    ZCAN_SetValue(deviceHandle, $"{channelIndex}/ip", Encoding.ASCII.GetBytes(equipment.DeviceIP));
+                    ZCAN_SetValue(deviceHandle, $"{channelIndex}/work_port", Encoding.ASCII.GetBytes(equipment.DevicePort));
+                    
+                    // 初始化通道配置
+                    ZCAN_CHANNEL_INIT_CONFIG config = new ZCAN_CHANNEL_INIT_CONFIG
+                    {
+                        can_type = Define.TYPE_CAN,
+                        filter = 0,
+                        acc_code = 0,
+                        acc_mask = 0xFFFFFFFF,
+                        mode = 0
+                    };
+
+                    // 初始化CAN通道
+                    IntPtr channelHandle = ZCAN_InitCAN(deviceHandle, (uint)channelIndex, ref config);
+                    if (channelHandle == IntPtr.Zero)
+                    {
+                        LogService.Log($"{equipment.DeviceNumber}初始化失败");
+                        ZCAN_CloseDevice(deviceHandle);
+                        return false;
+                    }
+
+                    uint startResult = 0;
+                    bool startCompleted = false;
+                    Task startTask = Task.Run(() =>
+                    {
+                        startResult = ZCAN_StartCAN(channelHandle);
+                        startCompleted = true;
+                    });
+                    //等待任务完成
+                    bool taskCompleted = startTask.Wait(100);
+                    if (!taskCompleted || !startCompleted || startResult != Define.STATUS_OK)
+                    {
+                        ZCAN_CloseDevice(deviceHandle);
+                        LogService.Log($"{equipment.DeviceNumber}启动失败,已关闭");
+                        return false;
+                    }
+
+                    // 更新连接状态
+                    _deviceHandles[key] = (deviceHandle, channelHandle);
+                    UpdateConnectionStatus(key, true);
+                    _lastReceiveTime[key] = DateTime.Now;
+
+                    _receiveQueues.GetOrAdd(key, new ConcurrentQueue<ZCAN_Receive_Data>());
+                    EnsureReceiveThreadRunning();  // +++ 确保接收线程运行 +++
+
+                    return true;
+                    //logger.Info($"通道{(isReconnect ? "重连" : "启动")}成功: {key}");
+                    //LogService.Log($"{equipment.DeviceNumber}{(isReconnect ? "重连" : "启动")}成功: {key}");
+                }
+                catch (Exception ex)
+                {
+                    UpdateConnectionStatus(key, false);
+                    //LogService.Log($"{(isReconnect ? "重连" : "注册")}{equipment.DeviceNumber}失败: {ex.Message}");
+                    throw new ApplicationException($"{ex.Message}");
+                }
+
+                
+                
+            }
+        }
+
         // 确保接收线程运行
         public void EnsureReceiveThreadRunning()
         {
