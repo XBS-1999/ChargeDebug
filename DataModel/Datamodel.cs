@@ -34,11 +34,13 @@ namespace DataModel
         public string? MessageName { get; set; }
         public int DataLength { get; set; }
     }
+
     public class SignalInfo
     {
         public long SignalID { get; set; }
         public int Orders { get; set; }
         public string SignalName { get; set; }
+        public string MessageName { get; set; }
         public string MultiplexSignals { get; set; }
         public string SystemName { get; set; }
         public string Unit { get; set; }
@@ -53,6 +55,7 @@ namespace DataModel
         // 新增复用信号列表
         public List<ReuseSignal> ReuseSignals { get; set; } = new List<ReuseSignal>();
     }
+
     public class ReuseSignal
     {
         public string? Value { get; set; }
@@ -120,5 +123,54 @@ namespace DataModel
         public int RatingVoltageCurrent { get; set; }
         public int CalibrationNumber { get; set; }
         public int Orders { get; set; }
+
+        public string? ScaleFactor { get; set; }
+        public string? ZeroFactor { get; set; }
+    }
+
+    /// <summary>
+    /// 校准点类
+    /// </summary>
+    public class CalibrationPoint
+    {
+        /// <summary>
+        /// 电压值
+        /// </summary>
+        public double Voltage { get; set; }
+
+        /// <summary>
+        /// 读取时间（毫秒）
+        /// </summary>
+        public int ReadTimeMs { get; set; }
+
+        /// <summary>
+        /// 信号信息
+        /// </summary>
+        public SignalInfo SignalInfo { get; set; }
+
+        /// <summary>
+        /// 设备名称
+        /// </summary>
+        public string DeviceName { get; set; }
+
+        /// <summary>
+        /// 信号名称
+        /// </summary>
+        public string SignalName { get; set; }
+
+        /// <summary>
+        /// 写入发送KB值CANID
+        /// </summary>
+        public string WriteKBCANID { get; set; }
+
+        /// <summary>
+        /// 读取发送KB值CANID
+        /// </summary>
+        public string ReadKBCANID { get; set; }
+
+        /// <summary>
+        /// 接收KB值CANID
+        /// </summary>
+        public string ReceiveKBCANID { get; set; }
     }
 }

@@ -22,6 +22,14 @@ namespace ChargeDebug.Service
         // 数据接收事件，当从任何RS485通道接收到数据时触发
         public event EventHandler<DataReceivedEventArgs> DataReceived;
 
+        // 增加接收超时和缓冲区处理
+        private ConcurrentDictionary<string, System.Timers.Timer> _receiveTimers = new ConcurrentDictionary<string, System.Timers.Timer>();
+        private ConcurrentDictionary<string, MemoryStream> _receiveBuffers = new ConcurrentDictionary<string, MemoryStream>();
+        private const int RECEIVE_TIMEOUT_MS = 1000; // 接收超时时间(毫秒)
+
+        // 为每个端口添加同步锁，确保线程安全
+        private ConcurrentDictionary<string, object> _bufferLocks = new ConcurrentDictionary<string, object>();
+
         /// <summary>
         /// 获取RS485Manager的单例实例
         /// </summary>
@@ -60,7 +68,7 @@ namespace ChargeDebug.Service
                 serialPort.PortName = channelconfig.ComPort;
                 serialPort.BaudRate = Convert.ToInt32(channelconfig.BaudRate);
                 serialPort.DataBits = Convert.ToInt32(channelconfig.DataBits);
-                
+
                 // 设置停止位
                 switch (channelconfig.StopBits)
                 {
@@ -104,16 +112,29 @@ namespace ChargeDebug.Service
                         break;
                 }
 
+                // 设置读取超时
+                serialPort.ReadTimeout = 500;
+
                 // 订阅数据接收事件
                 serialPort.DataReceived += SerialPort_DataReceived;
 
                 // 打开串口
                 serialPort.Open();
 
+                // 初始化接收缓冲区和超时计时器
+                _receiveBuffers[channelconfig.ComPort] = new MemoryStream();
+                var timer = new System.Timers.Timer(RECEIVE_TIMEOUT_MS);
+                timer.Elapsed += (s, e) => ReceiveTimeoutHandler(channelconfig.ComPort);
+                timer.AutoReset = false;
+                _receiveTimers[channelconfig.ComPort] = timer;
+
+                // 为端口添加同步锁
+                _bufferLocks[channelconfig.ComPort] = new object();
+
                 // 将串口添加到字典中管理
                 _serialPorts.TryAdd(channelconfig.ComPort, serialPort);
 
-                LogService.Log($"RS485通道 {channelconfig.ComPort} 注册成功");
+                LogService.Log($"RS485通道 {channelconfig.ComPort} 注册成功，配置: {serialPort.BaudRate}/{serialPort.DataBits}/{serialPort.Parity}/{serialPort.StopBits}");
                 return true;
             }
             catch (Exception ex)
@@ -124,28 +145,113 @@ namespace ChargeDebug.Service
         }
 
         /// <summary>
-        /// 串口数据接收事件处理函数
+        /// 串口数据接收事件处理函数 - 改进版本
         /// </summary>
         private void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             SerialPort serialPort = (SerialPort)sender;
+            string portName = serialPort.PortName;
 
             try
             {
+                // 检查是否有数据可读
+                if (serialPort.BytesToRead == 0)
+                {
+                    LogService.Log($"从 {portName} 接收到数据事件，但无可读数据");
+                    return;
+                }
+
                 // 读取所有可用数据
                 int bytesToRead = serialPort.BytesToRead;
                 byte[] buffer = new byte[bytesToRead];
-                serialPort.Read(buffer, 0, bytesToRead);
+                int bytesRead = serialPort.Read(buffer, 0, bytesToRead);
 
-                // 触发数据接收事件
-                OnDataReceived(new DataReceivedEventArgs(serialPort.PortName, buffer));
+                if (bytesRead > 0)
+                {
+                    //LogService.Log($"从 {portName} 接收到 {bytesRead} 字节数据: {BitConverter.ToString(buffer)}");
 
-                LogService.Log($"从 {serialPort.PortName} 接收到 {bytesToRead} 字节数据");
+                    // 使用锁确保线程安全
+                    lock (_bufferLocks[portName])
+                    {
+                        // 将数据添加到缓冲区
+                        if (_receiveBuffers.TryGetValue(portName, out MemoryStream bufferStream))
+                        {
+                            bufferStream.Write(buffer, 0, bytesRead);
+                        }
+                    }
+
+                    // 重置并启动超时计时器
+                    if (_receiveTimers.TryGetValue(portName, out System.Timers.Timer timer))
+                    {
+                        timer.Stop();
+                        timer.Start();
+                    }
+                }
+            }
+            catch (TimeoutException)
+            {
+                LogService.Log($"读取 {portName} 数据超时");
             }
             catch (Exception ex)
             {
                 LogService.Log($"读取RS485数据时发生错误: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 接收超时处理函数
+        /// </summary>
+        private void ReceiveTimeoutHandler(string portName)
+        {
+            // 使用锁确保线程安全
+            lock (_bufferLocks[portName])
+            {
+                if (_receiveBuffers.TryGetValue(portName, out MemoryStream bufferStream) && bufferStream.Length > 0)
+                {
+                    byte[] receivedData = bufferStream.ToArray();
+
+                    // 触发数据接收事件
+                    OnDataReceived(new DataReceivedEventArgs(portName, receivedData));
+
+                    // 清空缓冲区
+                    bufferStream.SetLength(0);
+                    LogService.Log($"超时处理: 从 {portName} 接收完整数据帧: {BitConverter.ToString(receivedData)}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 从接收缓冲区读取数据
+        /// </summary>
+        /// <param name="portName">串口名称</param>
+        /// <param name="clearBuffer">读取后是否清空缓冲区</param>
+        /// <returns>接收到的数据字节数组，如果没有数据则返回空数组</returns>
+        public byte[] ReadBuffer(string portName, bool clearBuffer = true)
+        {
+            if (!_receiveBuffers.ContainsKey(portName))
+            {
+                LogService.Log($"找不到RS485通道的接收缓冲区: {portName}");
+                return new byte[0];
+            }
+
+            // 使用锁确保线程安全
+            lock (_bufferLocks[portName])
+            {
+                if (_receiveBuffers.TryGetValue(portName, out MemoryStream bufferStream) && bufferStream.Length > 0)
+                {
+                    byte[] data = bufferStream.ToArray();
+
+                    if (clearBuffer)
+                    {
+                        bufferStream.SetLength(0); // 清空缓冲区
+                    }
+
+                    LogService.Log($"从 {portName} 接收缓冲区读取 {data.Length} 字节数据: {BitConverter.ToString(data)}");
+                    return data;
+                }
+            }
+
+            return new byte[0];
         }
 
         /// <summary>
@@ -161,8 +267,9 @@ namespace ChargeDebug.Service
         /// </summary>
         /// <param name="portName">串口名称</param>
         /// <param name="data">要发送的数据字节数组</param>
+        /// <param name="addCRC">是否添加CRC校验</param>
         /// <returns>成功返回true，失败返回false</returns>
-        public bool SendData(string? portName, byte[] data)
+        public bool SendData(string portName, byte[] data, bool addCRC = true)
         {
             if (!_serialPorts.TryGetValue(portName, out SerialPort serialPort))
             {
@@ -178,17 +285,29 @@ namespace ChargeDebug.Service
 
             try
             {
-                // CRC16校验
-                ushort crc = CalculateCRC16(data);
-                byte[] fullData = new byte[data.Length + 2];
-                Array.Copy(data, 0, fullData, 0, data.Length);
-                fullData[data.Length] = (byte)(crc & 0xFF);       // 低字节
-                fullData[data.Length + 1] = (byte)(crc >> 8);    // 高字节
+                byte[] fullData;
+
+                if (addCRC)
+                {
+                    // CRC16校验
+                    ushort crc = CalculateCRC16(data);
+                    fullData = new byte[data.Length + 2];
+                    Array.Copy(data, 0, fullData, 0, data.Length);
+                    fullData[data.Length] = (byte)(crc & 0xFF);       // 低字节
+                    fullData[data.Length + 1] = (byte)(crc >> 8);    // 高字节
+                }
+                else
+                {
+                    fullData = data;
+                }
+
+                // 清空输入缓冲区
+                serialPort.DiscardInBuffer();
 
                 // 发送数据
                 serialPort.Write(fullData, 0, fullData.Length);
 
-                LogService.Log($"向 {portName} 发送 {data.Length} 字节数据");
+                LogService.Log($"向 {portName} 发送 {fullData.Length} 字节数据: {BitConverter.ToString(fullData)}");
                 return true;
             }
             catch (Exception ex)
@@ -199,9 +318,9 @@ namespace ChargeDebug.Service
         }
 
         /// <summary>
-        /// CRC16校验
+        /// CRC16校验 (MODBUS)
         /// </summary>
-        /// <param name="data">要发送的数据字节数组</param>
+        /// <param name="data">要计算CRC的数据字节数组</param>
         private ushort CalculateCRC16(byte[] data)
         {
             ushort crc = 0xFFFF;
@@ -225,99 +344,6 @@ namespace ChargeDebug.Service
             return crc;
         }
 
-        /// <summary>
-        /// 向指定RS485通道发送字符串数据
-        /// </summary>
-        /// <param name="portName">串口名称</param>
-        /// <param name="message">要发送的字符串</param>
-        /// <param name="encoding">编码格式，默认为UTF-8</param>
-        /// <returns>成功返回true，失败返回false</returns>
-        public bool SendString(string portName, string message, Encoding encoding = null)
-        {
-            encoding = encoding ?? Encoding.UTF8;
-            byte[] data = encoding.GetBytes(message);
-            return SendData(portName, data);
-        }
-
-        /// <summary>
-        /// 清空指定串口的输入缓冲区
-        /// </summary>
-        public void ClearBuffer(string portName)
-        {
-            if (_serialPorts.TryGetValue(portName, out SerialPort serialPort) && serialPort.IsOpen)
-            {
-                serialPort.DiscardInBuffer();
-            }
-        }
-
-        /// <summary>
-        /// 从指定RS485通道同步读取数据
-        /// </summary>
-        /// <param name="portName">串口名称</param>
-        /// <param name="buffer">存储读取数据的缓冲区</param>
-        /// <param name="offset">缓冲区中的偏移量</param>
-        /// <param name="count">要读取的字节数</param>
-        /// <returns>实际读取的字节数</returns>
-        public int ReadData(string portName, byte[] buffer, int offset, int count)
-        {
-            if (!_serialPorts.TryGetValue(portName, out SerialPort serialPort))
-            {
-                LogService.Log($"找不到RS485通道: {portName}");
-                return -1;
-            }
-
-            if (!serialPort.IsOpen)
-            {
-                LogService.Log($"RS485通道未打开: {portName}");
-                return -1;
-            }
-
-            try
-            {
-                return serialPort.Read(buffer, offset, count);
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"从RS485通道 {portName} 读取数据时发生错误: {ex.Message}");
-                return -1;
-            }
-        }
-
-        /// <summary>
-        /// 从指定RS485通道同步读取所有可用数据
-        /// </summary>
-        /// <param name="portName">串口名称</param>
-        /// <returns>读取到的数据字节数组，失败返回null</returns>
-        public byte[] ReadAllData(string portName)
-        {
-            if (!_serialPorts.TryGetValue(portName, out SerialPort serialPort))
-            {
-                LogService.Log($"找不到RS485通道: {portName}");
-                return null;
-            }
-
-            if (!serialPort.IsOpen)
-            {
-                LogService.Log($"RS485通道未打开: {portName}");
-                return null;
-            }
-
-            try
-            {
-                int bytesToRead = serialPort.BytesToRead;
-                if (bytesToRead == 0)
-                    return new byte[0];
-
-                byte[] buffer = new byte[bytesToRead];
-                serialPort.Read(buffer, 0, bytesToRead);
-                return buffer;
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"从RS485通道 {portName} 读取数据时发生错误: {ex.Message}");
-                return null;
-            }
-        }
 
         /// <summary>
         /// 关闭指定RS485通道
@@ -337,6 +363,21 @@ namespace ChargeDebug.Service
                 // 取消事件订阅
                 serialPort.DataReceived -= SerialPort_DataReceived;
 
+                // 清理接收缓冲区和计时器
+                if (_receiveBuffers.TryRemove(portName, out MemoryStream bufferStream))
+                {
+                    bufferStream.Dispose();
+                }
+
+                if (_receiveTimers.TryRemove(portName, out System.Timers.Timer timer))
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                }
+
+                // 清理同步锁
+                _bufferLocks.TryRemove(portName, out _);
+
                 // 关闭串口
                 if (serialPort.IsOpen)
                     serialPort.Close();
@@ -352,40 +393,6 @@ namespace ChargeDebug.Service
                 LogService.Log($"关闭RS485通道 {portName} 时发生错误: {ex.Message}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// 关闭所有RS485通道
-        /// </summary>
-        public void CloseAllChannels()
-        {
-            foreach (var portName in _serialPorts.Keys)
-            {
-                CloseChannel(portName);
-            }
-        }
-
-        /// <summary>
-        /// 检查指定RS485通道是否已打开
-        /// </summary>
-        /// <param name="portName">串口名称</param>
-        /// <returns>已打开返回true，否则返回false</returns>
-        public bool IsChannelOpen(string portName)
-        {
-            if (_serialPorts.TryGetValue(portName, out SerialPort serialPort))
-            {
-                return serialPort.IsOpen;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// 获取所有已注册的RS485通道名称
-        /// </summary>
-        /// <returns>通道名称列表</returns>
-        public List<string> GetRegisteredChannels()
-        {
-            return _serialPorts.Keys.ToList();
         }
     }
 

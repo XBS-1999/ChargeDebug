@@ -11,6 +11,12 @@ using DataModel;
 using Log;
 using CommunicationProtocols;
 using DevExpress.XtraTreeList.Nodes;
+using Aspose.Pdf.Operators;
+using System.Text;
+using DevExpress.XtraCharts.Native;
+using DbcParserLib.Model;
+using DevExpress.DataProcessing;
+using DevExpress.Charts.Native;
 
 namespace ChargeDebug.Form
 {
@@ -30,6 +36,9 @@ namespace ChargeDebug.Form
         private ComboBoxEdit cbVoltageSource;
         private ComboBoxEdit cbVoltmeter;
         private ComboBoxEdit cbAmmeter;
+
+        private SimpleButton btnVoltageCalibration;
+        private SimpleButton btnStopCalibration;
 
         // 协议列表
         private List<ModbusSignal> voltageSourceProtocols = new List<ModbusSignal>();
@@ -55,7 +64,18 @@ namespace ChargeDebug.Form
             InitializeComponent();
             InitializeUI();
             this.Load += CalibrationManagement_Load;
+
+            // 订阅数据接收事件
+            //RS485Manager.Instance.DataReceived += RS485_DataReceived;
         }
+
+        //private void RS485_DataReceived(object? sender, DataReceivedEventArgs e)
+        //{
+        //    // 处理接收到的数据，例如记录日志或解析响应
+        //    LogService.Log($"接收到来自 {e.PortName} 的数据: {BitConverter.ToString(e.Data)}");
+
+        //    // 这里可以根据需要处理数据，例如匹配请求与响应
+        //}
 
         /// <summary>
         /// 窗体加载事件处理
@@ -95,13 +115,24 @@ namespace ChargeDebug.Form
                             calibrationsignal.SignalType,
                             calibrationsignal.ReadTime,
                             calibrationsignal.RatingVoltageCurrent,
-                            calibrationsignal.CalibrationNumber
+                            calibrationsignal.CalibrationNumber,
+                            calibrationsignal.ScaleFactor,
+                            calibrationsignal.ZeroFactor,
+                            "", // 设备电压采样值
+                            "", // 实际电压测量值
+                            "", // 设备电流采样值
+                            "", // 实际电流测量值
+                            "", // 校准精度
+                            ""  // 校准结果
                         }, null);
 
                         // 设置节点的 Tag 为信号 ID，以便后续操作
                         node.Tag = calibrationsignal.SignalID;
                         // 设置排序值
                         node.SetValue("Orders", calibrationsignal.Orders);
+
+                        // 默认勾选所有节点
+                        node.Checked = true;
                     }
                 }
             }
@@ -284,51 +315,31 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 1. 获取选中的设备
-                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
-                string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
-                if (string.IsNullOrEmpty(voltageSourceName) || string.IsNullOrEmpty(voltmeterName))
+                // 禁用按钮，防止重复点击
+                btnVoltageCalibration.Enabled = false;
+                btnStopCalibration.Enabled = true;
+
+                // 执行电压校准
+                bool success = await ExecuteVoltageCalibration();
+
+                if (success)
                 {
-                    XtraMessageBox.Show("请先选择所有必要的校准设备!");
-                    return;
+                    XtraMessageBox.Show("电压校准完成!");
                 }
-
-                // 2. 从设备列表中查找设备信息
-                var voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
-                var voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
-                if (voltageSource == null || voltmeter == null)
+                else
                 {
-                    XtraMessageBox.Show("未找到选定的设备配置信息!");
-                    return;
+                    XtraMessageBox.Show("电压校准失败，请查看日志!");
                 }
-
-                // 3. 加载校准设备指令协议
-                var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
-
-                // 分离电压源和电压表的协议
-                voltageSourceProtocols = protocols.Where(p => p.DeviceName == voltageSource.DeviceName).ToList();
-                voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
-
-                // 4.加载树形图信号名称协议
-                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
-
-                // 5. 根据设备通讯类型启动设备
-                bool voltageSourceStarted = await StartEquipment(voltageSource);
-                bool voltmeterStarted = await StartEquipment(voltmeter);
-                if (!voltageSourceStarted || !voltmeterStarted)
-                {
-                    XtraMessageBox.Show("设备启动失败，请检查设备连接!");
-                    LogService.Log("设备启动失败，请检查设备连接!");
-                    return;
-                }
-                LogService.Log("所有校准设备启动成功，开始电压校准流程!");
-
-                // 6.开始电压校准，传入设备信息和协议
-                await StartVoltageCalibration(voltageSource, voltmeter, voltageSourceProtocols, voltmeterProtocols, treeSignalProtocols);
             }
             catch (Exception ex)
             {
                 XtraMessageBox.Show($"电压校准失败: {ex.Message}");
+            }
+            finally
+            {
+                // 重新启用按钮
+                btnVoltageCalibration.Enabled = true;
+                btnStopCalibration.Enabled = false;
             }
         }
 
@@ -499,13 +510,20 @@ namespace ChargeDebug.Form
 
                     foreach (var node in messageNodes)
                     {
+                        // 只处理被勾选的节点
+                        if (!node.Checked)
+                            continue;
+
                         // 获取设备名称和信号名称
-                        string deviceName = node.GetValue("DeviceName")?.ToString().Split('-')[0];
-                        string signalName = node.GetValue("SignalName")?.ToString();
-                        string signaltype = node.GetValue("SignalType")?.ToString();
-                        string readtime = node.GetValue("ReadTime")?.ToString();
-                        string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString();
-                        string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString();
+                        string deviceName = node.GetValue("DeviceName")?.ToString().Split('-')[0] ?? "";
+                        string channel = node.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                        string signaltype = node.GetValue("SignalType")?.ToString() ?? "";
+                        string readtime = node.GetValue("ReadTime")?.ToString() ?? "";
+                        string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                        string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString() ?? "";
+                        //string debugsignal1 = signalName + "比例系数";
+                        //string debugsignal2 = signalName + "零点系数";
 
                         if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName))
                         {
@@ -518,18 +536,30 @@ namespace ChargeDebug.Form
                                 long fileId = SQLite_Service.GetDbcFileId(conn, protocolName);
 
                                 // 获取所有相关的MessageID
-                                var messageIds = SQLite_Service.GetMessageIds(conn, fileId);
+                                var messages = SQLite_Service.GetMessagesByDbc(conn, fileId);
 
                                 // 遍历所有MessageID，查找匹配的信号
-                                foreach (var messageId in messageIds)
+                                foreach (var message in messages)
                                 {
                                     // 根据MessageID和信号名称查询信号信息
-                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, messageId, signalName);
+                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, message.MessageID, signalName);
 
                                     if (signalInfo != null)
                                     {
+                                        // 设置CANID
+                                        if (signalInfo.CANID.Contains("AX"))
+                                        {
+                                            int acnum = Convert.ToInt32(channel.Substring(2,channel.Length - 2));
+                                            signalInfo.CANID = signalInfo.CANID?.Replace("AX", "A" + (acnum - 1));
+                                        }
+                                        else if (signalInfo.CANID.Contains("2X"))
+                                        {
+                                            int dcnum = Convert.ToInt32(channel.Substring(2,channel.Length - 2));
+                                            signalInfo.CANID = signalInfo.CANID?.Replace("2X", "2" + (dcnum - 1));
+                                        }
+
                                         signalInfos.Add(signalInfo);
-                                        break; // 找到匹配的信号后跳出循环
+                                        break;
                                     }
                                 }
                             }
@@ -598,65 +628,6 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 开始电压校准流程
-        /// </summary>
-        /// <param name="voltageSource">电压源设备</param>
-        /// <param name="voltmeter">电压表设备</param>
-        /// <param name="voltageSourceSignals">电压源信号</param>
-        /// <param name="voltmeterSignals">电压表信号</param>
-        /// <param name="treeSignals">树形信号</param>
-        private async Task StartVoltageCalibration(EquipmentModel voltageSource, EquipmentModel voltmeter,
-                                                   List<ModbusSignal> voltageSourceSignals,
-                                                   List<ModbusSignal> voltmeterSignals,
-                                                   List<SignalInfo> treeSignals)
-        {
-            try
-            {
-                // 1. 设置设备模式
-                LogService.Log("设置电压源为程控模式...");
-                bool modeSet = await SendEquipmentCommand(CommandType.SetMode, voltageSource, voltageSourceSignals);
-                if (!modeSet)
-                {
-                    XtraMessageBox.Show("设置设备模式失败!");
-                    return;
-                }
-
-                // 2. 设置初始电压值（从0开始）
-                LogService.Log("设置初始电压值...");
-                bool voltageSet = await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceSignals, 0.0);
-                if (!voltageSet)
-                {
-                    XtraMessageBox.Show("设置初始电压失败!");
-                    return;
-                }
-
-                // 3. 开机/启用输出
-                LogService.Log("启用电压源输出...");
-                bool outputEnabled = await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceSignals, true);
-                if (!outputEnabled)
-                {
-                    XtraMessageBox.Show("启用输出失败!");
-                    return;
-                }
-
-                // 4. 获取校准点信息
-                //var calibrationPoints = await GetCalibrationPoints(treeSignals);
-
-                // 5. 遍历每个校准点进行校准
-                // 6. 完成校准后关闭输出
-                //LogService.Log("校准完成，关闭输出...");
-                //await EnableOutput(voltageSource, false, voltageSourceSignals);
-
-                XtraMessageBox.Show("电压校准完成!");
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"电压校准过程中出错: {ex.Message}");
-                XtraMessageBox.Show($"电压校准失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// 发送设备命令
         /// </summary>
         /// <param name="commandType">命令类型</param>
@@ -674,6 +645,7 @@ namespace ChargeDebug.Form
                 switch (commandType)
                 {
                     case CommandType.SetMode:
+                        int setmode = (int)parameters[0];
                         if (isModbus)
                         {
                             // 查找模式设置指令的信号
@@ -690,7 +662,8 @@ namespace ChargeDebug.Form
                                 (byte)(modeSettingSignal.RegisterCount >> 8),
                                 (byte)(modeSettingSignal.RegisterCount & 0xFF),
                                 (byte)(2 * modeSettingSignal.RegisterCount),
-                                0x00, 0x01  // 设置为恒压模式
+                                (byte)(setmode >> 8),
+                                (byte)(setmode & 0xFF)  // 设置为恒压模式
                             };
                         }
                         // 可以添加其他设备类型的处理
@@ -704,10 +677,15 @@ namespace ChargeDebug.Form
                             var voltageSettingSignal = protocols.FirstOrDefault(s => s.SystemVariableName == "电压设置指令");
                             if (voltageSettingSignal == null) return false;
 
-                            int voltageInUnits = (int)(voltageValue * 100); // 转换为设备单位
-                            byte[] valueBytes = BitConverter.GetBytes(voltageInUnits);
-                            if (BitConverter.IsLittleEndian)
-                                Array.Reverse(valueBytes); // Modbus为大端格式
+                            // 将电压值转换为IEEE 754单精度浮点数字节数组
+                            byte[] floatBytes = BitConverter.GetBytes((float)voltageValue);
+
+                            // 从 0x4175C28F (小端序) 转换为 0xC2, 0x8F, 0x41, 0x75
+                            byte[] reorderedBytes = new byte[4];
+                            reorderedBytes[0] = floatBytes[1]; // 0xC2
+                            reorderedBytes[1] = floatBytes[0]; // 0x8F
+                            reorderedBytes[2] = floatBytes[3]; // 0x41
+                            reorderedBytes[3] = floatBytes[2]; // 0x75
 
                             command = new byte[]
                             {
@@ -715,15 +693,17 @@ namespace ChargeDebug.Form
                                 HexStringToByte(voltageSettingSignal.FunctionCode),
                                 HexStringToByteArray(voltageSettingSignal.RegisterAddress)[0],
                                 HexStringToByteArray(voltageSettingSignal.RegisterAddress)[1],
-                                valueBytes[0],
-                                valueBytes[1]
+                                (byte)(voltageSettingSignal.RegisterCount >> 8),
+                                (byte)(voltageSettingSignal.RegisterCount & 0xFF),
+                                (byte)(2 * voltageSettingSignal.RegisterCount),
+                                reorderedBytes[0],reorderedBytes[1],reorderedBytes[2],reorderedBytes[3]
                             };
                         }
                         // 可以添加其他设备类型的处理
                         break;
 
                     case CommandType.EnableOutput:
-                        bool enable = (bool)parameters[0];
+                        int enableoutput = (int)parameters[0];
                         if (isModbus)
                         {
                             // 查找输出控制指令的信号
@@ -736,31 +716,16 @@ namespace ChargeDebug.Form
                                 HexStringToByte(outputControlSignal.FunctionCode),
                                 HexStringToByteArray(outputControlSignal.RegisterAddress)[0],
                                 HexStringToByteArray(outputControlSignal.RegisterAddress)[1],
-                                enable ? (byte)0xFF : (byte)0x00,
-                                0x00
+                                (byte)(outputControlSignal.RegisterCount >> 8),
+                                (byte)(outputControlSignal.RegisterCount & 0xFF),
+                                (byte)(2 * outputControlSignal.RegisterCount),
+                                (byte)(enableoutput >> 8),
+                                (byte)(enableoutput & 0xFF)  // 开机
                             };
                         }
                         // 可以添加其他设备类型的处理
                         break;
                 }
-
-                // 构建设置模式的命令
-                byte[] myByteArray = new byte[] { };
-                //通讯地址
-                //myByteArray[0] = HexStringToByte(modeSettingSignal.CorrespondenceAddress);
-                ////功能码
-                //myByteArray[1] = HexStringToByte(modeSettingSignal.FunctionCode);
-                ////寄存器地址
-                //myByteArray[2] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[0];
-                //myByteArray[3] = HexStringToByteArray(modeSettingSignal.RegisterAddress)[1];
-                ////寄存器个数
-                //myByteArray[4] = (byte)(modeSettingSignal.RegisterCount << 8);
-                //myByteArray[5] = (byte)modeSettingSignal.RegisterCount;
-                ////字节数
-                //myByteArray[6] = (byte)(2 * modeSettingSignal.RegisterCount);
-                //写入的数据
-                myByteArray[7] = 0x00;
-                myByteArray[8] = 0x01;
 
                 if (command == null)
                 {
@@ -773,7 +738,7 @@ namespace ChargeDebug.Form
                 switch (equipment.CanType)
                 {
                     case "RS485-MODBUS":
-                        RS485Manager.Instance.ClearBuffer(equipment.ComPort);
+                        //RS485Manager.Instance.ClearBuffer(equipment.ComPort);
                         sendSuccess = RS485Manager.Instance.SendData(equipment.ComPort, command);
                         break;
                         // 可以添加其他设备类型的发送逻辑
@@ -786,14 +751,15 @@ namespace ChargeDebug.Form
                 }
 
                 // 等待设备响应
-                await Task.Delay(200);
+                await Task.Delay(500);
 
                 // 读取并验证响应
                 byte[] response = null;
                 switch (equipment.CanType)
                 {
                     case "RS485-MODBUS":
-                        response = RS485Manager.Instance.ReadAllData(equipment.ComPort);
+                        //int num = RS485Manager.Instance.ReadData(equipment.ComPort)
+                        response = RS485Manager.Instance.ReadBuffer(equipment.ComPort);
                         break;
                         // 可以添加其他设备类型的响应读取逻辑
                 }
@@ -822,6 +788,14 @@ namespace ChargeDebug.Form
                 return false;
             }
 
+            return response.Length >= 6 &&
+                           response[0] == sentCommand[0] &&
+                           response[1] == sentCommand[1] &&
+                           response[2] == sentCommand[2] &&
+                           response[3] == sentCommand[3] &&
+                           response[4] == sentCommand[4] &&
+                           response[5] == sentCommand[5];
+
             // 根据命令类型和设备协议进行响应验证
             // 这里需要根据实际协议实现具体的验证逻辑
             // 以下是一个简单的示例，实际应用中需要根据设备协议调整
@@ -835,9 +809,7 @@ namespace ChargeDebug.Form
 
                 case CommandType.SetVoltage:
                     // 验证电压设置响应
-                    return response.Length >= 6 &&
-                           response[0] == sentCommand[0] &&
-                           response[1] == sentCommand[1];
+                    
 
                 case CommandType.EnableOutput:
                     // 验证输出控制响应
@@ -851,40 +823,1068 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 启用/禁用设备输出
+        /// 从树形信号列表中获取校准点信息
         /// </summary>
-        /// <param name="equipment">设备</param>
-        /// <param name="enable">是否启用</param>
-        /// <returns>操作是否成功</returns>
-        private Task<bool> EnableOutput(EquipmentModel equipment, bool enable)
+        /// <param name="treeSignals">树形信号列表</param>
+        /// <returns>校准点字典，键为信号名称，值为校准点列表</returns>
+        private async Task<Dictionary<string, List<CalibrationPoint>>> GetCalibrationPoints(List<SignalInfo> treeSignals)
         {
-            byte[] command;
+            var calibrationPoints = new Dictionary<string, List<CalibrationPoint>>();
 
-            switch (equipment.CanType)
+            try
             {
-                case "CANET-2E-U":
-                    // CAN协议指令: 启用/禁用输出
-                    command = new byte[] { 0xAA, 0x55, 0x01, 0x01, enable ? (byte)0x01 : (byte)0x00, 0x00, 0x00, 0xEE };
-                    CANManager.Instance.SendCommand(equipment.DeviceIndex,
-                                                    equipment.CanIndex,
-                                                    0x120,
-                                                    command);
-                    return Task.FromResult(true);
+                // 获取所有树节点
+                var messageNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
 
-                case "RS485-MODBUS":
-                    // MODBUS协议指令: 启用/禁用输出 (功能码05，线圈00001)
-                    command = new byte[] {
-                        //equipment,  // 设备地址
-                        //0x05,                    // 功能码: 写单个线圈
-                        //0x00, 0x00,              // 线圈地址: 00001 (实际地址0x0000)
-                        //enable ? (byte)0xFF : (byte)0x00, // 值: ON
-                        //0x00,                    // 默认值
-                        //0x00, 0x00               // CRC校验(实际应用中需要计算)
-                    };
-                    return Task.FromResult(RS485Manager.Instance.SendData(equipment.ComPort, command));
+                foreach (var node in messageNodes)
+                {
+                    // 获取设备名称和信号名称
+                    string deviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                    string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                    string signalType = node.GetValue("SignalType")?.ToString() ?? "";
 
-                default:
-                    throw new NotSupportedException($"不支持的通讯类型: {equipment.CanType}");
+                    if (string.IsNullOrEmpty(deviceName) || string.IsNullOrEmpty(signalName))
+                        continue;
+
+                    // 只处理电压信号
+                    if (!signalType.Contains("电压", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // 获取校准点个数
+                    string calibrationNumberStr = node.GetValue("CalibrationNumber")?.ToString() ?? "";
+                    if (!int.TryParse(calibrationNumberStr, out int calibrationNumber) || calibrationNumber <= 0)
+                        continue;
+
+                    // 获取额定电压值
+                    string ratingVoltageStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                    if (!double.TryParse(ratingVoltageStr, out double ratingVoltage) || ratingVoltage <= 0)
+                        continue;
+
+                    // 获取稳定读取时间
+                    string readTimeStr = node.GetValue("ReadTime")?.ToString() ?? "";
+                    if (!int.TryParse(readTimeStr, out int readTimeMs))
+                        readTimeMs = 1000; // 默认1秒
+
+                    // 查找对应的信号信息
+                    var signalInfo = treeSignals.FirstOrDefault(s =>
+                        s.SystemName.Equals(signalName, StringComparison.OrdinalIgnoreCase));
+
+                    if (signalInfo == null)
+                        continue;
+
+                    // 生成校准点
+                    var points = new List<CalibrationPoint>();
+
+                    // 如果是线性校准，生成等分点
+                    for (int i = 0; i < calibrationNumber; i++)
+                    {
+                        double voltageValue = (ratingVoltage / calibrationNumber) * (i + 1);
+
+                        points.Add(new CalibrationPoint
+                        {
+                            Voltage = voltageValue,
+                            ReadTimeMs = readTimeMs,
+                            SignalInfo = signalInfo,
+                            DeviceName = deviceName,
+                            SignalName = signalName
+                        });
+                    }
+
+                    // 添加到字典
+                    string key = $"{deviceName}_{signalName}";
+                    calibrationPoints[key] = points;
+                }
+
+                return calibrationPoints;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"获取校准点失败: {ex.Message}");
+                return new Dictionary<string, List<CalibrationPoint>>();
+            }
+        }
+
+        #endregion
+
+        #region 校准流程封装方法
+
+        /// <summary>
+        /// 执行完整的电压校准流程
+        /// </summary>
+        public async Task<bool> ExecuteVoltageCalibration()
+        {
+            try
+            {
+                // 1. 获取选中的设备
+                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
+                string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(voltageSourceName) || string.IsNullOrEmpty(voltmeterName))
+                {
+                    XtraMessageBox.Show("请先选择所有必要的校准设备!");
+                    return false;
+                }
+
+                // 2. 从设备列表中查找设备信息
+                var voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
+                var voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
+                if (voltageSource == null || voltmeter == null)
+                {
+                    XtraMessageBox.Show("未找到选定的设备配置信息!");
+                    return false;
+                }
+
+                // 3. 加载校准设备指令协议
+                var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
+
+                // 分离电压源和电压表的协议
+                voltageSourceProtocols = protocols.Where(p => p.DeviceName == voltageSource.DeviceName).ToList();
+                voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
+
+                // 4.加载树形图信号名称协议
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
+                // 按 SystemName 分组
+                var debugSignals = treeSignalProtocols
+                        .Where(s => s.MessageName.Substring(0, 2) == "调试")
+                        .GroupBy(s => s.SignalName.Substring(0, s.SignalName.Length - 4))
+                        .ToDictionary(g => g.Key, g => g.ToList());
+
+                // 5.加载调试协议
+                //debugProtocols = await LoadDebugProtocolsAsync();
+
+                // 5. 根据设备通讯类型启动设备
+                bool voltageSourceStarted = await StartEquipment(voltageSource);
+                bool voltmeterStarted = await StartEquipment(voltmeter);
+                if (!voltageSourceStarted || !voltmeterStarted)
+                {
+                    LogService.Log("设备启动失败，请检查设备连接!");
+                    return false;
+                }
+                LogService.Log("所有校准设备启动成功，开始电压校准流程!");
+
+                // 6. 设置设备模式
+                LogService.Log("设置电压源为程控模式...");
+                bool modeSet = await SendEquipmentCommand(CommandType.SetMode, voltageSource, voltageSourceProtocols, 0x01);
+                if (!modeSet)
+                {
+                    XtraMessageBox.Show("设置设备模式失败!");
+                    return false;
+                }
+
+                // 7. 设置初始电压值（从0开始）
+                LogService.Log("设置初始电压值...");
+                bool voltageSet = await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceProtocols, 0.0);
+                if (!voltageSet)
+                {
+                    XtraMessageBox.Show("设置初始电压失败!");
+                    return false;
+                }
+
+                // 8. 开机/启用输出
+                LogService.Log("启用电压源输出...");
+                bool outputEnabled = await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceProtocols, 0x01);
+                if (!outputEnabled)
+                {
+                    XtraMessageBox.Show("启用输出失败!");
+                    return false;
+                }
+
+                // 9. 获取校准点信息
+                var calibrationPoints = await GetCalibrationPoints(treeSignalProtocols);
+
+                // 10. 遍历每个校准点进行校准
+                bool calibrationSuccess = await ProcessCalibrationPoints(
+                    calibrationPoints,
+                    voltageSource,
+                    voltmeter,
+                    voltageSourceProtocols,
+                    voltmeterProtocols,
+                    treeSignalProtocols,
+                    debugSignals);
+
+                // 11. 完成校准后关闭输出
+                LogService.Log("校准完成，关闭输出...");
+                await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceProtocols, 0x00);
+
+                if (calibrationSuccess)
+                {
+                    //XtraMessageBox.Show("电压校准完成!");
+                    return true;
+                }
+                else
+                {
+                    //XtraMessageBox.Show("电压校准过程中出现错误，请查看日志!");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"电压校准失败: {ex.Message}");
+                XtraMessageBox.Show($"电压校准失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 处理所有校准点
+        /// </summary>
+        private async Task<bool> ProcessCalibrationPoints(
+            Dictionary<string, List<CalibrationPoint>> calibrationPoints,
+            EquipmentModel voltageSource,
+            EquipmentModel voltmeter,
+            List<ModbusSignal> voltageSourceSignals,
+            List<ModbusSignal> voltmeterSignals,
+            List<SignalInfo> treeSignals,
+            Dictionary<string, List<SignalInfo>> debugSignals)
+        {
+            try
+            {
+                LogService.Log("开始遍历所有校准点进行校准...");
+                int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
+                int currentPoint = 0;
+
+                foreach (var signalKey in calibrationPoints.Keys)
+                {
+                    var points = calibrationPoints[signalKey];
+                    var firstPoint = points.FirstOrDefault();
+
+                    if (firstPoint == null)
+                        continue;
+
+                    LogService.Log($"开始校准信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个校准点");
+
+                    // 为每个信号准备数据收集
+                    var measuredValues = new List<double>();
+                    var actualValues = new List<double>();
+
+                    SignalInfo scaleFactorSignal = null;
+                    SignalInfo zeroFactorSignal = null;
+
+                    if (debugSignals.TryGetValue(firstPoint.SignalName, out var scaleSignals) && scaleSignals.Count > 0)
+                    {
+                        scaleFactorSignal = scaleSignals[0];
+                        zeroFactorSignal = scaleSignals[1];
+                    }
+
+                    // 读取原有的比例系数和零点系数
+                    double originalScaleFactor = 1.0;
+                    double originalZeroFactor = 0.0;
+
+                    if (scaleFactorSignal != null && zeroFactorSignal != null)
+                    {
+                        var (scale, zero) = await ReadCalibrationFactors(
+                                            firstPoint.DeviceName,
+                                            scaleFactorSignal,
+                                            zeroFactorSignal);
+
+                        originalScaleFactor = scale;
+                        originalZeroFactor = zero;
+
+                        LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
+                    }
+
+                    foreach (var point in points)
+                    {
+                        currentPoint++;
+                        UpdateProgressBar(currentPoint, totalPoints);
+
+                        try
+                        {
+                            LogService.Log($"设置校准点 {currentPoint}/{totalPoints}: {point.Voltage}V");
+
+                            // 设置电压源输出到当前校准点电压
+                            bool voltageSet = await SendEquipmentCommand(
+                                CommandType.SetVoltage,
+                                voltageSource,
+                                voltageSourceSignals,
+                                point.Voltage);
+
+                            if (!voltageSet)
+                            {
+                                LogService.Log($"设置电压 {point.Voltage}V 失败，跳过此校准点");
+                                continue;
+                            }
+
+                            // 等待电压稳定
+                            LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
+                            await Task.Delay(point.ReadTimeMs);
+
+                            var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
+                                voltmeter,
+                                voltmeterSignals,
+                                firstPoint.DeviceName,
+                                firstPoint.SignalInfo,
+                                treeSignals);
+
+                            LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+
+                            // 保存测量数据
+                            measuredValues.Add(deviceVoltage);
+                            actualValues.Add(actualVoltage);
+
+                            // 为当前校准点创建子节点并更新值
+                            UpdateTreeNodeValue(firstPoint.DeviceName, firstPoint.SignalName,
+                                actualVoltage, deviceVoltage, currentPoint);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"校准点 {point.Voltage}V 处理失败: {ex.Message}");
+                        }
+                    }
+
+                    //关闭输出0.0
+                    bool voltageset = await SendEquipmentCommand(
+                                CommandType.SetVoltage,
+                                voltageSource,
+                                voltageSourceSignals,
+                                0.0);
+
+                    // 计算校准系数 (使用线性回归 y = kx + b)
+                    if (measuredValues.Count >= 2)
+                    {
+                        try
+                        {
+                            // 计算比例系数(k)和截距(b)
+                            var (scaleFactor, zeroFactor) = CalculateCalibrationFactors(measuredValues, actualValues);
+
+                            LogService.Log($"计算完成 - 比例系数: {scaleFactor}, 零点系数: {zeroFactor}");
+
+                            // 更新数据库和UI中的校准系数
+                            //await UpdateCalibrationFactors(firstPoint.DeviceName, firstPoint.SignalName,
+                            //    scaleFactor, zeroFactor);
+
+                            // 将新的校准系数写入设备
+                            if (scaleFactorSignal != null && zeroFactorSignal != null)
+                            {
+                                bool writeSuccess = await WriteCalibrationFactors(
+                                    firstPoint.DeviceName,
+                                    scaleFactorSignal, zeroFactorSignal,
+                                    scaleFactor, zeroFactor);
+
+                                if (writeSuccess)
+                                {
+                                    LogService.Log("校准系数写入设备成功");
+                                }
+                                else
+                                {
+                                    LogService.Log("校准系数写入设备失败");
+                                }
+                            }
+
+                            // 验证校准结果
+                            bool calibrationValid = await VerifyCalibration(
+                                firstPoint.DeviceName, firstPoint.SignalInfo,
+                                scaleFactor, zeroFactor, voltageSource, voltmeter,
+                                voltageSourceSignals, voltmeterSignals, treeSignals);
+
+                            string resultText = calibrationValid ? "成功" : "失败";
+
+                            LogService.Log($"校准验证: {resultText}");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"计算校准系数失败: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        LogService.Log("有效数据点不足，无法计算校准系数");
+                    }
+
+                    // 短暂暂停，确保设备稳定
+                    await Task.Delay(3000);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"处理校准点时发生错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region 同步读取方法
+
+        /// <summary>
+        /// 优化版的同步读取方法
+        /// </summary>
+        private async Task<(double actualVoltage, double deviceVoltage)> ReadVoltageValuesSync(
+            EquipmentModel voltmeter,
+            List<ModbusSignal> voltmeterSignals,
+            string deviceName,
+            SignalInfo signalInfo,
+            List<SignalInfo> treeSignals)
+        {
+            try
+            {
+                // 记录开始时间
+                //DateTime startTime = DateTime.Now;
+
+                // 并行读取电压表值和设备采样值
+                var voltmeterTask = ReadVoltmeterValue(voltmeter, voltmeterSignals);
+                var deviceTask = ReadDeviceVoltageSample(deviceName, signalInfo, treeSignals);
+
+                // 等待两个任务完成
+                await Task.WhenAll(voltmeterTask, deviceTask);
+
+                // 记录结束时间并计算耗时
+                //TimeSpan duration = DateTime.Now - startTime;
+                //LogService.Log($"电压读取完成，耗时: {duration.TotalMilliseconds}ms");
+
+                return (voltmeterTask.Result, deviceTask.Result);
+            }
+            catch (OperationCanceledException)
+            {
+                LogService.Log("电压读取超时，使用最后一次有效值");
+                // 返回最后一次有效值或默认值
+                return (0.0, 0.0);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"电压读取失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 读取电压表值
+        /// </summary>
+        private async Task<double> ReadVoltmeterValue(EquipmentModel voltmeter, List<ModbusSignal> voltmeterSignals)
+        {
+            try
+            {
+                // 根据电压表类型选择不同的读取方式
+                switch (voltmeter.CanType)
+                {
+                    case "USB-SCPI":
+                        return await ReadScpiVoltmeterValue(voltmeter);
+
+                    case "RS485-MODBUS":
+                        // 实现Modbus电压表读取逻辑
+                        throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
+
+                    default:
+                        throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
+                }
+            }
+            catch (Exception ex)
+            {
+                //LogService.Log($"读取电压表值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 读取设备电压采样值
+        /// </summary>
+        private async Task<double> ReadDeviceVoltageSample(string deviceName, SignalInfo signalInfo, List<SignalInfo> treeSignals)
+        {
+            try
+            {
+                // 根据设备类型选择不同的读取方式
+                var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName.Split('-')[0]);
+                if (equipment == null)
+                    throw new Exception($"未找到设备: {deviceName}");
+
+                // 记录读取开始时间
+                //DateTime startTime = DateTime.Now;
+
+                double result;
+
+                switch (equipment.CanType)
+                {
+                    case "RS485-MODBUS":
+                        //result = await ReadModbusDeviceValue(equipment, signalInfo);
+                        throw new Exception($"不支持的设备类型: {equipment.CanType}");
+
+                    case "CANET-2E-U":
+                        result = await ReadCanDeviceValue(equipment, signalInfo);
+                        break;
+
+                    default:
+                        throw new Exception($"不支持的设备类型: {equipment.CanType}");
+                }
+
+                // 记录读取耗时
+                //TimeSpan duration = DateTime.Now - startTime;
+                //if (duration.TotalMilliseconds > 100)
+                //{
+                //    LogService.Log($"设备 {equipment.DeviceName} 读取耗时: {duration.TotalMilliseconds}ms");
+                //}
+
+                return result;
+            }
+            catch (Exception)
+            {
+                //LogService.Log($"读取设备电压采样值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 读取CAN设备电压采样值
+        /// </summary>
+        private async Task<double> ReadCanDeviceValue(EquipmentModel equipment, SignalInfo signalInfo)
+        {
+            try
+            {
+                // 记录开始时间
+                //DateTime startTime = DateTime.Now;
+
+                await Task.Delay(600);//延时600ms
+
+                // 构建通道键
+                string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+
+                // 从SignalInfo中获取CAN ID
+                uint canId = uint.Parse(signalInfo.CANID.Replace("0x", ""),
+                    System.Globalization.NumberStyles.HexNumber);
+
+
+                // 接收指定CAN ID的帧
+                var frame = await CANManager.Instance.ReceiveFrameAsync(channelKey, canId, 100);
+
+                if (frame.IsEmpty())
+                {
+                    throw new Exception($"接收CAN帧超时，CAN ID: 0x{canId:X}");
+                }
+
+                // 解析帧中的数据
+                ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalInfo);
+                double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
+
+                // 记录结束时间并计算耗时
+                //TimeSpan duration = DateTime.Now - startTime;
+
+                LogService.Log($"电压采样值读取完成");
+
+                return physicalValue;
+            }
+            catch (Exception)
+            {
+                //LogService.Log($"读取CAN设备值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 读取SCPI电压表值
+        /// </summary>
+        private async Task<double> ReadScpiVoltmeterValue(EquipmentModel voltmeter)
+        {
+            try
+            {
+                // 记录开始时间
+                //DateTime startTime = DateTime.Now;
+
+                // 发送查询命令并读取响应
+                Keysight34465A_Communicator.Instance.SendCommand("CONF:VOLT:DC AUTO");
+
+                // 等待设置生效
+                await Task.Delay(50);
+
+                // 发送查询命令（必须以问号结尾）
+                string response = Keysight34465A_Communicator.Instance.Query("READ?");
+
+                if (double.TryParse(response.Trim(), out double voltageValue))
+                {
+                    // 记录结束时间并计算耗时
+                    //TimeSpan duration = DateTime.Now - startTime;
+                    LogService.Log($"电压表读取完成");
+
+                    return voltageValue;
+                }
+
+                throw new Exception($"无效的电压值响应: {response}");
+            }
+            catch (Exception)
+            {
+                //LogService.Log($"读取SCPI电压表值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region 辅助方法实现
+
+        /// <summary>
+        /// 读取设备的校准系数
+        /// </summary>
+        private async Task<(double scaleFactor, double zeroFactor)> ReadCalibrationFactors(
+            string deviceName,SignalInfo scaleFactorSignal, SignalInfo zeroFactorSignal)
+        {
+            try
+            {
+                // 从设备列表中查找设备
+                var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName.Split('-')[0]);
+                string channel = deviceName.Split('-')[1];
+                if (equipment == null)
+                    return (1.0, 0.0);
+
+                // 发送读取请求帧
+                await SendReadCalibrationRequest(equipment, channel,scaleFactorSignal);
+
+                // 接收响应帧并解析系数
+                return await ReceiveAndParseCalibrationResponse(
+                    equipment, scaleFactorSignal, zeroFactorSignal, channel);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"读取校准系数失败: {ex.Message}");
+                return (1.0, 0.0);
+            }
+        }
+
+        /// <summary>
+        /// 写入设备的校准系数
+        /// </summary>
+        private async Task<bool> WriteCalibrationFactors(
+            string deviceName,
+            SignalInfo scaleFactorSignal,
+            SignalInfo zeroFactorSignal,
+            double scaleFactor,
+            double zeroFactor)
+        {
+            try
+            {
+                // 从设备列表中查找设备
+                var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName.Split('-')[0]);
+                string channel = deviceName.Split('-')[1];
+                if (equipment == null)
+                    return false;
+
+                // 发送写入请求帧
+                await SendWriteCalibrationRequest(equipment, channel, scaleFactorSignal, zeroFactorSignal, scaleFactor, zeroFactor);
+
+                // 等待100ms
+                await Task.Delay(100);
+
+                // 发送读取请求帧
+                await SendReadCalibrationRequest(equipment, channel, scaleFactorSignal);
+
+                // 接收响应帧并解析系数
+                var(scale, zero) = await ReceiveAndParseCalibrationResponse(
+                                  equipment, scaleFactorSignal, zeroFactorSignal, channel);
+
+                if ((scale == scaleFactor) && (zero == zeroFactor))
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"读取校准系数失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 发送写入校准系数的请求
+        /// </summary>
+        private Task SendWriteCalibrationRequest(
+            EquipmentModel equipment, string channel,
+            SignalInfo scaleFactorSignal,
+            SignalInfo zeroFactorSignal,
+            double scaleFactor,
+            double zeroFactor)
+        {
+            try
+            {
+                // 构建通道键
+                string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+
+                // 提取通道数字（最后一位字符）
+                char channelNumberChar = channel[channel.Length - 1];
+                if (!char.IsDigit(channelNumberChar))
+                {
+                    throw new ArgumentException($"通道格式错误: {channel}");
+                }
+                int channelNumber = int.Parse(channelNumberChar.ToString());
+
+                // 根据通道类型生成基础CAN ID
+                uint baseCanId;
+                if (channel.Contains("AC"))
+                {
+                    baseCanId = 0x0400A0CC; // AC通道基础CAN ID
+                }
+                else if (channel.Contains("DC"))
+                {
+                    baseCanId = 0x040020CC; // DC通道基础CAN ID
+                }
+                else
+                {
+                    throw new ArgumentException($"不支持的通道类型: {channel}");
+                }
+
+                uint canId = baseCanId & 0xFFFFF0FF; // 清除第3个字节的低4位
+                canId |= (uint)((channelNumber - 1) << 8); // 将通道号-1左移8位并设置到CAN ID中
+
+                // 构建写入请求数据帧
+                byte[] requestData = new byte[8];
+
+                // 第一个字节是功能码 (SystemName前2个字符)
+                string functionCode = scaleFactorSignal.SystemName.Length >= 2 ?
+                    scaleFactorSignal.SystemName.Substring(0, 2) : scaleFactorSignal.SystemName;
+
+                // 将功能码转换为字节
+                byte functionByte = Encoding.ASCII.GetBytes(functionCode)[0];
+                requestData[0] = functionByte;
+
+                // 将比例系数和零点系数转换为设备原始值
+                decimal rawscaleFactor = ((decimal)scaleFactor - scaleFactorSignal.Offset) / scaleFactorSignal.Factor;
+                decimal rawzeroFactor = ((decimal)zeroFactor - zeroFactorSignal.Offset) / zeroFactorSignal.Factor;
+                long rawscaleValue = (long)rawscaleFactor;
+                long rawzeroValue = (long)rawzeroFactor;
+
+                requestData = CANManager.Instance.SetRawValue(requestData, scaleFactorSignal, rawscaleValue);
+                requestData = CANManager.Instance.SetRawValue(requestData, zeroFactorSignal, rawzeroValue);
+
+                // 发送请求帧
+                CANManager.Instance.SendCommand(equipment.DeviceIndex, equipment.CanIndex, canId, requestData);
+
+                LogService.Log($"已发送写入校准系数请求: 比例系数={scaleFactor}, 零点系数={zeroFactor}");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"发送写入校准系数请求失败: {ex.Message}");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 发送读取校准系数的请求
+        /// </summary>
+        private Task SendReadCalibrationRequest(EquipmentModel equipment, string channel, SignalInfo signalInfo)
+        {
+            try
+            {
+                // 构建通道键
+                string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+
+                // 提取通道数字（最后一位字符）
+                char channelNumberChar = channel[channel.Length - 1];
+                if (!char.IsDigit(channelNumberChar))
+                {
+                    throw new ArgumentException($"通道格式错误: {channel}");
+                }
+                int channelNumber = int.Parse(channelNumberChar.ToString());
+
+                // 根据通道类型生成基础CAN ID
+                uint baseCanId;
+                if (channel.Contains("AC"))
+                {
+                    baseCanId = 0x0800A0CC; // AC通道基础CAN ID
+                }
+                else if (channel.Contains("DC"))
+                {
+                    baseCanId = 0x080020CC; // DC通道基础CAN ID
+                }
+                else
+                {
+                    throw new ArgumentException($"不支持的通道类型: {channel}");
+                }
+
+                uint canId = baseCanId & 0xFFFFF0FF; // 清除第3个字节的低4位
+                canId |= (uint)((channelNumber - 1) << 8); // 将通道号-1左移8位并设置到CAN ID中
+
+                // 构建请求数据帧
+                byte[] requestData = new byte[8];
+
+                // 第一个字节是功能码 (SystemName前2个字符)
+                string functionCode = signalInfo.SystemName.Length >= 2 ?
+                    signalInfo.SystemName.Substring(0, 2) : signalInfo.SystemName;
+
+                // 将功能码转换为字节
+                byte functionByte = Encoding.ASCII.GetBytes(functionCode)[0];
+                requestData[0] = functionByte;
+
+                // 其余字节为0
+                for (int i = 1; i < 8; i++)
+                {
+                    requestData[i] = 0;
+                }
+
+                // 发送请求帧
+                CANManager.Instance.SendCommand(equipment.DeviceIndex, equipment.CanIndex, canId, requestData);
+
+                LogService.Log($"已发送读取校准系数请求: 功能码 {functionByte:X2}");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"发送读取校准系数请求失败: {ex.Message}");
+                throw;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 接收并解析校准系数响应
+        /// </summary>
+        private async Task<(double scaleFactor, double zeroFactor)> ReceiveAndParseCalibrationResponse(
+            EquipmentModel equipment, SignalInfo scaleFactorSignal, SignalInfo zeroFactorSignal, string channel)
+        {
+            try
+            {
+                // 构建通道键
+                string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+
+                // 提取通道数字（最后一位字符）
+                char channelNumberChar = channel[channel.Length - 1];
+                if (!char.IsDigit(channelNumberChar))
+                {
+                    throw new ArgumentException($"通道格式错误: {channel}");
+                }
+                int channelNumber = int.Parse(channelNumberChar.ToString());
+
+                // 根据通道类型生成基础CAN ID
+                uint baseCanId;
+                if (channel.Contains("AC"))
+                {
+                    baseCanId = 0x0800CCA0 + (uint)(channelNumber - 1); // AC通道基础CAN ID
+                }
+                else if (channel.Contains("DC"))
+                {
+                    baseCanId = 0x0800CC20 + (uint)(channelNumber - 1); // DC通道基础CAN ID
+                }
+                else
+                {
+                    throw new ArgumentException($"不支持的通道类型: {channel}");
+                }
+
+                // 等待并接收响应帧
+                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, baseCanId, 500);
+
+                if (response.IsEmpty())
+                {
+                    LogService.Log("接收校准系数响应超时");
+                    return (1.0, 0.0);
+                }
+
+                // 从响应帧中提取比例系数和零点系数
+                double scaleFactor = ExtractCalibrationValue(response.data, scaleFactorSignal);
+                double zeroFactor = ExtractCalibrationValue(response.data, zeroFactorSignal);
+
+                LogService.Log($"从响应帧中解析出比例系数: {scaleFactor}, 零点系数: {zeroFactor}");
+
+                return (scaleFactor, zeroFactor);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"解析校准系数响应失败: {ex.Message}");
+                return (1.0, 0.0);
+            }
+        }
+
+        /// <summary>
+        /// 从数据帧中提取校准值
+        /// </summary>
+        private double ExtractCalibrationValue(byte[] data, SignalInfo signal)
+        {
+            try
+            {
+                // 提取原始值
+                ulong rawValue = CANManager.Instance.ExtractRawValue(data, signal);
+
+                // 转换为物理值
+                return CANManager.Instance.ConvertToPhysicalValue(rawValue, signal);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"提取校准值失败: {ex.Message}");
+                return 0.0;
+            }
+        }
+
+        /// <summary>
+        /// 计算校准系数 (线性回归)
+        /// </summary>
+        private (double scaleFactor, double zeroFactor) CalculateCalibrationFactors(List<double> xValues, List<double> yValues)
+        {
+            // 线性回归计算 y = kx + b
+            int n = xValues.Count;
+
+            double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+            for (int i = 0; i < n; i++)
+            {
+                sumX += xValues[i];
+                sumY += yValues[i];
+                sumXY += xValues[i] * yValues[i];
+                sumX2 += xValues[i] * xValues[i];
+            }
+
+            // 计算斜率k和截距b
+            double k = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            double b = (sumY - k * sumX) / n;
+
+            return (k, b);
+        }
+
+        /// <summary>
+        /// 更新树节点值
+        /// </summary>
+        private void UpdateTreeNodeValue(string deviceName, string signalName, 
+            double actualVoltage, double deviceVoltage, int calibrationPointIndex)
+        {
+            // 在主线程上更新UI
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => UpdateTreeNodeValue(deviceName, signalName, actualVoltage, deviceVoltage, calibrationPointIndex)));
+                return;
+            }
+
+            // 查找匹配的父节点
+            foreach (TreeListNode parentNode in treeList.Nodes)
+            {
+                string nodeDeviceName = parentNode.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = parentNode.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 创建子节点名称
+                    string childNodeName = $"校准点 {calibrationPointIndex}";
+
+                    // 检查是否已经存在该校准点的子节点
+                    TreeListNode calibrationNode = null;
+                    if (parentNode.HasChildren)
+                    {
+                        foreach (TreeListNode childNode in parentNode.Nodes)
+                        {
+                            if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
+                            {
+                                calibrationNode = childNode;
+                                break;
+                            }
+                        }
+                    }
+                    // 如果不存在，创建新的子节点
+                    if (calibrationNode == null)
+                    {
+                        calibrationNode = parentNode.Nodes.Add(new object[]
+                        {
+                            "", // 设备名称列显示校准点名称
+                            "", "", "", "", "", "", "",
+                            deviceVoltage.ToString(""), // 设备电压采样值
+                            actualVoltage.ToString(""), // 实际电压测量值
+                            "", "", "", ""
+                        });
+
+                        // 设置子节点的Tag为校准点信息，方便后续查找
+                        calibrationNode.Tag = $"CalibrationPoint_{calibrationPointIndex}";
+
+                        // 展开父节点以显示子节点
+                        parentNode.Expanded = true;
+                    }
+                    else
+                    {
+                        // 如果已存在，更新值
+                        calibrationNode.SetValue("DeviceVoltageSample", deviceVoltage.ToString("F3"));
+                        calibrationNode.SetValue("ActualVoltageMeasurement", actualVoltage.ToString("F3"));
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 更新进度条
+        /// </summary>
+        private void UpdateProgressBar(int current, int total)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => UpdateProgressBar(current, total)));
+                return;
+            }
+
+            int percentage = (int)Math.Round((double)current / total * 100);
+            progressBar.Position = percentage;
+            progressBar.Update();
+        }
+
+        /// <summary>
+        /// 更新数据库中的校准系数
+        /// </summary>
+        private async Task UpdateCalibrationFactors(string deviceName, string signalName, double scaleFactor, double zeroFactor)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    await conn.OpenAsync();
+
+                    // 更新数据库中的校准系数
+                    string query = "UPDATE CalibrationSignals SET ScaleFactor = @scale, ZeroFactor = @zero " +
+                                  "WHERE DeviceName = @device AND SignalName = @signal";
+
+                    using (var cmd = new SQLiteCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@scale", scaleFactor);
+                        cmd.Parameters.AddWithValue("@zero", zeroFactor);
+                        cmd.Parameters.AddWithValue("@device", deviceName);
+                        cmd.Parameters.AddWithValue("@signal", signalName);
+
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"更新数据库校准系数失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 验证校准结果
+        /// </summary>
+        private async Task<bool> VerifyCalibration(string deviceName, SignalInfo signalInfo,
+                                                 double scaleFactor, double zeroFactor,
+                                                 EquipmentModel voltageSource, EquipmentModel voltmeter,
+                                                 List<ModbusSignal> voltageSourceSignals,
+                                                 List<ModbusSignal> voltmeterSignals,
+                                                 List<SignalInfo> treeSignals)
+        {
+            try
+            {
+                // 选择一个测试点进行验证 (例如中间值)
+                var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName);
+                if (equipment == null)
+                    return false;
+
+                // 设置一个测试电压
+                double testVoltage = 2.5; // 中间值
+                await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceSignals, testVoltage);
+                await Task.Delay(1000); // 等待稳定
+
+                // 读取实际电压值
+                double actualVoltage = 0.0;
+
+                //// 读取设备采样值
+                double deviceSample = 0.0;
+
+                // 应用校准公式: 校准值 = 采样值 * scaleFactor + zeroFactor
+                double calibratedValue = deviceSample * scaleFactor + zeroFactor;
+
+                // 计算误差
+                double error = Math.Abs(calibratedValue - actualVoltage);
+                double errorPercentage = (error / actualVoltage) * 100;
+
+                // 判断是否通过验证 (例如误差小于1%)
+                return errorPercentage < 1.0;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"验证校准结果失败: {ex.Message}");
+                return false;
             }
         }
 
@@ -1052,7 +2052,7 @@ namespace ChargeDebug.Form
             btnDeleteSignal.Click += BtnDeleteSignal_Click;
             buttonPanel.Controls.Add(btnDeleteSignal);
 
-            SimpleButton btnVoltageCalibration = new SimpleButton
+            btnVoltageCalibration = new SimpleButton
             {
                 Text = "开始电压校准",
                 Size = new Size(110, 30),
@@ -1079,7 +2079,7 @@ namespace ChargeDebug.Form
             btnDischargingCurrentCalibration.Click += BtnDischargingCurrentCalibration_Click;
             buttonPanel.Controls.Add(btnDischargingCurrentCalibration);
 
-            SimpleButton btnStopCalibration = new SimpleButton
+            btnStopCalibration = new SimpleButton
             {
                 Text = "停止校准",
                 Size = new Size(80, 30),
@@ -1107,10 +2107,16 @@ namespace ChargeDebug.Form
         private Control CreateTreeList()
         {
             treeList = new TreeList();
+
             // 启用多选
             treeList.OptionsSelection.MultiSelect = true;
             treeList.OptionsSelection.UseIndicatorForSelection = true;
             treeList.OptionsBehavior.Editable = false;
+
+            // 启用复选框
+            treeList.OptionsView.ShowCheckBoxes = true;
+            treeList.OptionsSelection.EnableAppearanceFocusedCell = false;
+            treeList.OptionsSelection.EnableAppearanceFocusedRow = false;
 
             // 添加列
             TreeListColumn column;
@@ -1336,6 +2342,15 @@ namespace ChargeDebug.Form
 
             return Convert.ToByte(hexString, 16);
         }
+
+        //protected override void Dispose(bool disposing)
+        //{
+        //    if (disposing)
+        //    {
+        //        //RS485Manager.Instance.DataReceived -= RS485_DataReceived;
+        //    }
+        //    base.Dispose(disposing);
+        //}
 
         #endregion
 

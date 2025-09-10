@@ -966,14 +966,6 @@ namespace ChargeDebug.Form
                     return false;
                 }
 
-                // 验证响应命令字
-                //if (response.data[0] != groupInfo.Command)
-                //{
-                //    ShowToast("写入失败", Color.Red);
-                //    LogService.Log($"响应命令字不匹配: 期望0x{groupInfo.Command:X2}, 收到0x{response.data[0]:X2}");
-                //    return;
-                //}
-
                 // 验证数据是否写入
                 if (!writeData.SequenceEqual(response.data))
                 {

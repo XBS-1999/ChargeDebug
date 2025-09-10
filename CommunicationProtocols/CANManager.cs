@@ -635,6 +635,51 @@ namespace ChargeDebug.Service
             return rawValue;
         }
 
+        public byte[] SetRawValue(byte[] data, SignalInfo signal, long rawValue)
+        {
+            int totalBits = data.Length * 8;
+            if (signal.StartBit + signal.Length > totalBits)
+                throw new ArgumentException("超出数据范围");
+
+            if (signal.ByteOrder == "Inter") // 小端模式
+            {
+                for (int i = 0; i < signal.Length; i++)
+                {
+                    int byteOffset = (signal.StartBit + i) / 8;
+                    int bitOffset = (signal.StartBit + i) % 8;
+
+                    if ((rawValue & (1L << i)) != 0)
+                    {
+                        data[byteOffset] |= (byte)(1 << bitOffset);
+                    }
+                    else
+                    {
+                        data[byteOffset] &= (byte)~(1 << bitOffset);
+                    }
+                }
+            }
+            else // 大端模式
+            {
+                for (int i = 0; i < signal.Length; i++)
+                {
+                    int bitIndex = signal.StartBit + i;
+                    int byteOffset = bitIndex / 8;
+                    int bitOffset = 7 - (bitIndex % 8); // 大端高位在前
+
+                    if ((rawValue & (1L << (signal.Length - 1 - i))) != 0)
+                    {
+                        data[byteOffset] |= (byte)(1 << bitOffset);
+                    }
+                    else
+                    {
+                        data[byteOffset] &= (byte)~(1 << bitOffset);
+                    }
+                }
+            }
+
+            return data;
+        }
+
         /// <summary>
         /// 获取小数位数
         /// </summary>
@@ -869,6 +914,8 @@ namespace ChargeDebug.Service
             }
             return new ZCAN_Receive_Data(); // 返回空帧
         }
+
+
 
         public async Task<Dictionary<uint, List<ZCAN_Receive_Data>>> ReceiveMultipleFramesAsync(
             string channelKey,

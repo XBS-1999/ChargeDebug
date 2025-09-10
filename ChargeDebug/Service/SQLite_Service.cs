@@ -952,7 +952,7 @@ namespace ChargeDebug.Service
                     s.Length, s.ByteOrder,
                     s.Signed, s.Factor,
                     s.Offset, s.MinMax,
-                    s.orders, m.CANID 
+                    s.orders, m.CANID, m.MessageName 
                     FROM Signals s JOIN Messages m 
                     ON s.MessageID = m.MessageID
                     WHERE s.MessageID = @msgId AND s.SystemName = @systemName";
@@ -981,7 +981,62 @@ namespace ChargeDebug.Service
                             Offset = Convert.ToDecimal(reader["Offset"]),
                             MinMax = reader["MinMax"].ToString(),
                             Orders = Convert.ToInt32(reader["orders"]),
-                            CANID = reader["CANID"].ToString()
+                            CANID = reader["CANID"].ToString(),
+                            MessageName = reader["MessageName"].ToString()
+                        };
+                        // 加载复用信号配置
+                        signal.ReuseSignals = GetReuseSignalsBySignals(conn, signal.SignalID);
+                        return signal;
+                    }
+                }
+            }
+
+            return null; // 如果没有找到匹配的信号，返回null
+        }
+
+        /// <summary>
+        /// 根据MessageID和SystemName查询特定信号的所有信息
+        /// </summary>
+        public static SignalInfo GetSignalByMessageAndSignalName(SQLiteConnection conn, long messageId, string signalName)
+        {
+            const string sql = @"SELECT 
+                    s.SignalID, s.SignalName,
+                    s.MultiplexSignals, s.SystemName,
+                    s.Unit, s.StartBit,
+                    s.Length, s.ByteOrder,
+                    s.Signed, s.Factor,
+                    s.Offset, s.MinMax,
+                    s.orders, m.CANID,m.MessageName 
+                    FROM Signals s JOIN Messages m 
+                    ON s.MessageID = m.MessageID
+                    WHERE s.MessageID = @msgId AND s.SignalName = @signalName";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@msgId", messageId);
+                cmd.Parameters.AddWithValue("@signalName", signalName);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        var signal = new SignalInfo
+                        {
+                            SignalID = (long)reader["SignalID"],
+                            SignalName = reader["SignalName"].ToString(),
+                            MultiplexSignals = reader["MultiplexSignals"].ToString(),
+                            SystemName = reader["SystemName"].ToString(),
+                            Unit = reader["Unit"].ToString(),
+                            StartBit = Convert.ToInt32(reader["StartBit"]),
+                            Length = Convert.ToInt32(reader["Length"]),
+                            ByteOrder = reader["ByteOrder"].ToString(),
+                            Signed = reader["Signed"].ToString(),
+                            Factor = Convert.ToDecimal(reader["Factor"]),
+                            Offset = Convert.ToDecimal(reader["Offset"]),
+                            MinMax = reader["MinMax"].ToString(),
+                            Orders = Convert.ToInt32(reader["orders"]),
+                            CANID = reader["CANID"].ToString(),
+                            MessageName = reader["MessageName"].ToString()
                         };
                         // 加载复用信号配置
                         signal.ReuseSignals = GetReuseSignalsBySignals(conn, signal.SignalID);
