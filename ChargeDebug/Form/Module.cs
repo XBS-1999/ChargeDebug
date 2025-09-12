@@ -1179,5 +1179,6 @@ namespace ChargeDebug.Form
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
     }
 }
