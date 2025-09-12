@@ -751,7 +751,7 @@ namespace ChargeDebug.Service
                 if (result > 0)
                 {
                     if ((formattedCanId == 0xAA01) || (formattedCanId == 0xAA02) ||
-                        (formattedCanId == 0xAA031) || (formattedCanId == 0xADCC) || (formattedCanId.ToString("X").Substring(0, 2) == "21"))
+                        (formattedCanId == 0xAA01) || (formattedCanId == 0xADCC) || (formattedCanId.ToString("X").Substring(0, 2) == "21"))
                         return;   //不记录日志
 
                     // 成功日志：包含完整数据

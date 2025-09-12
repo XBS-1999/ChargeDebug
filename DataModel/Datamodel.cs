@@ -1,5 +1,6 @@
 ﻿using System.IO.Ports;
 
+#pragma warning disable
 namespace DataModel
 {
     public class EquipmentModel
@@ -123,9 +124,9 @@ namespace DataModel
         public int RatingVoltageCurrent { get; set; }
         public int CalibrationNumber { get; set; }
         public int Orders { get; set; }
-
         public string? ScaleFactor { get; set; }
         public string? ZeroFactor { get; set; }
+        public string? CalibrationAccuracy { get; set; }
     }
 
     /// <summary>
@@ -159,18 +160,13 @@ namespace DataModel
         public string SignalName { get; set; }
 
         /// <summary>
-        /// 写入发送KB值CANID
+        /// 额定电压
         /// </summary>
-        public string WriteKBCANID { get; set; }
+        //public string RatedVoltage { get; set; }
 
         /// <summary>
-        /// 读取发送KB值CANID
+        /// 精度范围
         /// </summary>
-        public string ReadKBCANID { get; set; }
-
-        /// <summary>
-        /// 接收KB值CANID
-        /// </summary>
-        public string ReceiveKBCANID { get; set; }
+        //public string PrecisionRange { get; set; }
     }
 }
