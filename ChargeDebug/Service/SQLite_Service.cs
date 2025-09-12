@@ -1,6 +1,4 @@
 ﻿using DataModel;
-using DbcParserLib.Model;
-using DevExpress.Pdf.Native.BouncyCastle.Cms;
 using System.Data;
 using System.Data.SQLite;
 
@@ -184,6 +182,7 @@ namespace ChargeDebug.Service
                             ReadTime = Convert.ToInt32(reader["ReadTime"]),
                             RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
                             CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
+                            CalibrationAccuracy = reader["CalibrationAccuracy"].ToString(),
                             Orders = Convert.ToInt32(reader["Orders"]),
                         });
                     }
@@ -253,61 +252,6 @@ namespace ChargeDebug.Service
             }
         }
 
-        /// <summary>
-        /// 更新CalibrationSignals表
-        /// </summary>
-
-        public static long UpsertCalibrationSignals(SQLiteConnection conn, long signalID, string? deviceName,
-            string? signalName, string? signalType, long readTime, string? ratingVoltageCurrent, 
-            long calibrationNumber, long orders, SQLiteTransaction? transaction = null)
-        {
-            if (signalID < 0) // 新增
-            {
-                const string insertSql = @"INSERT INTO CalibrationSignals 
-                                        (DeviceName, SignalName, SignalType, ReadTime, 
-                                         RatingVoltageCurrent, CalibrationNumber, Orders)
-                                        VALUES (@deviceName, @signalName, @signalType, @readTime, 
-                                        @ratingVoltageCurrent, @calibrationNumber, @orders)
-                                        RETURNING SignalID;";
-                using (var cmd = new SQLiteCommand(insertSql, conn, transaction))
-                {
-                    cmd.Parameters.AddWithValue("@deviceName", deviceName);
-                    cmd.Parameters.AddWithValue("@signalName", signalName);
-                    cmd.Parameters.AddWithValue("@signalType", signalType);
-                    cmd.Parameters.AddWithValue("@readTime", readTime);
-                    cmd.Parameters.AddWithValue("@ratingVoltageCurrent", ratingVoltageCurrent);
-                    cmd.Parameters.AddWithValue("@calibrationNumber", calibrationNumber);
-                    cmd.Parameters.AddWithValue("@orders", orders);
-                    return (long)cmd.ExecuteScalar();
-                }
-            }
-            else // 更新
-            {
-                const string updateSql = @"UPDATE CalibrationSignals SET 
-                                      DeviceName = @deviceName,
-                                      SignalName = @signalName,
-                                      SignalType = @signalType,
-                                      ReadTime = @readTime,
-                                      RatingVoltageCurrent = @ratingVoltageCurrent,
-                                      CalibrationNumber = @calibrationNumber,
-                                      Orders = @orders
-                                      WHERE SignalID = @signalID";
-                using (var cmd = new SQLiteCommand(updateSql, conn, transaction))
-                {
-                    cmd.Parameters.AddWithValue("@deviceName", deviceName);
-                    cmd.Parameters.AddWithValue("@signalName", signalName);
-                    cmd.Parameters.AddWithValue("@signalType", signalType);
-                    cmd.Parameters.AddWithValue("@readTime", readTime);
-                    cmd.Parameters.AddWithValue("@ratingVoltageCurrent", ratingVoltageCurrent);
-                    cmd.Parameters.AddWithValue("@calibrationNumber", calibrationNumber);
-                    cmd.Parameters.AddWithValue("@orders", orders);
-                    cmd.Parameters.AddWithValue("@signalID", signalID);
-                    cmd.ExecuteNonQuery();
-                    return signalID;
-                }
-            }
-        }
-
         // 根据ID获取校准信号
         public static CalibrationSignals GetCalibrationSignalById(SQLiteConnection conn, long signalId)
         {
@@ -330,6 +274,7 @@ namespace ChargeDebug.Service
                             ReadTime = Convert.ToInt32(reader["ReadTime"]),
                             RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
                             CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
+                            CalibrationAccuracy = reader["CalibrationAccuracy"].ToString(),
                             Orders = Convert.ToInt32(reader["Orders"]) // 读取排序字段
                         };
                     }
@@ -382,6 +327,7 @@ namespace ChargeDebug.Service
                 ReadTime = @ReadTime,
                 RatingVoltageCurrent = @RatingVoltageCurrent,
                 CalibrationNumber = @CalibrationNumber,
+                CalibrationAccuracy = @CalibrationAccuracy,
                 Orders = @Orders
                 WHERE SignalID = @Id";
 
@@ -393,6 +339,7 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+                cmd.Parameters.AddWithValue("@CalibrationAccuracy", signal.CalibrationAccuracy);
                 cmd.Parameters.AddWithValue("@Orders", signal.Orders);
                 cmd.Parameters.AddWithValue("@Id", signal.SignalID);
 
@@ -405,9 +352,9 @@ namespace ChargeDebug.Service
         {
             string insertSql = @"
             INSERT INTO CalibrationSignals 
-                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, Orders )
+                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, CalibrationAccuracy, Orders )
             VALUES 
-                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @Orders )";
+                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @CalibrationAccuracy, @Orders )";
 
             using (var cmd = new SQLiteCommand(insertSql, conn))
             {
@@ -417,6 +364,7 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
+                cmd.Parameters.AddWithValue("@CalibrationAccuracy", signal.CalibrationAccuracy);
                 cmd.Parameters.AddWithValue("@Orders", signal.Orders);
 
                 cmd.ExecuteNonQuery();

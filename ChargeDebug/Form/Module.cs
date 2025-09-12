@@ -8,6 +8,8 @@ using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
+using DevExpress.XtraPrinting;
+using DevExpress.XtraWaitForm;
 using Log;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -82,6 +84,8 @@ namespace ChargeDebug.Form
         private ContextMenuStrip contextMenu;
         private List<Showdata> allSignals = new List<Showdata>();
 
+        private StartupManager _startupManager;
+
         //储存设备信息
         private EquipmentModel _equipment;
         private bool _isConnected;
@@ -132,19 +136,14 @@ namespace ChargeDebug.Form
             InitializeComponent();
             InitializeUI();
             ProcessSignals(signals);       // 处理信号定义
-            // 创建发送定时器（1秒间隔）
-            //_sendTimer = new System.Threading.Timer(SendPeriodicMessage, null, 1000, 1000);
 
-            // 初始化故障显示定时器 (1秒间隔)
-            //_faultDisplayTimer = new System.Threading.Timer(DisplayNextFault, null, Timeout.Infinite, Timeout.Infinite);
+            // 初始化启动管理器
+            _startupManager = new StartupManager(equipment, title);
 
             // 初始化读取故障定时器（初始不启动）
             _readFaultTimer = new System.Threading.Timer(SendReadFaultCommand, null, Timeout.Infinite, Timeout.Infinite);
             
             this.Load += Module_Load;
-            // 移除 Load 事件中的异步初始化
-            // 改为在首次显示时初始化
-            //this.VisibleChanged += OnVisibleChanged;
         }
 
         private void Module_Load(object? sender, EventArgs e)
@@ -414,7 +413,7 @@ namespace ChargeDebug.Form
                     }
                 }
             }
-
+            
             // 检测是否进入/退出故障模式
             bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF);
 
@@ -777,14 +776,20 @@ namespace ChargeDebug.Form
             // 添加上下文菜单
             contextMenu = new ContextMenuStrip();
             var dataselection = new ToolStripMenuItem("数据选择");
+            var poweron = new ToolStripMenuItem("启动测试");
+            var parameterset = new ToolStripMenuItem("参数设置");
+            var shutDown = new ToolStripMenuItem("停止测试");
             var clearfault = new ToolStripMenuItem("清除故障");
             var lowvoltage = new ToolStripMenuItem("电压低档");
             var gavoltage = new ToolStripMenuItem("电压高档");
             dataselection.Click += ShowSignalSelector;
+            poweron.Click += PoweronAsync;
+            parameterset.Click += ParameterSet;
+            shutDown.Click += ShutDown;
             clearfault.Click += Clearfault;
             lowvoltage.Click += Wvoltage;
             gavoltage.Click += Gavoltage;
-            contextMenu.Items.AddRange(new[] { dataselection, clearfault });
+            contextMenu.Items.AddRange(new[] { dataselection, poweron, parameterset, shutDown, clearfault });
             gridControl.ContextMenuStrip = contextMenu;
 
             this.Controls.Add(groupControl);
@@ -869,6 +874,85 @@ namespace ChargeDebug.Form
                         Unit = signal.Unit
                     });
                 }
+            }
+        }
+
+        private async void PoweronAsync(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 检查设备状态,待机、停机过程情况下才能启动
+                if ((_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x00) ||
+                    (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x03))
+                {
+                    XtraMessageBox.Show("设备状态异常，禁止启动");
+                    return;
+                }
+
+                // 显示启动配置对话框
+                using (var configForm = new StartConfiguration(_title))
+                {
+                    if (configForm.ShowDialog() == DialogResult.OK)
+                    {
+                        // 获取用户设置的配置数据
+                        ConfigurationData configData = configForm.Configuration;
+
+                        //开始启动
+                        bool run = await _startupManager.StartDeviceAsync(configData);
+                        if (!run)
+                        {
+                            XtraMessageBox.Show($"设备启动失败!");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"设备启动失败:{ex.Message}");
+            }
+        }
+
+        private void ParameterSet(object? sender, EventArgs e)
+        {
+            // 检查设备状态,运行情况下才能设置参数
+            if (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x02)
+            {
+                XtraMessageBox.Show("设备状态异常，禁止设置参数");
+                return;
+            }
+        }
+
+        private async void ShutDown(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 检查设备状态,运行、和启动中情况下才能停机
+                if ((_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x02) ||
+                    (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x01))
+                {
+                    XtraMessageBox.Show("设备状态异常，禁止停机");
+                    return;
+                }
+
+                // 确认对话框
+                if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                // 发送停机指令
+                bool success = await _startupManager.StopDeviceAsync();
+
+                if (!success)
+                {
+                    XtraMessageBox.Show("设备停止失败，请检查设备状态");
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"停机操作失败: {ex.Message}");
+                LogService.Log($"停机操作失败: {ex.Message}");
             }
         }
 

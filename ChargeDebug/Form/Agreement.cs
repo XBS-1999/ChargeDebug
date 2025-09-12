@@ -18,7 +18,6 @@ using System.ComponentModel;
 using ChargeDebug.Service;
 using System.Globalization;
 using DataModel;
-using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 
 namespace ChargeDebug.Form
 {

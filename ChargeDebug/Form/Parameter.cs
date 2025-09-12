@@ -1,5 +1,4 @@
-﻿using Aspose.Pdf.Operators;
-using ChargeDebug.Service;
+﻿using ChargeDebug.Service;
 //using CommunicationProtocols;
 using DataModel;
 using DevExpress.XtraEditors;
@@ -61,11 +60,24 @@ namespace ChargeDebug.Form
         public Parameter(string dbPath, List<EquipmentModel> equipmentList)
         {
             dbcPath = dbPath;
-            parequipmentList = equipmentList;
+            DeviceConfig(equipmentList);
+            //parequipmentList = equipmentList;
             InitializeComponent();
 
             InitializeUI();
             InitializeContextMenu(); // 初始化右键菜单
+        }
+
+        private void DeviceConfig(List<EquipmentModel> equipmentList)
+        {
+            parequipmentList.Clear();
+            foreach (var equipmentLists in equipmentList)
+            {
+                if (equipmentLists.DeviceType == "充放电设备")
+                {
+                    parequipmentList.Add(equipmentLists);
+                }
+            }
         }
 
         // ==================== 新增右键菜单初始化 ====================
@@ -822,6 +834,7 @@ namespace ChargeDebug.Form
                 var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCANID, 500);
 
                 uint formattedCanId = response.can_id & 0x1FFFFFFF;  // 提取标准CAN ID
+
                 // 检查响应有效性
                 if (formattedCanId != receiveCANID)
                 {
@@ -1032,7 +1045,8 @@ namespace ChargeDebug.Form
 
         public void UpdateParameters(List<EquipmentModel> equipmentList)
         {
-            parequipmentList = equipmentList;
+            DeviceConfig(equipmentList);
+            //parequipmentList = equipmentList;
             this.Controls.Clear(); // 清除当前控件
             InitializeUI();       // 重新生成界面
         }

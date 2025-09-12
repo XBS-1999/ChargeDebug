@@ -1,17 +1,8 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
-using DevExpress.XtraCharts.Native;
 using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
-using DevExpress.XtraLayout;
-using DevExpress.XtraLayout.Utils;
-using DevExpress.XtraMap.ItemEditor;
-using DevExpress.XtraRichEdit.API.Layout;
-using DevExpress.XtraTreeList;
-using System;
 using System.Data.SQLite;
-using System.Drawing;
-using System.Windows.Forms;
 
 namespace ChargeDebug.Form
 {
@@ -27,6 +18,7 @@ namespace ChargeDebug.Form
         private TextEdit readtime;
         private TextEdit ratingVoltagecurrent;
         private TextEdit calibrationnumber;
+        private TextEdit calibrationaccuracy;
 
         private LabelControl labeldevicename;
         private LabelControl labelsignalname;
@@ -34,6 +26,7 @@ namespace ChargeDebug.Form
         private LabelControl labelreadtime;
         private LabelControl labelratingVoltagecurrent;
         private LabelControl labelcalibrationnumber;
+        private LabelControl labelcalibrationaccuracy;
 
         private SimpleButton btnOK;
         private SimpleButton btnCancel;
@@ -87,19 +80,22 @@ namespace ChargeDebug.Form
             labelcalibrationnumber = new LabelControl { Text = "校准点个数:", Location = new Point(370, 102) };
             calibrationnumber = new TextEdit { Location = new Point(510, 100), Width = 120 };
 
+            labelcalibrationaccuracy = new LabelControl { Text = "校准精度范围:", Location = new Point(50, 142) };
+            calibrationaccuracy = new TextEdit { Location = new Point(210, 140), Width = 120 };
+
             // 添加确定按钮
             btnOK = new SimpleButton
             {
                 Text = "确定",
                 DialogResult = DialogResult.None,
-                Location = new Point(200, ratingVoltagecurrent.Bottom + 30),
+                Location = new Point(200, calibrationaccuracy.Bottom + 30),
                 Size = new Size(80, 30)
             };
             btnCancel = new SimpleButton
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(400, ratingVoltagecurrent.Bottom + 30),
+                Location = new Point(400, calibrationaccuracy.Bottom + 30),
                 Size = new Size(80, 30)
             };
 
@@ -116,6 +112,7 @@ namespace ChargeDebug.Form
                 labelreadtime, readtime,
                 labelratingVoltagecurrent, ratingVoltagecurrent,
                 labelcalibrationnumber, calibrationnumber,
+                labelcalibrationaccuracy, calibrationaccuracy,
                 btnOK, btnCancel
             });
         }
@@ -254,6 +251,22 @@ namespace ChargeDebug.Form
                 return;
             }
 
+            // 验证校准精度格式
+            if (string.IsNullOrEmpty(calibrationaccuracy.Text))
+            {
+                XtraMessageBox.Show("校准精度不能为空!");
+                calibrationaccuracy.Focus();
+                return;
+            }
+
+            // 验证格式是否为数字后跟百分号
+            if (!System.Text.RegularExpressions.Regex.IsMatch(calibrationaccuracy.Text, @"^\d+(\.\d+)?%$"))
+            {
+                XtraMessageBox.Show("校准精度格式不正确，应为数字后跟百分号，例如: 0.05%");
+                calibrationaccuracy.Focus();
+                return;
+            }
+
             // 保存数据
             SaveSignalData();
         }
@@ -280,6 +293,7 @@ namespace ChargeDebug.Form
                         readtime.Text = signal.ReadTime.ToString();
                         ratingVoltagecurrent.Text = signal.RatingVoltageCurrent.ToString();
                         calibrationnumber.Text = signal.CalibrationNumber.ToString();
+                        calibrationaccuracy.Text = signal.CalibrationAccuracy;
                     }
                 }
             }
@@ -329,7 +343,8 @@ namespace ChargeDebug.Form
                         SignalType = signaltype.Text,
                         ReadTime = Convert.ToInt32(readtime.Text),
                         RatingVoltageCurrent = Convert.ToInt32(ratingVoltagecurrent.Text),
-                        CalibrationNumber = Convert.ToInt32(calibrationnumber.Text)
+                        CalibrationNumber = Convert.ToInt32(calibrationnumber.Text),
+                        CalibrationAccuracy = calibrationaccuracy.Text
                     };
 
                     if (signalId.HasValue)

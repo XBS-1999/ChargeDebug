@@ -1,17 +1,7 @@
-﻿using Aspose.Pdf.Devices;
-using DevExpress.Pdf.Native.BouncyCastle.Asn1.X509;
-using DevExpress.XtraEditors;
-using DevExpress.XtraRichEdit.Model;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+﻿using DevExpress.XtraEditors;
 using System.Data;
-using System.Drawing;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace ChargeDebug.Form
 {

@@ -11,12 +11,10 @@ using DataModel;
 using Log;
 using CommunicationProtocols;
 using DevExpress.XtraTreeList.Nodes;
-using Aspose.Pdf.Operators;
-using System.Text;
-using DevExpress.XtraCharts.Native;
-using DbcParserLib.Model;
 using DevExpress.DataProcessing;
-using DevExpress.Charts.Native;
+using System.IO;
+using ClosedXML.Excel;
+using System.Data;
 
 namespace ChargeDebug.Form
 {
@@ -47,6 +45,11 @@ namespace ChargeDebug.Form
 
         // 进度条控件
         private ProgressBarControl progressBar;
+
+        // 取消校准相关字段
+        private CancellationTokenSource _cancellationTokenSource;
+        private bool _calibrationCancellationRequested = false;
+        private ProgressStage currentStage;
 
         #endregion
 
@@ -116,6 +119,7 @@ namespace ChargeDebug.Form
                             calibrationsignal.ReadTime,
                             calibrationsignal.RatingVoltageCurrent,
                             calibrationsignal.CalibrationNumber,
+                            calibrationsignal.CalibrationAccuracy,
                             calibrationsignal.ScaleFactor,
                             calibrationsignal.ZeroFactor,
                             "", // 设备电压采样值
@@ -315,16 +319,28 @@ namespace ChargeDebug.Form
         {
             try
             {
+                // 重置进度条和标签
+                ResetProgress();
+
+                // 初始化取消令牌
+                _cancellationTokenSource = new CancellationTokenSource();
+                var cancellationToken = _cancellationTokenSource.Token;
+                _calibrationCancellationRequested = false;
+
                 // 禁用按钮，防止重复点击
                 btnVoltageCalibration.Enabled = false;
                 btnStopCalibration.Enabled = true;
 
                 // 执行电压校准
-                bool success = await ExecuteVoltageCalibration();
+                bool success = await ExecuteVoltageCalibration(cancellationToken);
 
                 if (success)
                 {
                     XtraMessageBox.Show("电压校准完成!");
+                }
+                else if (_calibrationCancellationRequested)
+                {
+                    XtraMessageBox.Show("电压校准已取消!");
                 }
                 else
                 {
@@ -340,6 +356,10 @@ namespace ChargeDebug.Form
                 // 重新启用按钮
                 btnVoltageCalibration.Enabled = true;
                 btnStopCalibration.Enabled = false;
+
+                // 清理取消令牌
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
             }
         }
 
@@ -350,18 +370,13 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 发送停止校准命令
-                byte[] calibrationCommand = new byte[] { 0x63, 0x10, 0x00, 0x02, 0x00, 0x01, 0x02, 0x00, 0x00 };
-                bool sendSuccess = RS485Manager.Instance.SendData("COM3", calibrationCommand);
+                // 请求取消校准操作
+                RequestCalibrationCancellation();
 
-                if (sendSuccess)
-                {
-                    XtraMessageBox.Show("已发送停止校准命令!");
-                }
-                else
-                {
-                    XtraMessageBox.Show("发送停止校准命令失败!");
-                }
+                // 更新UI状态
+                UpdateUIForCancellation();
+
+                LogService.Log("用户请求停止校准操作");
             }
             catch (Exception ex)
             {
@@ -370,9 +385,9 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 充电电流校准按钮点击事件
+        /// 电流校准按钮点击事件
         /// </summary>
-        private void BtnChargingCurrentCalibration_Click(object? sender, EventArgs e)
+        private void BtnCurrentCalibration_Click(object? sender, EventArgs e)
         {
             try
             {
@@ -386,30 +401,34 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 放电电流校准按钮点击事件
-        /// </summary>
-        private void BtnDischargingCurrentCalibration_Click(object? sender, EventArgs e)
-        {
-            try
-            {
-                // 实现放电电流校准逻辑
-                XtraMessageBox.Show("放电电流校准功能尚未实现");
-            }
-            catch (Exception ex)
-            {
-                XtraMessageBox.Show($"放电电流校准失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// 导出数据按钮点击事件
         /// </summary>
         private void BtnExportData_Click(object? sender, EventArgs e)
         {
             try
             {
-                // 实现数据导出逻辑
-                XtraMessageBox.Show("数据导出功能尚未实现");
+                // 创建保存文件对话框
+                using (SaveFileDialog saveFileDialog = new SaveFileDialog())
+                {
+                    saveFileDialog.Filter = "Excel 文件|*.xlsx|CSV 文件|*.csv";
+                    saveFileDialog.Title = "导出校准数据";
+                    saveFileDialog.FileName = $"校准数据_{DateTime.Now:yyyyMMdd_HHmmss}";
+
+                    if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        // 根据文件类型选择导出方式
+                        if (Path.GetExtension(saveFileDialog.FileName).ToLower() == ".xlsx")
+                        {
+                            ExportToExcel(saveFileDialog.FileName);
+                        }
+                        else
+                        {
+                            //ExportToCsv(saveFileDialog.FileName);
+                        }
+
+                        XtraMessageBox.Show("数据导出成功!");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -522,8 +541,8 @@ namespace ChargeDebug.Form
                         string readtime = node.GetValue("ReadTime")?.ToString() ?? "";
                         string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
                         string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString() ?? "";
-                        //string debugsignal1 = signalName + "比例系数";
-                        //string debugsignal2 = signalName + "零点系数";
+                        string debugsignal1 = signalName + "比例系数";
+                        string debugsignal2 = signalName + "零点系数";
 
                         if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName))
                         {
@@ -560,6 +579,48 @@ namespace ChargeDebug.Form
 
                                         signalInfos.Add(signalInfo);
                                         break;
+                                    }
+                                }
+
+                                foreach (var message in messages)
+                                {
+                                    // 根据MessageID和信号名称查询信号信息
+                                    var debugsignalInfo1 = SQLite_Service.GetSignalByMessageAndSignalName(conn, message.MessageID, debugsignal1);
+                                    var debugsignalInfo2 = SQLite_Service.GetSignalByMessageAndSignalName(conn, message.MessageID, debugsignal2);
+
+                                    if (debugsignalInfo1 != null)
+                                    {
+                                        // 设置CANID
+                                        if (debugsignalInfo1.CANID.Contains("AX"))
+                                        {
+                                            int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                            debugsignalInfo1.CANID = debugsignalInfo1.CANID?.Replace("AX", "A" + (acnum - 1));
+                                        }
+                                        else if (debugsignalInfo1.CANID.Contains("2X"))
+                                        {
+                                            int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                            debugsignalInfo1.CANID = debugsignalInfo1.CANID?.Replace("2X", "2" + (dcnum - 1));
+                                        }
+
+                                        signalInfos.Add(debugsignalInfo1);
+
+                                        if (debugsignalInfo2 != null)
+                                        {
+                                            // 设置CANID
+                                            if (debugsignalInfo2.CANID.Contains("AX"))
+                                            {
+                                                int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                                debugsignalInfo2.CANID = debugsignalInfo2.CANID?.Replace("AX", "A" + (acnum - 1));
+                                            }
+                                            else if (debugsignalInfo2.CANID.Contains("2X"))
+                                            {
+                                                int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                                debugsignalInfo2.CANID = debugsignalInfo2.CANID?.Replace("2X", "2" + (dcnum - 1));
+                                            }
+
+                                            signalInfos.Add(debugsignalInfo2);
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -858,7 +919,13 @@ namespace ChargeDebug.Form
                     // 获取额定电压值
                     string ratingVoltageStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
                     if (!double.TryParse(ratingVoltageStr, out double ratingVoltage) || ratingVoltage <= 0)
-                        continue;
+                        continue; 
+                    
+                    // 获取精度范围
+                    //string precisionRangeStr = node.GetValue("PrecisionRange")?.ToString() ?? "";
+                    //if (!double.TryParse(precisionRangeStr, out double precisionRange) || ratingVoltage <= 0)
+                    //    continue;
+
 
                     // 获取稳定读取时间
                     string readTimeStr = node.GetValue("ReadTime")?.ToString() ?? "";
@@ -887,6 +954,8 @@ namespace ChargeDebug.Form
                             SignalInfo = signalInfo,
                             DeviceName = deviceName,
                             SignalName = signalName
+                            //RatedVoltage = ratingVoltageStr,
+                            //PrecisionRange = precisionRangeStr
                         });
                     }
 
@@ -911,10 +980,17 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 执行完整的电压校准流程
         /// </summary>
-        public async Task<bool> ExecuteVoltageCalibration()
+        public async Task<bool> ExecuteVoltageCalibration(CancellationToken cancellationToken)
         {
+            EquipmentModel voltageSource = null;
+            EquipmentModel voltmeter = null;
+
             try
             {
+                // 在关键位置添加取消检查
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(0, "开始初始化设备:");
+
                 // 1. 获取选中的设备
                 string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
                 string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
@@ -925,13 +1001,16 @@ namespace ChargeDebug.Form
                 }
 
                 // 2. 从设备列表中查找设备信息
-                var voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
-                var voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
+                voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
+                voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
                 if (voltageSource == null || voltmeter == null)
                 {
                     XtraMessageBox.Show("未找到选定的设备配置信息!");
                     return false;
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.InitializeDevice, "开始加载协议:");
 
                 // 3. 加载校准设备指令协议
                 var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
@@ -951,6 +1030,9 @@ namespace ChargeDebug.Form
                 // 5.加载调试协议
                 //debugProtocols = await LoadDebugProtocolsAsync();
 
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.LoadProtocol, "开始启动设备:");
+
                 // 5. 根据设备通讯类型启动设备
                 bool voltageSourceStarted = await StartEquipment(voltageSource);
                 bool voltmeterStarted = await StartEquipment(voltmeter);
@@ -960,6 +1042,9 @@ namespace ChargeDebug.Form
                     return false;
                 }
                 LogService.Log("所有校准设备启动成功，开始电压校准流程!");
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.StartingEquipment, "开始设置参数:");
 
                 // 6. 设置设备模式
                 LogService.Log("设置电压源为程控模式...");
@@ -988,8 +1073,14 @@ namespace ChargeDebug.Form
                     return false;
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.SetParameters, "开始获取校准点:");
+
                 // 9. 获取校准点信息
                 var calibrationPoints = await GetCalibrationPoints(treeSignalProtocols);
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.HandlePoint, "开始校准电压:");
 
                 // 10. 遍历每个校准点进行校准
                 bool calibrationSuccess = await ProcessCalibrationPoints(
@@ -999,28 +1090,85 @@ namespace ChargeDebug.Form
                     voltageSourceProtocols,
                     voltmeterProtocols,
                     treeSignalProtocols,
-                    debugSignals);
+                    debugSignals,
+                    cancellationToken);
 
-                // 11. 完成校准后关闭输出
-                LogService.Log("校准完成，关闭输出...");
-                await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceProtocols, 0x00);
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.BeforeCalibration, "开始验证电压:");
 
-                if (calibrationSuccess)
-                {
-                    //XtraMessageBox.Show("电压校准完成!");
-                    return true;
-                }
-                else
-                {
-                    //XtraMessageBox.Show("电压校准过程中出现错误，请查看日志!");
-                    return false;
-                }
+                // 11. 进行校准后验证
+                bool verificationSuccess = await PerformPostCalibrationVerification(
+                    calibrationPoints,
+                    voltageSource,
+                    voltmeter,
+                    voltageSourceProtocols,
+                    voltmeterProtocols,
+                    treeSignalProtocols,
+                    debugSignals,
+                    cancellationToken);
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.AfterCalibration, "开始断开校准仪器:");
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                LogService.Log("校准操作已被用户取消");
+                return false;
             }
             catch (Exception ex)
             {
                 LogService.Log($"电压校准失败: {ex.Message}");
                 XtraMessageBox.Show($"电压校准失败: {ex.Message}");
                 return false;
+            }
+            finally
+            {
+                // 无论校准成功与否，都执行关闭操作
+                await SafeShutdownEquipment(voltageSource, voltmeter);
+
+                if (_calibrationCancellationRequested)
+                {
+                    UpdateUIForCancellation();
+                }
+                else
+                {
+                    UpdateProgress(ProgressStage.Completed, "电压校准完成!");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 安全关闭设备输出并断开连接
+        /// </summary>
+        private async Task SafeShutdownEquipment(EquipmentModel voltageSource, EquipmentModel voltmeter)
+        {
+            try
+            {
+                // 关闭电压源输出
+                if (voltageSource != null)
+                {
+                    await CloseVoltageSourceOutput(voltageSource);
+                }
+
+                // 断开设备连接
+                if (voltageSource != null)
+                {
+                    await DisconnectEquipment(voltageSource);
+                }
+
+                if (voltmeter != null)
+                {
+                    await DisconnectEquipment(voltmeter);
+                }
+
+                LogService.Log("设备已安全关闭并断开连接");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"关闭设备时发生错误: {ex.Message}");
+                // 不抛出异常，确保主流程不受影响
             }
         }
 
@@ -1034,16 +1182,20 @@ namespace ChargeDebug.Form
             List<ModbusSignal> voltageSourceSignals,
             List<ModbusSignal> voltmeterSignals,
             List<SignalInfo> treeSignals,
-            Dictionary<string, List<SignalInfo>> debugSignals)
+            Dictionary<string, List<SignalInfo>> debugSignals,
+            CancellationToken cancellationToken)
         {
             try
             {
                 LogService.Log("开始遍历所有校准点进行校准...");
+                // 计算总点数
                 int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
-                int currentPoint = 0;
+                int globalPointIndex = 0; // 全局点数索引
 
                 foreach (var signalKey in calibrationPoints.Keys)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var points = calibrationPoints[signalKey];
                     var firstPoint = points.FirstOrDefault();
 
@@ -1084,12 +1236,13 @@ namespace ChargeDebug.Form
 
                     foreach (var point in points)
                     {
-                        currentPoint++;
-                        UpdateProgressBar(currentPoint, totalPoints);
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        globalPointIndex++; // 全局点数增加
 
                         try
                         {
-                            LogService.Log($"设置校准点 {currentPoint}/{totalPoints}: {point.Voltage}V");
+                            LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
 
                             // 设置电压源输出到当前校准点电压
                             bool voltageSet = await SendEquipmentCommand(
@@ -1106,7 +1259,7 @@ namespace ChargeDebug.Form
 
                             // 等待电压稳定
                             LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
-                            await Task.Delay(point.ReadTimeMs);
+                            await Task.Delay(point.ReadTimeMs, cancellationToken);
 
                             var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
                                 voltmeter,
@@ -1123,12 +1276,18 @@ namespace ChargeDebug.Form
 
                             // 为当前校准点创建子节点并更新值
                             UpdateTreeNodeValue(firstPoint.DeviceName, firstPoint.SignalName,
-                                actualVoltage, deviceVoltage, currentPoint);
+                                actualVoltage, deviceVoltage, globalPointIndex);
                         }
                         catch (Exception ex)
                         {
                             LogService.Log($"校准点 {point.Voltage}V 处理失败: {ex.Message}");
                         }
+
+                        // 更新进度 - 使用全局点数计算进度
+                        int progress = (int)((double)globalPointIndex / totalPoints * 100);
+                        UpdateProgress(ProgressStage.HandlePoint,
+                                      $"处理校准点 {globalPointIndex}/{totalPoints}",
+                                      progress);
                     }
 
                     //关闭输出0.0
@@ -1145,12 +1304,21 @@ namespace ChargeDebug.Form
                         {
                             // 计算比例系数(k)和截距(b)
                             var (scaleFactor, zeroFactor) = CalculateCalibrationFactors(measuredValues, actualValues);
+                            int scalePlaces = CANManager.Instance.GetNumberOfDecimalPlaces(scaleFactorSignal.Factor);
+                            int zeroPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(zeroFactorSignal.Factor);
+                            double newScaleFactor = Math.Round(scaleFactor * originalScaleFactor, scalePlaces);
+                            double newZeroFactor = Math.Round(zeroFactor + originalZeroFactor, zeroPlaces);
 
-                            LogService.Log($"计算完成 - 比例系数: {scaleFactor}, 零点系数: {zeroFactor}");
+                            LogService.Log($"计算完成 - 比例系数: {newScaleFactor}, 零点系数: {newZeroFactor}");
 
-                            // 更新数据库和UI中的校准系数
+                            // 更新数据库的校准系数
                             //await UpdateCalibrationFactors(firstPoint.DeviceName, firstPoint.SignalName,
-                            //    scaleFactor, zeroFactor);
+                            //    newScaleFactor, newZeroFactor);
+
+                            // 更新UI页面的校准系数
+                            // 更新UI页面的校准系数
+                            UpdateTreeNodeCalibrationFactors(firstPoint.DeviceName, firstPoint.SignalName,
+                                newScaleFactor, newZeroFactor);
 
                             // 将新的校准系数写入设备
                             if (scaleFactorSignal != null && zeroFactorSignal != null)
@@ -1158,7 +1326,7 @@ namespace ChargeDebug.Form
                                 bool writeSuccess = await WriteCalibrationFactors(
                                     firstPoint.DeviceName,
                                     scaleFactorSignal, zeroFactorSignal,
-                                    scaleFactor, zeroFactor);
+                                    newScaleFactor, newZeroFactor);
 
                                 if (writeSuccess)
                                 {
@@ -1171,14 +1339,14 @@ namespace ChargeDebug.Form
                             }
 
                             // 验证校准结果
-                            bool calibrationValid = await VerifyCalibration(
-                                firstPoint.DeviceName, firstPoint.SignalInfo,
-                                scaleFactor, zeroFactor, voltageSource, voltmeter,
-                                voltageSourceSignals, voltmeterSignals, treeSignals);
+                            //bool calibrationValid = await VerifyCalibration(
+                            //    firstPoint.DeviceName, firstPoint.SignalInfo,
+                            //    scaleFactor, zeroFactor, voltageSource, voltmeter,
+                            //    voltageSourceSignals, voltmeterSignals, treeSignals);
 
-                            string resultText = calibrationValid ? "成功" : "失败";
+                            //string resultText = calibrationValid ? "成功" : "失败";
 
-                            LogService.Log($"校准验证: {resultText}");
+                            //LogService.Log($"校准验证: {resultText}");
                         }
                         catch (Exception ex)
                         {
@@ -1191,7 +1359,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 短暂暂停，确保设备稳定
-                    await Task.Delay(3000);
+                    await Task.Delay(3000, cancellationToken);
                 }
 
                 return true;
@@ -1199,6 +1367,125 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 LogService.Log($"处理校准点时发生错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 执行校准后验证
+        /// </summary>
+        private async Task<bool> PerformPostCalibrationVerification(
+            Dictionary<string, List<CalibrationPoint>> calibrationPoints,
+            EquipmentModel voltageSource,
+            EquipmentModel voltmeter,
+            List<ModbusSignal> voltageSourceSignals,
+            List<ModbusSignal> voltmeterSignals,
+            List<SignalInfo> treeSignals,
+            Dictionary<string, List<SignalInfo>> debugSignals,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                LogService.Log("开始校准后验证...");
+
+                int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
+                int globalPointIndex = 0;
+
+                foreach (var signalKey in calibrationPoints.Keys)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var points = calibrationPoints[signalKey];
+                    var firstPoint = points.FirstOrDefault();
+
+                    if (firstPoint == null)
+                        continue;
+
+                    LogService.Log($"开始验证信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个校准点");
+
+                    // 获取额定电压和精度范围
+                    var (ratingVoltage, precisionRange) = GetRatingVoltageAndPrecision(
+                        firstPoint.DeviceName, firstPoint.SignalName);
+
+                    foreach (var point in points)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        globalPointIndex++;
+
+                        try
+                        {
+                            LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
+
+                            // 设置电压源输出到当前校准点电压
+                            bool voltageSet = await SendEquipmentCommand(
+                                CommandType.SetVoltage,
+                                voltageSource,
+                                voltageSourceSignals,
+                                point.Voltage);
+
+                            if (!voltageSet)
+                            {
+                                LogService.Log($"设置电压 {point.Voltage}V 失败，跳过此校准点");
+                                continue;
+                            }
+
+                            // 等待电压稳定
+                            LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
+                            await Task.Delay(point.ReadTimeMs, cancellationToken);
+
+                            var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
+                                voltmeter,
+                                voltmeterSignals,
+                                firstPoint.DeviceName,
+                                firstPoint.SignalInfo,
+                                treeSignals);
+
+                            LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+
+                            // 计算精度: (采样电压 - 测量电压) / 额定电压
+                            double accuracy = (deviceVoltage - actualVoltage) / ratingVoltage;
+                            double accuracyPercentage = accuracy * 100; // 转换为百分比
+
+                            // 判断是否在精度范围内
+                            bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                            LogService.Log($"校准精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                            // 更新UI：校准后电压采样值、测量值、校准精度、是否合格
+                            UpdateTreeNodePostCalibrationValues(
+                                firstPoint.DeviceName,
+                                firstPoint.SignalName,
+                                globalPointIndex,
+                                deviceVoltage,
+                                actualVoltage,
+                                accuracyPercentage,
+                                withinPrecision);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"校准点 {point.Voltage}V 处理失败: {ex.Message}");
+                        }
+
+                        // 更新进度 - 使用全局点数计算进度
+                        int progress = (int)((double)globalPointIndex / totalPoints * 100);
+                        UpdateProgress(ProgressStage.BeforeCalibration,
+                                      $"验证校准点 {globalPointIndex}/{totalPoints}",
+                                      progress);
+                    }
+                }
+
+                // 总体验证结果
+                //bool overallSuccess = verificationResults.All(r =>
+                //    r.Value.Count > 0 && r.Value.Average(a => Math.Abs(a.Accuracy)) <= 1.0);
+
+                //LogService.Log($"校准后验证完成，总体结果: {(overallSuccess ? "成功" : "失败")}");
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"校准后验证失败: {ex.Message}");
                 return false;
             }
         }
@@ -1344,7 +1631,7 @@ namespace ChargeDebug.Form
 
 
                 // 接收指定CAN ID的帧
-                var frame = await CANManager.Instance.ReceiveFrameAsync(channelKey, canId, 100);
+                var frame = await CANManager.Instance.ReceiveFrameAsync(channelKey, canId, 2000);
 
                 if (frame.IsEmpty())
                 {
@@ -1408,7 +1695,506 @@ namespace ChargeDebug.Form
 
         #endregion
 
+        #region 新增进度管理方法
+
+        /// <summary>
+        /// 更新进度显示
+        /// </summary>
+        /// <param name="stage">当前进度阶段</param>
+        /// <param name="message">进度描述信息</param>
+        /// <param name="subProgress">子进度百分比(0-100)</param>
+        private void UpdateProgress(ProgressStage stage, string message = null, int subProgress = 0)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action<ProgressStage, string, int>(UpdateProgress), stage, message, subProgress);
+                return;
+            }
+
+            currentStage = stage;
+
+            // 计算基础进度和下一阶段进度
+            int baseProgress = (int)stage;
+            int nextStageProgress = GetNextStageProgress();
+
+            // 计算子进度在当前阶段中的贡献
+            int stageRange = nextStageProgress - baseProgress;
+            int subProgressContribution = (int)(stageRange * subProgress / 100.0);
+
+            // 总进度 = 基础进度 + 子进度贡献
+            int totalProgress = baseProgress + subProgressContribution;
+
+            // 确保进度不会减少（防止往回跑）
+            if (totalProgress < progressBar.Position)
+            {
+                totalProgress = progressBar.Position;
+            }
+
+            progressBar.Position = totalProgress;
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                progressLabel.Text = $"[{totalProgress}%] {message}";
+            }
+
+            progressBar.Update();
+            progressLabel.Update();
+        }
+
+        /// <summary>
+        /// 获取下一阶段的进度值
+        /// </summary>
+        private int GetNextStageProgress()
+        {
+            var stages = Enum.GetValues(typeof(ProgressStage)).Cast<ProgressStage>().ToList();
+            int currentIndex = stages.IndexOf(currentStage);
+
+            if (currentIndex < stages.Count - 1)
+            {
+                return (int)stages[currentIndex + 1];
+            }
+
+            return 100;
+        }
+
+        #endregion
+
         #region 辅助方法实现
+
+        /// <summary>
+        /// 导出数据到Excel文件
+        /// </summary>
+        /// <param name="filePath">文件路径</param>
+        private void ExportToExcel(string filePath)
+        {
+            try
+            {
+                using (var workbook = new XLWorkbook())
+                {
+                    // 获取所有树节点
+                    var channelNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+
+                    var worksheet = workbook.Worksheets.Add($"电压电流校准数据（电子档）");
+
+                    // 设置整个工作表的默认字体为宋体，11号，内容居中，格式常规
+                    worksheet.Style.Font.FontName = "宋体";
+                    worksheet.Style.Font.FontSize = 11;
+                    worksheet.RowHeight = 20;
+                    worksheet.ColumnWidth = 14;
+                    worksheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    worksheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                    worksheet.Style.NumberFormat.Format = "General"; // 设置格式为常规
+
+                    // 设置标题
+                    worksheet.Cell(1, 1).Value = $"蓄电池充放电检测仪--附件：电压电流校准数据";
+                    worksheet.Row(1).Height = 40;
+                    worksheet.Row(1).Style.Font.FontSize = 20;
+                    worksheet.Range("A1:F1").Merge(); // 合并标题行
+                    worksheet.Row(1).Style.Font.Bold = true;
+
+                    int currentRow = 2; // 当前行指针
+                    int count = 0;
+                    foreach (var channelGroup in channelNodes)
+                    {
+                        count++;
+                        // 获取信号信息 - 从第一个节点获取设备名称和信号名称
+                        string channel = channelGroup.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        string signalName = channelGroup.GetValue("SignalName")?.ToString() ?? "";
+                        string ratingVoltage = channelGroup.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                        string scalefactor = channelGroup.GetValue("ScaleFactor")?.ToString() ?? "";
+                        string zerofactor = channelGroup.GetValue("ZeroFactor")?.ToString() ?? "";
+
+                        // 通道标题
+                        worksheet.Cell(currentRow, 1).Value = $"{channel}{signalName}";
+                        worksheet.Range(currentRow, 1, currentRow, 4).Merge(); // 合并通道标题
+
+                        worksheet.Cell(currentRow, 5).Value = "额定电压";
+                        worksheet.Cell(currentRow, 6).Value = "比例零点系数";
+                        worksheet.Column(6).Width = 25;
+
+                        // 子标题
+                        worksheet.Cell(currentRow + 1, 1).Value = "校准前";
+                        worksheet.Range(currentRow + 1, 1, currentRow + 1, 2).Merge(); // 合并校准前
+
+                        worksheet.Cell(currentRow + 1, 3).Value = "校准后";
+                        worksheet.Range(currentRow + 1, 3, currentRow + 1, 4).Merge(); // 合并校准后
+
+                        worksheet.Cell(currentRow + 1, 5).Value = ratingVoltage;
+                        //worksheet.Range(currentRow + 1, 5, currentRow + 1, 6).Merge(); // 合并额定电压和测试结果
+
+                        worksheet.Cell(currentRow + 1, 6).Value = $"K:{scalefactor} B:{zerofactor}";
+
+                        // 列标题
+                        worksheet.Cell(currentRow + 2, 1).Value = "设备采样电压";
+                        worksheet.Cell(currentRow + 2, 2).Value = "实际输入电压";
+                        worksheet.Cell(currentRow + 2, 3).Value = "设备采样电压";
+                        worksheet.Cell(currentRow + 2, 4).Value = "实际输入电压";
+                        worksheet.Cell(currentRow + 2, 5).Value = "电压精度";
+                        worksheet.Cell(currentRow + 2, 6).Value = "测试结果";
+
+                        // 设置表头样式
+                        var headerRange = worksheet.Range(currentRow, 1, currentRow + 2, 6);
+                        headerRange.Style.Font.Bold = true;
+
+                        // 获取该通道的所有校准点数据
+                        int dataStartRow = currentRow + 3;
+                        int dataRow = dataStartRow;
+
+                        foreach (TreeListNode node in channelGroup.Nodes)
+                        {
+                            string beforeData = node.GetValue("DeviceVoltageSample")?.ToString() ?? "";
+                            string[] beforeParts = beforeData.Split('/');
+
+                            string afterData = node.GetValue("NewDeviceVoltageSample")?.ToString() ?? "";
+                            string[] afterParts = afterData.Split('/');
+
+                            string accuracy = node.GetValue("CalibrationAccuracy")?.ToString() ?? "";
+                            string result = node.GetValue("CalibrationResult")?.ToString() ?? "";
+
+                            if (beforeParts.Length == 2 && afterParts.Length == 2)
+                            {
+                                worksheet.Cell(dataRow, 1).Value = beforeParts[0];
+                                worksheet.Cell(dataRow, 2).Value = beforeParts[1];
+                                worksheet.Cell(dataRow, 3).Value = afterParts[0];
+                                worksheet.Cell(dataRow, 4).Value = afterParts[1];
+                                worksheet.Cell(dataRow, 5).Value = accuracy;
+                                worksheet.Cell(dataRow, 6).Value = result;
+                                dataRow++;
+                            }
+                        }
+
+                        // 更新当前行指针，增加空行
+                        if (count != channelNodes.Count)
+                        {
+                            currentRow = dataRow + 1;
+                            worksheet.Range(dataRow, 1, dataRow, 6).Merge(); // 合并
+                        }
+                        
+                        // 设置数据区域边框
+                        if (dataRow > 1)
+                        {
+                            var dataRange = worksheet.Range(2, 1, dataRow - 1, 6);
+                            dataRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                            dataRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                        }
+                    }
+
+                    // 保存文件
+                    workbook.SaveAs(filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"导出到Excel失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 重置进度显示
+        /// </summary>
+        private void ResetProgress()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(ResetProgress));
+                return;
+            }
+
+            // 重置进度条
+            progressBar.Position = 0;
+            progressLabel.Text = "准备开始校准...";
+            currentStage = ProgressStage.InitializeDevice;
+
+            // 刷新显示
+            progressBar.Update();
+            progressLabel.Update();
+        }
+
+        /// <summary>
+        /// 请求取消校准操作
+        /// </summary>
+        private void RequestCalibrationCancellation()
+        {
+            // 设置取消标志
+            _calibrationCancellationRequested = true;
+
+            // 取消相关的异步任务
+            _cancellationTokenSource?.Cancel();
+
+            // 停止所有设备输出
+            StopAllEquipmentOutput();
+        }
+
+        /// <summary>
+        /// 停止所有设备输出
+        /// </summary>
+        private void StopAllEquipmentOutput()
+        {
+            try
+            {
+                // 获取当前选中的设备
+                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
+                if (!string.IsNullOrEmpty(voltageSourceName))
+                {
+                    var voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
+                    if (voltageSource != null)
+                    {
+                        // 关闭电压源输出
+                        Task.Run(async () => await CloseVoltageSourceOutput(voltageSource)).Wait();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"停止设备输出时发生错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新UI状态以反映取消操作
+        /// </summary>
+        private void UpdateUIForCancellation()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(UpdateUIForCancellation));
+                return;
+            }
+
+            // 更新按钮状态
+            btnVoltageCalibration.Enabled = true;
+            btnStopCalibration.Enabled = false;
+
+            // 更新进度显示
+            progressBar.Position = 0;
+            progressLabel.Text = "校准已取消";
+
+            //XtraMessageBox.Show("校准操作已成功取消");
+        }
+
+        /// <summary>
+        /// 关闭电压源输出
+        /// </summary>
+        private async Task CloseVoltageSourceOutput(EquipmentModel voltageSource)
+        {
+            try
+            {
+                LogService.Log($"关闭 {voltageSource.DeviceName} 输出...");
+                // 根据设备类型执行不同的关闭操作
+                switch (voltageSource.CanType)
+                {
+                    case "RS485-MODBUS":
+                        // 发送关闭输出命令
+                        if (voltageSourceProtocols.Any())
+                        {
+                            bool outputDisabled = await SendEquipmentCommand(
+                                CommandType.EnableOutput,
+                                voltageSource,
+                                voltageSourceProtocols,
+                                0x00); // 关机
+
+                            if (outputDisabled)
+                            {
+                                LogService.Log($"{voltageSource.DeviceName} 输出已关闭");
+                            }
+                            else
+                            {
+                                LogService.Log($"关闭 {voltageSource.DeviceName} 输出失败");
+                            }
+                        }
+                        break;
+
+                    case "CANET-2E-U":
+                        // CAN设备关闭输出逻辑
+                        // 实现CAN设备关闭输出的具体逻辑
+                        LogService.Log($"CAN设备 {voltageSource.DeviceName} 输出已关闭");
+                        break;
+
+                    case "USB-SCPI":
+                        // USB-SCPI设备关闭输出逻辑
+                        // 实现USB-SCPI设备关闭输出的具体逻辑
+                        LogService.Log($"USB-SCPI设备 {voltageSource.DeviceName} 输出已关闭");
+                        break;
+
+                    default:
+                        LogService.Log($"不支持的设备类型: {voltageSource.CanType}");
+                        break;
+                }
+
+                // 短暂延迟确保设备完全关闭
+                await Task.Delay(500);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"关闭 {voltageSource.DeviceName} 输出时发生错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 断开设备连接
+        /// </summary>
+        private async Task DisconnectEquipment(EquipmentModel equipment)
+        {
+            try
+            {
+                LogService.Log($"断开 {equipment.DeviceName} 连接...");
+
+                // 根据设备类型执行不同的断开连接操作
+                switch (equipment.CanType)
+                {
+                    case "RS485-MODBUS":
+                        // RS485设备通常不需要显式断开连接
+                        // 但可以清理缓冲区等
+                        RS485Manager.Instance.CloseChannel(equipment.ComPort);
+                        LogService.Log($"{equipment.DeviceName} RS485连接已清理");
+                        break;
+
+                    case "CANET-2E-U":
+                        // CAN设备断开连接
+                        //string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+                        //CANManager.Instance.UnregisterChannel(channelKey);
+                        LogService.Log($"{equipment.DeviceName} CAN连接已断开");
+                        break;
+
+                    case "USB-SCPI":
+                        // USB-SCPI设备断开连接
+                        Keysight34465A_Communicator.Instance.Disconnect();
+                        LogService.Log($"{equipment.DeviceName} USB连接已断开");
+                        break;
+
+                    default:
+                        LogService.Log($"不支持的设备类型: {equipment.CanType}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"断开 {equipment.DeviceName} 连接时发生错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新树节点的校准后值
+        /// </summary>
+        private void UpdateTreeNodePostCalibrationValues(
+            string deviceName,
+            string signalName,
+            int pointIndex,
+            double deviceVoltage,
+            double actualVoltage,
+            double accuracy,
+            bool isQualified)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => UpdateTreeNodePostCalibrationValues(
+                    deviceName, signalName, pointIndex, deviceVoltage, actualVoltage, accuracy, isQualified)));
+                return;
+            }
+
+            // 查找匹配的父节点
+            foreach (TreeListNode parentNode in treeList.Nodes)
+            {
+                string nodeDeviceName = parentNode.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = parentNode.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 查找对应的校准点子节点
+                    string childNodeName = $"校准点 {pointIndex}";
+
+                    // 格式化电压值为"采样值/测量值"格式，保留4位小数
+                    string voltageDisplay = $"{deviceVoltage}/{actualVoltage}";
+
+                    if (parentNode.HasChildren)
+                    {
+                        foreach (TreeListNode childNode in parentNode.Nodes)
+                        {
+                            if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
+                            {
+                                // 更新校准后值
+                                childNode.SetValue("NewDeviceVoltageSample", voltageDisplay);
+                                childNode.SetValue("CalibrationAccuracy", $"{Math.Abs(accuracy):F4}%");
+                                childNode.SetValue("CalibrationResult", isQualified ? "合格" : "不合格");
+
+                                // 刷新节点显示
+                                treeList.RefreshNode(childNode);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 从树节点获取额定电压值和精度范围
+        /// </summary>
+        /// <returns>元组包含额定电压和精度范围</returns>
+        private (double ratingVoltage, double precisionRange) GetRatingVoltageAndPrecision(string deviceName, string signalName)
+        {
+            // 在主线程上执行
+            if (this.InvokeRequired)
+            {
+                return ((double, double))this.Invoke(new Func<(double, double)>(() =>
+                    GetRatingVoltageAndPrecision(deviceName, signalName)));
+            }
+
+            // 默认值
+            double ratingVoltage = 1.0;
+            double precisionRange = 1.0; // 默认1%精度
+
+            // 查找匹配的节点
+            foreach (TreeListNode node in treeList.Nodes)
+            {
+                string nodeDeviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = node.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 获取额定电压值
+                    string ratingVoltageStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                    if (double.TryParse(ratingVoltageStr, out ratingVoltage))
+                    {
+                        // 成功解析额定电压
+                    }
+
+                    // 获取精度范围
+                    string precisionRangeStr = node.GetValue("PrecisionRange")?.ToString() ?? "";
+
+                    // 处理可能包含百分号的精度范围字符串
+                    if (!string.IsNullOrEmpty(precisionRangeStr))
+                    {
+                        // 去除百分号并尝试解析
+                        string numericPart = precisionRangeStr.Trim().TrimEnd('%');
+
+                        if (double.TryParse(numericPart, out double parsedPrecision))
+                        {
+                            precisionRange = parsedPrecision;
+                            // 成功解析精度范围
+                            LogService.Log($"成功解析精度范围: {precisionRange}%");
+                        }
+                        else
+                        {
+                            // 解析失败，使用默认值或记录错误
+                            LogService.Log($"无法解析精度范围: {precisionRangeStr}，使用默认值1.0%");
+                            precisionRange = 1.0; // 默认精度范围
+                        }
+                    }
+                    else
+                    {
+                        // 字符串为空，使用默认值
+                        LogService.Log("精度范围为空，使用默认值1.0%");
+                        precisionRange = 1.0; // 默认精度范围
+                    }
+
+                    break;
+                }
+            }
+
+            return (ratingVoltage, precisionRange);
+        }
 
         /// <summary>
         /// 读取设备的校准系数
@@ -1534,7 +2320,7 @@ namespace ChargeDebug.Form
                     scaleFactorSignal.SystemName.Substring(0, 2) : scaleFactorSignal.SystemName;
 
                 // 将功能码转换为字节
-                byte functionByte = Encoding.ASCII.GetBytes(functionCode)[0];
+                byte functionByte = HexStringToByte(functionCode);
                 requestData[0] = functionByte;
 
                 // 将比例系数和零点系数转换为设备原始值
@@ -1549,7 +2335,7 @@ namespace ChargeDebug.Form
                 // 发送请求帧
                 CANManager.Instance.SendCommand(equipment.DeviceIndex, equipment.CanIndex, canId, requestData);
 
-                LogService.Log($"已发送写入校准系数请求: 比例系数={scaleFactor}, 零点系数={zeroFactor}");
+                //LogService.Log($"已发送写入校准系数请求: 比例系数={scaleFactor}, 零点系数={zeroFactor}");
             }
             catch (Exception ex)
             {
@@ -1603,7 +2389,7 @@ namespace ChargeDebug.Form
                     signalInfo.SystemName.Substring(0, 2) : signalInfo.SystemName;
 
                 // 将功能码转换为字节
-                byte functionByte = Encoding.ASCII.GetBytes(functionCode)[0];
+                byte functionByte = HexStringToByte(functionCode);
                 requestData[0] = functionByte;
 
                 // 其余字节为0
@@ -1615,7 +2401,7 @@ namespace ChargeDebug.Form
                 // 发送请求帧
                 CANManager.Instance.SendCommand(equipment.DeviceIndex, equipment.CanIndex, canId, requestData);
 
-                LogService.Log($"已发送读取校准系数请求: 功能码 {functionByte:X2}");
+                //LogService.Log($"已发送读取校准系数请求: 功能码 {functionByte:X2}");
             }
             catch (Exception ex)
             {
@@ -1673,8 +2459,6 @@ namespace ChargeDebug.Form
                 double scaleFactor = ExtractCalibrationValue(response.data, scaleFactorSignal);
                 double zeroFactor = ExtractCalibrationValue(response.data, zeroFactorSignal);
 
-                LogService.Log($"从响应帧中解析出比例系数: {scaleFactor}, 零点系数: {zeroFactor}");
-
                 return (scaleFactor, zeroFactor);
             }
             catch (Exception ex)
@@ -1729,7 +2513,39 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 更新树节点值
+        /// 更新树节点的校准系数
+        /// </summary>
+        private void UpdateTreeNodeCalibrationFactors(string deviceName, string signalName,
+            double scaleFactor, double zeroFactor)
+        {
+            // 在主线程上更新UI
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => UpdateTreeNodeCalibrationFactors(deviceName, signalName, scaleFactor, zeroFactor)));
+                return;
+            }
+
+            // 查找匹配的节点
+            foreach (TreeListNode node in treeList.Nodes)
+            {
+                string nodeDeviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = node.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 更新比例系数和零点系数
+                    node.SetValue("ScaleFactor", scaleFactor.ToString());
+                    node.SetValue("ZeroFactor", zeroFactor.ToString());
+
+                    // 刷新节点显示
+                    treeList.RefreshNode(node);
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 更新创建子节点值
         /// </summary>
         private void UpdateTreeNodeValue(string deviceName, string signalName, 
             double actualVoltage, double deviceVoltage, int calibrationPointIndex)
@@ -1765,16 +2581,19 @@ namespace ChargeDebug.Form
                             }
                         }
                     }
+
+                    // 格式化电压值为"采样值/测量值"格式，保留4位小数
+                    string voltageDisplay = $"{deviceVoltage}/{actualVoltage}";
+
                     // 如果不存在，创建新的子节点
                     if (calibrationNode == null)
                     {
                         calibrationNode = parentNode.Nodes.Add(new object[]
                         {
-                            "", // 设备名称列显示校准点名称
-                            "", "", "", "", "", "", "",
-                            deviceVoltage.ToString(""), // 设备电压采样值
-                            actualVoltage.ToString(""), // 实际电压测量值
-                            "", "", "", ""
+                            childNodeName, // 设备名称列显示校准点名称
+                            "", "", "", "", "", "", "","",
+                            voltageDisplay, // 设备电压采样值/实际电压测量值
+                            "", "", "", "", ""
                         });
 
                         // 设置子节点的Tag为校准点信息，方便后续查找
@@ -1786,8 +2605,7 @@ namespace ChargeDebug.Form
                     else
                     {
                         // 如果已存在，更新值
-                        calibrationNode.SetValue("DeviceVoltageSample", deviceVoltage.ToString("F3"));
-                        calibrationNode.SetValue("ActualVoltageMeasurement", actualVoltage.ToString("F3"));
+                        calibrationNode.SetValue("DeviceVoltageSample", voltageDisplay);
                     }
 
                     break;
@@ -1796,95 +2614,134 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 更新进度条
+        /// 更新子节点的校准后值
         /// </summary>
-        private void UpdateProgressBar(int current, int total)
+        private void UpdateTreeNodePostCalibrationValues(
+            string deviceName,
+            string signalName,
+            int pointIndex,
+            double deviceVoltage,
+            double actualVoltage,
+            double calibratedVoltage)
         {
             if (this.InvokeRequired)
             {
-                this.Invoke(new Action(() => UpdateProgressBar(current, total)));
+                this.Invoke(new Action(() => UpdateTreeNodePostCalibrationValues(
+                    deviceName, signalName, pointIndex, deviceVoltage, actualVoltage, calibratedVoltage)));
                 return;
             }
 
-            int percentage = (int)Math.Round((double)current / total * 100);
-            progressBar.Position = percentage;
-            progressBar.Update();
-        }
-
-        /// <summary>
-        /// 更新数据库中的校准系数
-        /// </summary>
-        private async Task UpdateCalibrationFactors(string deviceName, string signalName, double scaleFactor, double zeroFactor)
-        {
-            try
+            // 查找匹配的父节点
+            foreach (TreeListNode parentNode in treeList.Nodes)
             {
-                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                string nodeDeviceName = parentNode.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = parentNode.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
                 {
-                    await conn.OpenAsync();
+                    // 查找对应的校准点子节点
+                    string childNodeName = $"校准点 {pointIndex}";
 
-                    // 更新数据库中的校准系数
-                    string query = "UPDATE CalibrationSignals SET ScaleFactor = @scale, ZeroFactor = @zero " +
-                                  "WHERE DeviceName = @device AND SignalName = @signal";
-
-                    using (var cmd = new SQLiteCommand(query, conn))
+                    if (parentNode.HasChildren)
                     {
-                        cmd.Parameters.AddWithValue("@scale", scaleFactor);
-                        cmd.Parameters.AddWithValue("@zero", zeroFactor);
-                        cmd.Parameters.AddWithValue("@device", deviceName);
-                        cmd.Parameters.AddWithValue("@signal", signalName);
+                        foreach (TreeListNode childNode in parentNode.Nodes)
+                        {
+                            if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
+                            {
+                                // 更新校准后值
+                                childNode.SetValue("NewDeviceVoltageSample", calibratedVoltage.ToString("F4"));
+                                childNode.SetValue("NewActualVoltageMeasurement", actualVoltage.ToString("F4"));
 
-                        await cmd.ExecuteNonQueryAsync();
+                                // 刷新节点显示
+                                treeList.RefreshNode(childNode);
+                                break;
+                            }
+                        }
                     }
+                    break;
                 }
             }
-            catch (Exception ex)
+        }
+
+        /// <summary>
+        /// 更新子节点的校准精度
+        /// </summary>
+        private void UpdateTreeNodeCalibrationAccuracy(
+            string deviceName,
+            string signalName,
+            int pointIndex,
+            double accuracy)
+        {
+            if (this.InvokeRequired)
             {
-                LogService.Log($"更新数据库校准系数失败: {ex.Message}");
+                this.Invoke(new Action(() => UpdateTreeNodeCalibrationAccuracy(
+                    deviceName, signalName, pointIndex, accuracy)));
+                return;
+            }
+
+            // 查找匹配的父节点
+            foreach (TreeListNode parentNode in treeList.Nodes)
+            {
+                string nodeDeviceName = parentNode.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = parentNode.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 查找对应的校准点子节点
+                    string childNodeName = $"校准点 {pointIndex}";
+
+                    if (parentNode.HasChildren)
+                    {
+                        foreach (TreeListNode childNode in parentNode.Nodes)
+                        {
+                            if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
+                            {
+                                // 更新校准精度
+                                childNode.SetValue("CalibrationAccuracy", accuracy.ToString("F2") + "%");
+
+                                // 刷新节点显示
+                                treeList.RefreshNode(childNode);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
             }
         }
 
         /// <summary>
-        /// 验证校准结果
+        /// 更新子节点的校准结果
         /// </summary>
-        private async Task<bool> VerifyCalibration(string deviceName, SignalInfo signalInfo,
-                                                 double scaleFactor, double zeroFactor,
-                                                 EquipmentModel voltageSource, EquipmentModel voltmeter,
-                                                 List<ModbusSignal> voltageSourceSignals,
-                                                 List<ModbusSignal> voltmeterSignals,
-                                                 List<SignalInfo> treeSignals)
+        private void UpdateTreeNodeCalibrationResult(
+            string deviceName,
+            string signalName,
+            bool success,
+            double accuracy)
         {
-            try
+            if (this.InvokeRequired)
             {
-                // 选择一个测试点进行验证 (例如中间值)
-                var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName);
-                if (equipment == null)
-                    return false;
-
-                // 设置一个测试电压
-                double testVoltage = 2.5; // 中间值
-                await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceSignals, testVoltage);
-                await Task.Delay(1000); // 等待稳定
-
-                // 读取实际电压值
-                double actualVoltage = 0.0;
-
-                //// 读取设备采样值
-                double deviceSample = 0.0;
-
-                // 应用校准公式: 校准值 = 采样值 * scaleFactor + zeroFactor
-                double calibratedValue = deviceSample * scaleFactor + zeroFactor;
-
-                // 计算误差
-                double error = Math.Abs(calibratedValue - actualVoltage);
-                double errorPercentage = (error / actualVoltage) * 100;
-
-                // 判断是否通过验证 (例如误差小于1%)
-                return errorPercentage < 1.0;
+                this.Invoke(new Action(() => UpdateTreeNodeCalibrationResult(
+                    deviceName, signalName, success, accuracy)));
+                return;
             }
-            catch (Exception ex)
+
+            // 查找匹配的节点
+            foreach (TreeListNode node in treeList.Nodes)
             {
-                LogService.Log($"验证校准结果失败: {ex.Message}");
-                return false;
+                string nodeDeviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = node.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 更新校准结果
+                    string resultText = success ? $"成功 ({accuracy:F2}%)" : "失败";
+                    node.SetValue("CalibrationResult", resultText);
+
+                    // 刷新节点显示
+                    treeList.RefreshNode(node);
+                    break;
+                }
             }
         }
 
@@ -2061,29 +2918,20 @@ namespace ChargeDebug.Form
             btnVoltageCalibration.Click += BtnVoltageCalibration_Click;
             buttonPanel.Controls.Add(btnVoltageCalibration);
 
-            SimpleButton btnChargingCurrentCalibration = new SimpleButton
+            SimpleButton btnCurrentCalibration = new SimpleButton
             {
-                Text = "开始充电电流校准",
+                Text = "开始电流校准",
                 Size = new Size(140, 30),
                 Location = new Point(btnVoltageCalibration.Right + 10, 10)
             };
-            btnChargingCurrentCalibration.Click += BtnChargingCurrentCalibration_Click;
-            buttonPanel.Controls.Add(btnChargingCurrentCalibration);
-
-            SimpleButton btnDischargingCurrentCalibration = new SimpleButton
-            {
-                Text = "开始放电电流校准",
-                Size = new Size(140, 30),
-                Location = new Point(btnChargingCurrentCalibration.Right + 10, 10)
-            };
-            btnDischargingCurrentCalibration.Click += BtnDischargingCurrentCalibration_Click;
-            buttonPanel.Controls.Add(btnDischargingCurrentCalibration);
+            btnCurrentCalibration.Click += BtnCurrentCalibration_Click;
+            buttonPanel.Controls.Add(btnCurrentCalibration);
 
             btnStopCalibration = new SimpleButton
             {
                 Text = "停止校准",
                 Size = new Size(80, 30),
-                Location = new Point(btnDischargingCurrentCalibration.Right + 10, 10)
+                Location = new Point(btnCurrentCalibration.Right + 10, 10)
             };
             btnStopCalibration.Click += BtnStopCalibration_Click;
             buttonPanel.Controls.Add(btnStopCalibration);
@@ -2118,6 +2966,10 @@ namespace ChargeDebug.Form
             treeList.OptionsSelection.EnableAppearanceFocusedCell = false;
             treeList.OptionsSelection.EnableAppearanceFocusedRow = false;
 
+            // 设置整个 TreeList 所有列标题的字体
+            //treeList.Appearance.HeaderPanel.Font = new Font("Tahoma", 8F, FontStyle.Regular);
+            //treeList.Appearance.HeaderPanel.Options.UseFont = true; // 确保启用自定义字体设置
+
             // 添加列
             TreeListColumn column;
 
@@ -2133,89 +2985,123 @@ namespace ChargeDebug.Form
             column.Caption = "信号名称";
             column.FieldName = "SignalName";
             column.VisibleIndex = 1;
-            column.Width = 120;
+            column.Width = 80;
 
             // 信号类型列
             column = treeList.Columns.Add();
             column.Caption = "信号类型";
             column.FieldName = "SignalType";
             column.VisibleIndex = 2;
-            column.Width = 60;
+            column.Width = 50;
 
             column = treeList.Columns.Add();
-            column.Caption = "稳定读取时间";
+            column.Caption = "稳定读取时间(ms)";
             column.FieldName = "ReadTime";
             column.VisibleIndex = 3;
             column.Width = 100;
 
             // 额定电压/电流
             column = treeList.Columns.Add();
-            column.Caption = "额定电压/电流";
+            column.Caption = "额定电压/电流(V/A)";
             column.FieldName = "RatingVoltageCurrent";
             column.VisibleIndex = 4;
-            column.Width = 100;
+            column.Width = 120;
 
             column = treeList.Columns.Add();
             column.Caption = "校准点个数";
             column.FieldName = "CalibrationNumber";
             column.VisibleIndex = 5;
-            column.Width = 80;
+            column.Width = 60;
+
+            column = treeList.Columns.Add();
+            column.Caption = "精度范围";
+            column.FieldName = "PrecisionRange";
+            column.VisibleIndex = 6;
+            column.Width = 50;
 
             // 比例系数列
             column = treeList.Columns.Add();
             column.Caption = "比例系数";
             column.FieldName = "ScaleFactor";
-            column.VisibleIndex = 6;
-            column.Width = 100;
+            column.VisibleIndex = 7;
+            column.Width = 50;
 
             // 零点系数列
             column = treeList.Columns.Add();
-            column.Caption = "零点系数";
+            column.Caption = "零点系数"; 
             column.FieldName = "ZeroFactor";
-            column.VisibleIndex = 7;
-            column.Width = 100;
-
-            // 设备电压采样值列
-            column = treeList.Columns.Add();
-            column.Caption = "设备电压采样值";
-            column.FieldName = "DeviceVoltageSample";
             column.VisibleIndex = 8;
-            column.Width = 120;
+            column.Width = 50;
 
-            // 实际电压测量值列
+            // 校准前电压采样值列
             column = treeList.Columns.Add();
-            column.Caption = "实际电压测量值";
-            column.FieldName = "ActualVoltageMeasurement";
+            column.Caption = "校准前电压(采样值/测量值)";
+            column.FieldName = "DeviceVoltageSample";
             column.VisibleIndex = 9;
-            column.Width = 120;
+            column.Width = 180;
 
-            // 设备电流采样值列
+            // 校准前电压测量值列
+            //column = treeList.Columns.Add();
+            //column.Caption = "校准前电压";
+            //column.FieldName = "ActualVoltageMeasurement";
+            //column.VisibleIndex = 10;
+            //column.Width = 120;
+
+            // 校准后电压采样值列
             column = treeList.Columns.Add();
-            column.Caption = "设备电流采样值";
-            column.FieldName = "DeviceCurrentSample";
+            column.Caption = "校准后电压(采样值/测量值)";
+            column.FieldName = "NewDeviceVoltageSample";
             column.VisibleIndex = 10;
-            column.Width = 120;
+            column.Width = 180;
 
-            // 实际电流测量值列
+            // 校准后电压测量值列
+            //column = treeList.Columns.Add();
+            //column.Caption = "校准后电压测量值";
+            //column.FieldName = "NewActualVoltageMeasurement";
+            //column.VisibleIndex = 12;
+            //column.Width = 120;
+
+            // 校准前电流采样值列
             column = treeList.Columns.Add();
-            column.Caption = "实际电流测量值";
-            column.FieldName = "ActualCurrentMeasurement";
+            column.Caption = "校准前电流(采样值/测量值)";
+            column.FieldName = "DeviceCurrentSample";
             column.VisibleIndex = 11;
-            column.Width = 120;
+            column.Width = 180;
+
+            // 校准前电流测量值列
+            //column = treeList.Columns.Add();
+            //column.Caption = "校准前电流测量值";
+            //column.FieldName = "ActualCurrentMeasurement";
+            //column.VisibleIndex = 14;
+            //column.Width = 120;
+
+            // 校准后电流采样值列
+            column = treeList.Columns.Add();
+            column.Caption = "校准后电流(采样值/测量值)";
+            column.FieldName = "NewDeviceCurrentSample";
+            column.VisibleIndex = 12;
+            column.Width = 180;
+
+            // 校准后电流测量值列
+            //column = treeList.Columns.Add();
+            //column.Caption = "校准后电流测量值";
+            //column.FieldName = "NewActualCurrentMeasurement";
+            //column.VisibleIndex = 16;
+            //column.Width = 120;
 
             // 校准精度列
             column = treeList.Columns.Add();
             column.Caption = "校准精度";
             column.FieldName = "CalibrationAccuracy";
-            column.VisibleIndex = 12;
-            column.Width = 80;
+            column.VisibleIndex = 13;
+            column.Width = 50;
 
             // 校准结果列
             column = treeList.Columns.Add();
             column.Caption = "校准结果";
             column.FieldName = "CalibrationResult";
-            column.VisibleIndex = 13;
-            column.Width = 80;
+            column.VisibleIndex = 14;
+            column.Width = 50;
 
             // 设置所有列的内容和标题居中显示
             foreach (TreeListColumn col in treeList.Columns)
@@ -2253,23 +3139,29 @@ namespace ChargeDebug.Form
                 BorderStyle = BorderStyles.NoBorder // 隐藏边框
             };
 
-            LabelControl label = new LabelControl
+            // 添加进度标签
+            progressLabel = new LabelControl
             {
-                Text = "校准进度:",
-                AutoSizeMode = LabelAutoSizeMode.None, // 设置为None以便自定义大小
-                Size = new Size(80, 40),
+                Text = "准备开始校准...",
+                AutoSizeMode = LabelAutoSizeMode.None,
+                Size = new Size(180, 40),
                 Location = new Point(0, (progressPanel.Height - 40) / 2), // 计算垂直居中位置
+                //Appearance = { TextOptions = { HAlignment = HorzAlignment.Near } }
             };
+            progressPanel.Controls.Add(progressLabel);
 
             // 添加进度条
             progressBar = new ProgressBarControl
             {
-                Size = new Size(2000, 40),
-                Location = new Point(label.Left + 10, (progressPanel.Height - 40) / 2),
+                Size = new Size(1670, 40),
+                Location = new Point(progressLabel.Right + 20, (progressPanel.Height - 40) / 2),
+                Properties = {
+                    ShowTitle = true,
+                    PercentView = true,
+                    Minimum = 0,
+                    Maximum = 100
+                }
             };
-            progressBar.Properties.ShowTitle = true;
-            progressBar.Properties.PercentView = true;
-            progressPanel.Controls.Add(label);
             progressPanel.Controls.Add(progressBar);
 
             return progressPanel;
@@ -2365,6 +3257,21 @@ namespace ChargeDebug.Form
             SetVoltage,
             EnableOutput
         }
+
+        // 进度阶段枚举
+        private enum ProgressStage
+        {
+            InitializeDevice = 2,      // 初始化设备 (0-2%)
+            LoadProtocol = 4,          // 加载协议   (2-4%)
+            StartingEquipment = 6,     // 启动设备 (4-6%)
+            SetParameters = 8,         // 设置设备参数 (6-8%)
+            HandlePoint = 10,          // 处理校准点 (8-10%)
+            BeforeCalibration = 54,    // 校准前 (10-54%)
+            AfterCalibration = 98,     // 验证校准结果 (54-98%)
+            Completed = 100            // 完成 (100%)
+        }
+
+        private LabelControl progressLabel;
 
         #endregion
     }
