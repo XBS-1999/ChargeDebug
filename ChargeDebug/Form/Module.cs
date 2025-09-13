@@ -11,10 +11,7 @@ using DevExpress.XtraLayout.Utils;
 using Log;
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace ChargeDebug.Form
 {
@@ -41,10 +38,20 @@ namespace ChargeDebug.Form
         private uint _voltageCanId;
         private uint _acRunStatus = 0; // 初始化为正常状态
         private uint _dcRunStatus = 0; // 初始化为正常状态
+        private uint _acRunMode = 0; // 初始化为正常状态
+        private uint _dcRunMode = 0; // 初始化为正常状态
         private uint _acreadFaultCanId; // 读取AC故障指令的CAN ID
         private uint _dcreadFaultCanId; // 读取DC故障指令的CAN ID
         private System.Threading.Timer _readFaultTimer; // 读取故障定时器
         private uint currentStatus;    //设备运行状态
+
+        private DateTime _startTime; // 设备启动时间
+        private DateTime _stepStartTime; // 当前工步开始时间
+        private System.Windows.Forms.Timer _totalTimeTimer; // 累计运行时间计时器
+        private System.Windows.Forms.Timer _stepTimeTimer; // 工步运行时间计时器
+        private Showdata _totalTimeData;
+        private Showdata _stepTimeData;
+        private string _currentStepMode = ""; // 当前工步模式
 
         // 添加销毁状态标志
         private volatile bool _disposed = false;
@@ -79,6 +86,7 @@ namespace ChargeDebug.Form
         // 新增DC状态标签字段
         private LabelControl lblACStatus, lblACMode;
         private LabelControl lblDCStatus, lblDCMode;
+
         // 添加标题字段
         private string _title;
         private static readonly object _canInitLock = new object();
@@ -149,8 +157,11 @@ namespace ChargeDebug.Form
             InitializeUI();
             ProcessSignals(signals);       // 处理信号定义
 
-            // 初始化UI更新定时器
-            _uiUpdateTimer = new System.Threading.Timer(_ => UpdateUIFromCache(), null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
+            _uiUpdateTimer = new System.Threading.Timer(_ =>
+            {
+                UpdateUIFromCache();
+                UpdateTimeDisplay(); // 新增时间更新
+            }, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
 
             // 初始化启动管理器
             _startupManager = new StartupManager(equipment, title);
@@ -297,6 +308,35 @@ namespace ChargeDebug.Form
          */
         private void ProcessSignals(List<SignalInfo> signals)
         {
+            // 添加时间显示项到信号列表
+            allSignals.Add(new Showdata
+            {
+                SystemName = "累计运行时间",
+                Unit = "时:分:秒",
+            });
+
+            allSignals.Add(new Showdata
+            {
+                SystemName = "工步运行时间",
+                Unit = "时:分:秒",
+            });
+
+            signalData.Add(new Showdata
+            {
+                SystemName = "累计运行时间",
+                Unit = "时:分:秒",
+            });
+
+            signalData.Add(new Showdata
+            {
+                SystemName = "工步运行时间",
+                Unit = "时:分:秒",
+            });
+
+            // 保存时间显示项的引用
+            _totalTimeData = signalData.First(s => s.SystemName == "累计运行时间");
+            _stepTimeData = signalData.First(s => s.SystemName == "工步运行时间");
+
             foreach (var signal in signals)
             {
                 // 将十六进制CAN ID转换为整数
@@ -392,6 +432,48 @@ namespace ChargeDebug.Form
             gridControl.DataSource = signalData;
         }
 
+        // 更新时间显示
+        private void UpdateTimeDisplay()
+        {
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+
+            try
+            {
+                // 切换到UI线程更新
+                if (this.InvokeRequired)
+                {
+                    this.BeginInvoke(new Action(UpdateTimeDisplay));
+                    return;
+                }
+
+                // 更新累计运行时间
+                if (_startupManager.IsRunning && _startTime != DateTime.MinValue)
+                {
+                    TimeSpan totalTime = DateTime.Now - _startTime;
+                    _totalTimeData.Value = $"{totalTime.Hours:00}:{totalTime.Minutes:00}:{totalTime.Seconds:00}";
+                }
+                else
+                {
+                    //_totalTimeData.Value = "00:00:00";
+                }
+
+                // 更新工步运行时间
+                if (_startupManager.IsRunning && _stepStartTime != DateTime.MinValue)
+                {
+                    TimeSpan stepTime = DateTime.Now - _stepStartTime;
+                    _stepTimeData.Value = $"{stepTime.Hours:00}:{stepTime.Minutes:00}:{stepTime.Seconds:00}";
+                }
+                else
+                {
+                    //_stepTimeData.Value = "00:00:00";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"更新时间显示错误: {ex.Message}");
+            }
+        }
+
         /*
          * 初始化CAN通信 (使用新版API)
          */
@@ -485,6 +567,13 @@ namespace ChargeDebug.Form
                         case "DC运行状态":
                             _dcRunStatus = Convert.ToUInt32(physicalValue);
                             break;
+                        case "AC运行模式":
+                            _acRunMode = Convert.ToUInt32(physicalValue);
+                            break;
+                        case "DC运行模式":
+                            _dcRunMode = Convert.ToUInt32(physicalValue);
+                            break;
+
                     }
 
                     if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
@@ -991,14 +1080,17 @@ namespace ChargeDebug.Form
 
                             if (run)
                             {
-                                // 检测设备状态变化
+                                // 检测设备状态变化_dcRunMode
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
+                                
+                                // 检测设备运行工步码是否一致
+                                bool runmode = await CheckRunMode(configForm.Configuration.WorkingMode);
 
-                                if (!statusChanged)
+                                if ((!statusChanged) || (!runmode))
                                 {
                                     // 状态没有变化，启动失败
-                                    LogService.Log("设备启动失败，状态未改变");
-                                    XtraMessageBox.Show("设备启动失败，状态未改变");
+                                    LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
 
                                     // 发送停机指令
                                     bool stopSuccess = await _startupManager.StopDeviceAsync();
@@ -1010,6 +1102,11 @@ namespace ChargeDebug.Form
                                 else
                                 {
                                     // 状态已改变，启动成功
+                                    // 在启动设备成功后记录时间
+                                    _totalTimeData.Value = "00:00:00";
+                                    _stepTimeData.Value = "00:00:00";
+                                    _startTime = DateTime.Now;
+                                    _stepStartTime = DateTime.Now;
                                     LogService.Log("设备启动成功");
                                     //XtraMessageBox.Show("设备启动成功");
                                 }
@@ -1032,6 +1129,50 @@ namespace ChargeDebug.Form
             {
                 LogService.Log($"设备启动失败:{ex.Message}");
                 XtraMessageBox.Show($"设备启动失败:{ex.Message}");
+            }
+        }
+
+        private Task<bool> CheckRunMode(string workingMode)
+        {
+            uint mode = 0;
+            switch (workingMode)
+            {
+                case "恒流充电":
+                    mode = 0x03;
+                    break;
+                case "恒流放电":
+                    mode = 0x23;
+                    break;
+                case "恒压充电":
+                    mode = 0x02;
+                    break;
+                case "恒压放电":
+                    mode = 0x22;
+                    break;
+                case "恒功率充电":
+                    mode = 0x01;
+                    break;
+                case "恒功率放电":
+                    mode = 0x21;
+                    break;
+                case "搁置":
+                    mode = 0x05;
+                    break;
+                case "静置":
+                    mode = 0x06;
+                    break;
+                case "停机":
+                    mode = 0x00;
+                    break;
+            }
+
+            if (mode == _dcRunMode)
+            {
+                return Task.FromResult(true);
+            }
+            else
+            {
+                return Task.FromResult(false);
             }
         }
 
@@ -1087,10 +1228,27 @@ namespace ChargeDebug.Form
 
                         if (success)
                         {
-                            // 更新当前保护参数
-                            _protectionParameters = newParams;
-                            LogService.Log("参数设置成功");
-                            XtraMessageBox.Show("参数设置成功");
+                            _stepStartTime = DateTime.MinValue;
+                            _stepTimeData.Value = "00:00:00";
+                            _stepStartTime = DateTime.Now;
+
+                            await Task.Delay(100);//延时100ms
+
+                            // 检测设备运行工步码是否一致
+                            bool runmode = await CheckRunMode(paramForm.Configuration.WorkingMode);
+
+                            if (runmode)
+                            {
+                                // 更新当前保护参数
+                                _protectionParameters = newParams;
+                                LogService.Log("参数设置成功");
+                                XtraMessageBox.Show("参数设置成功");
+                            }
+                            else
+                            {
+                                LogService.Log("参数发送失败");
+                                XtraMessageBox.Show("参数发送失败");
+                            }
                         }
                         else
                         {
@@ -1129,7 +1287,7 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,运行、和启动中情况下才能停机
-                if (currentStatus == 0x02 && currentStatus == 0x01)
+                if (currentStatus == 0x02 || currentStatus == 0x01)
                 {
                     // 确认对话框
                     if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
@@ -1143,7 +1301,22 @@ namespace ChargeDebug.Form
 
                     if (success)
                     {
-                        LogService.Log("设备停机成功");
+                        await Task.Delay(100);//延时100ms
+
+                        // 检测设备运行工步码是否一致
+                        bool runmode = await CheckRunMode("停机");
+
+                        if (runmode)
+                        {
+                            // 在停止设备时重置时间
+                            _startTime = DateTime.MinValue;
+                            LogService.Log("设备停机成功");
+                        }
+                        else
+                        {
+                            LogService.Log("设备停止失败，请检查设备状态");
+                            XtraMessageBox.Show("设备停止失败，请检查设备状态");
+                        }
                     }
                     else
                     {
@@ -1180,6 +1353,8 @@ namespace ChargeDebug.Form
             container.AddItem(CreateStatusRow(out lblACStatus, out lblACMode));
             // 添加DC状态行
             container.AddItem(CreateStatusRow(out lblDCStatus, out lblDCMode));
+            // 添加运行时间行
+            //container.AddItem(CreateStatusRow(out _lblStepTime, out _lblTotalTime));
         }
 
         private LayoutControlItem CreateStatusRow(out LabelControl lblStatus, out LabelControl lblMode)
