@@ -151,10 +151,6 @@ namespace ChargeDebug.Service
             //LogService("CAN管理器初始化开始");
             _isRunning = true;
 
-            _uiUpdateTimer?.Dispose();
-            // 初始化UI更新定时器
-            _uiUpdateTimer = new System.Threading.Timer(UIUpdateCallback, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
-
             _reconnectTimer?.Dispose();
             // 初始化重连定时器 (取消注释)
             _reconnectTimer = new System.Threading.Timer(ReconnectCheckCallback, null, RECONNECT_INTERVAL, RECONNECT_INTERVAL);
@@ -217,33 +213,7 @@ namespace ChargeDebug.Service
         // 新增UI更新回调方法
         private void UIUpdateCallback(object state)
         {
-            try
-            {
-                foreach (var channel in _receiveQueues.Keys)
-                {
-                    if (_dataHandlers.TryGetValue(channel, out var handler) && handler != null)
-                    {
-                        var queue = _receiveQueues[channel];
-                        var frames = new List<ZCAN_Receive_Data>();
 
-                        // 批量取出队列中的所有帧
-                        while (queue.TryDequeue(out var frame))
-                        {
-                            frames.Add(frame);
-                        }
-
-                        if (frames.Count > 0)
-                        {
-                            // 批量处理帧
-                            handler(frames);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                //logger.Info($"UI更新错误: {ex.Message}");
-            }
         }
 
         // CANManager.cs
@@ -258,9 +228,6 @@ namespace ChargeDebug.Service
         private static readonly object _registerLock = new object();
         // 连接状态变化事件
         public event Action<string, bool> OnConnectionStatusChanged;
-
-        private System.Threading.Timer _uiUpdateTimer;
-        private const int UI_UPDATE_INTERVAL = 1000; // 1秒更新一次
 
         // 连接状态字典 <通道键, 连接状态>
         private readonly ConcurrentDictionary<string, bool> _connectionStatus =
@@ -806,7 +773,7 @@ namespace ChargeDebug.Service
         // 修改接收线程逻辑 - 使用批量处理提高效率
         private void ReceiveLoop()
         {
-            const int BATCH_SIZE = 10000;
+            const int BATCH_SIZE = 100;
             int structSize = Marshal.SizeOf(typeof(ZCAN_Receive_Data));
 
             while (_isRunning)
@@ -817,34 +784,49 @@ namespace ChargeDebug.Service
                     string key = device.Key;
                     var channelHandle = device.Value.channelHandle;
 
+                    // 检查接收帧数
+                    uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
+                    if (pendingFrames == 0)
+                    {
+                        Thread.Sleep(1); // 没有数据时短暂休眠
+                        continue;
+                    }
+
                     // 为每个通道分配独立缓冲区
                     IntPtr buffer = Marshal.AllocHGlobal(BATCH_SIZE * structSize);
                     try
                     {
-                        uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
-                        if (pendingFrames == 0) continue;
-
                         uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
                         uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
 
                         if (actualRead > 0)
                         {
                             var queue = _receiveQueues.GetOrAdd(key, _ => new ConcurrentQueue<ZCAN_Receive_Data>());
-                            var batch = new ZCAN_Receive_Data[actualRead];
 
                             for (int i = 0; i < actualRead; i++)
                             {
-                                batch[i] = Marshal.PtrToStructure<ZCAN_Receive_Data>(
+                                var frame = Marshal.PtrToStructure<ZCAN_Receive_Data>(
                                     IntPtr.Add(buffer, i * structSize));
-                            }
-
-                            // 单线程入队避免交叉
-                            foreach (var frame in batch)
-                            {
                                 queue.Enqueue(frame);
                             }
 
                             _lastReceiveTime[key] = DateTime.Now;
+
+                            // 立即通知数据处理（实时解析）
+                            if (_dataHandlers.TryGetValue(key, out var handler) && handler != null)
+                            {
+                                var frames = new List<ZCAN_Receive_Data>();
+                                while (queue.TryDequeue(out var frame))
+                                {
+                                    frames.Add(frame);
+                                }
+
+                                if (frames.Count > 0)
+                                {
+                                    // 在新线程中处理数据，避免阻塞接收循环
+                                    Task.Run(() => handler(frames));
+                                }
+                            }
                         }
                     }
                     finally
@@ -852,7 +834,6 @@ namespace ChargeDebug.Service
                         Marshal.FreeHGlobal(buffer); // 及时释放缓冲区
                     }
                 }
-                Thread.Sleep(1);
             }
         }
 
@@ -1022,11 +1003,6 @@ namespace ChargeDebug.Service
             {
                 // 1. 停止所有活动
                 _isRunning = false;
-
-                // 2. 停止并释放定时器
-                _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-                _uiUpdateTimer?.Dispose();
-                _uiUpdateTimer = null;
 
                 _reconnectTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 _reconnectTimer?.Dispose();

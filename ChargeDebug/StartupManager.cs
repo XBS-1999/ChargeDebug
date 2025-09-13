@@ -6,6 +6,8 @@ using DevExpress.XtraEditors;
 using DocumentFormat.OpenXml.Spreadsheet;
 using DevExpress.XtraRichEdit.Fields;
 using System.Diagnostics;
+using System.Threading.Tasks;
+using System.Globalization;
 
 namespace ChargeDebug
 {
@@ -24,9 +26,9 @@ namespace ChargeDebug
         }
 
         /// <summary>
-        /// 检查设备状态是否允许启动
+        /// 处理设备故障
         /// </summary>
-        public int CheckDeviceStatus(uint acRunStatus, uint dcRunStatus)
+        public uint CheckDeviceStatus(uint acRunStatus, uint dcRunStatus)
         {
             // 检查设备运行状态 0x00-待机 0x01-启动过程中 0x02-运行 0x03-停机过程中 0xFF-故障
             if ((acRunStatus == 0x02) && (dcRunStatus == 0x02))
@@ -57,24 +59,27 @@ namespace ChargeDebug
         /// <summary>
         /// 启动设备
         /// </summary>
-        public async Task<bool> StartDeviceAsync(ConfigurationData configData)
+        public async Task<bool> StartDeviceAsync(ConfigurationData configData, bool flagbit)
         {
             try
             {
-                // 步骤1: 发送保护参数52YCC
-                bool protectparameters = await SendProtectionParams52YCC(configData);
-                if (!protectparameters)
+                if (flagbit)
                 {
-                    return false;
-                }
+                    // 步骤1: 发送保护参数52YCC
+                    bool protectparameters = await SendProtectionParams52YCC(configData);
+                    if (!protectparameters)
+                    {
+                        return false;
+                    }
 
-                // 步骤2: 发送保护参数62YCC
-                bool protectparameters1 = await SendProtectionParams62YCC(configData);
-                if (!protectparameters1)
-                {
-                    return false;
+                    // 步骤2: 发送保护参数62YCC
+                    bool protectparameters1 = await SendProtectionParams62YCC(configData);
+                    if (!protectparameters1)
+                    {
+                        return false;
+                    }
                 }
-
+                
                 // 步骤3: 发送控制参数32YCC
                 bool controlparameters = await SendControlParams32YCC(configData);
                 if (!controlparameters)
@@ -93,8 +98,7 @@ namespace ChargeDebug
             }
             catch (Exception ex)
             {
-                //XtraMessageBox.Show($"设备启动失败:{ex.Message}");
-                return false;
+                throw new Exception($"设备启动失败: {ex.Message}");
             }
         }
 
@@ -115,19 +119,19 @@ namespace ChargeDebug
                 // 构造保护参数数据
                 byte[] data = new byte[8];
 
-                ushort overVoltageValue = (ushort)(Convert.ToInt32(configData.OverVoltage) * 10);
+                short overVoltageValue = (short)(double.Parse(configData.OverVoltage, CultureInfo.InvariantCulture) * 10);
                 data[0] = (byte)(overVoltageValue & 0xFF);        // 低字节
                 data[1] = (byte)((overVoltageValue >> 8) & 0xFF); // 高字节
 
-                ushort underVoltageValue = (ushort)(Convert.ToInt32(configData.UnderVoltage) * 10);
+                short underVoltageValue = (short)(double.Parse(configData.UnderVoltage, CultureInfo.InvariantCulture) * 10);
                 data[2] = (byte)(underVoltageValue & 0xFF);       // 低字节
                 data[3] = (byte)((underVoltageValue >> 8) & 0xFF);// 高字节
 
-                ushort overCurrentValue = (ushort)(Convert.ToInt32(configData.OverCurrent) * 10);
+                short overCurrentValue = (short)(double.Parse(configData.OverCurrent, CultureInfo.InvariantCulture) * 10);
                 data[4] = (byte)(overCurrentValue & 0xFF);        // 低字节
                 data[5] = (byte)((overCurrentValue >> 8) & 0xFF); // 高字节
 
-                ushort underCurrentValue = (ushort)(Convert.ToInt32(configData.UnderCurrent) * 10);
+                short underCurrentValue = (short)(double.Parse(configData.UnderCurrent, CultureInfo.InvariantCulture) * 10);
                 data[6] = (byte)(underCurrentValue & 0xFF);       // 低字节
                 data[7] = (byte)((underCurrentValue >> 8) & 0xFF);// 高字节
 
@@ -147,14 +151,21 @@ namespace ChargeDebug
                     
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
 
-                    // 验证数据是否写入
-                    if (!data.SequenceEqual(response.data))
+                    if (response.data != null)
                     {
-                        number ++;
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        break;
+                        number++;
                     }
                 }
 
@@ -183,11 +194,11 @@ namespace ChargeDebug
                 // 构造保护参数数据
                 byte[] data = new byte[8];
 
-                ushort overPowerValue = (ushort)(Convert.ToInt32(configData.OverPower) * 10);
+                short overPowerValue = (short)(double.Parse(configData.OverPower, CultureInfo.InvariantCulture) * 10);
                 data[0] = (byte)(overPowerValue & 0xFF);        // 低字节
                 data[1] = (byte)((overPowerValue >> 8) & 0xFF); // 高字节
 
-                ushort underPowerValue = (ushort)(Convert.ToInt32(configData.UnderPower) * 10);
+                short underPowerValue = (short)(double.Parse(configData.UnderPower, CultureInfo.InvariantCulture) * 10);
                 data[2] = (byte)(underPowerValue & 0xFF);       // 低字节
                 data[3] = (byte)((underPowerValue >> 8) & 0xFF);// 高字节
 
@@ -212,14 +223,21 @@ namespace ChargeDebug
 
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
 
-                    // 验证数据是否写入
-                    if (!data.SequenceEqual(response.data))
+                    if (response.data != null)
                     {
-                        number++;
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        break;
+                        number++;
                     }
                 }
 
@@ -414,14 +432,21 @@ namespace ChargeDebug
 
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
 
-                    // 验证数据是否写入
-                    if (!data.SequenceEqual(response.data))
+                    if (response.data != null)
                     {
-                        number++;
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        break;
+                        number++;
                     }
                 }
 
@@ -509,14 +534,21 @@ namespace ChargeDebug
 
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
 
-                    // 验证数据是否写入
-                    if (!data.SequenceEqual(response.data))
+                    if (response.data != null)
                     {
-                        number++;
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        break;
+                        number++;
                     }
                 }
 
@@ -528,6 +560,9 @@ namespace ChargeDebug
             }
         }
 
+        /// <summary>
+        /// 发送停机指令22YCC
+        /// </summary>
         public async Task<bool> StopDeviceAsync()
         {
             try
@@ -566,14 +601,21 @@ namespace ChargeDebug
 
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
 
-                    // 验证数据是否写入
-                    if (!data.SequenceEqual(response.data))
+                    if (response.data != null)
                     {
-                        number++;
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                     else
                     {
-                        break;
+                        number++;
                     }
                 }
 

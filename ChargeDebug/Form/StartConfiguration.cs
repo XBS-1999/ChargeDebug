@@ -2,6 +2,7 @@
 using DevExpress.XtraEditors.Controls;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace ChargeDebug.Form
@@ -45,11 +46,11 @@ namespace ChargeDebug.Form
         // 添加一个公共属性来暴露配置数据
         public ConfigurationData Configuration => configData;
 
-        public StartConfiguration(string channelKey)
+        public StartConfiguration(string channelKey,string text)
         {
             _channelKey = channelKey;
             InitializeComponent();
-            this.Text = $"启动配置 - {channelKey}";
+            this.Text = $"{text} - {channelKey}";
             InitializeUI();
             LoadSavedData();
         }
@@ -65,26 +66,32 @@ namespace ChargeDebug.Form
 
             labelOverVoltageValue = new LabelControl { Text = "蓄电池过压保护值:", Location = new Point(60, 22) };
             overVoltageValue = new TextEdit { Location = new Point(200, 20), Width = 80 };
+            overVoltageValue.Validated += PositiveParameter_Validated;
             LabelControl overVoltage = new LabelControl { Text = "V", Location = new Point(290, 22) };
 
             labelUnderVoltageValue = new LabelControl { Text = "蓄电池欠压保护值:", Location = new Point(380, 22) };
             underVoltageValue = new TextEdit { Location = new Point(520, 20), Width = 80 };
+            underVoltageValue.Validated += PositiveParameter_Validated;
             LabelControl underVoltage = new LabelControl { Text = "V", Location = new Point(610, 22) };
 
             labelOverCurrentValue = new LabelControl { Text = "蓄电池充电过流保护值:", Location = new Point(30, 62) };
             overCurrentValue = new TextEdit { Location = new Point(200, 60), Width = 80 };
+            overCurrentValue.Validated += PositiveParameter_Validated;
             LabelControl overCurrent = new LabelControl { Text = "A", Location = new Point(290, 62) };
 
             labelUnderCurrentValue = new LabelControl { Text = "蓄电池放电过流保护值:", Location = new Point(350, 62) };
             underCurrentValue = new TextEdit { Location = new Point(520, 60), Width = 80 };
+            underCurrentValue.Validated += NegativeParameter_Validated;
             LabelControl underCurrent = new LabelControl { Text = "A", Location = new Point(610, 62) };
 
             labelOverPowerValue = new LabelControl { Text = "蓄电池充电过功率保护值:", Location = new Point(15, 102) };
             overPowerValue = new TextEdit { Location = new Point(200, 100), Width = 80 };
+            overPowerValue.Validated += PositiveParameter_Validated;
             LabelControl overPower = new LabelControl { Text = "KW", Location = new Point(290, 102) };
 
             labelUnderPowerValue = new LabelControl { Text = "蓄电池放电过功率保护值:", Location = new Point(335, 102) };
             underPowerValue = new TextEdit { Location = new Point(520, 100), Width = 80 };
+            underPowerValue.Validated += NegativeParameter_Validated;
             LabelControl underPower = new LabelControl { Text = "KW", Location = new Point(610, 102) };
 
             labelWorkingMode = new LabelControl { Text = "工步模式:", Location = new Point(240, 162) };
@@ -143,6 +150,108 @@ namespace ChargeDebug.Form
             });
         }
 
+        // 格式化正数参数（一位小数）
+        private void PositiveParameter_Validated(object? sender, EventArgs e)
+        {
+            TextEdit? textEdit = sender as TextEdit;
+            if (textEdit == null) return;
+
+            if (double.TryParse(textEdit.Text, out double value))
+            {
+                textEdit.Text = Math.Abs(value).ToString("F1", CultureInfo.InvariantCulture);
+            }
+        }
+
+        // 格式化负数参数（一位小数，带负号）
+        private void NegativeParameter_Validated(object? sender, EventArgs e)
+        {
+            TextEdit? textEdit = sender as TextEdit;
+            if (textEdit == null) return;
+
+            if (double.TryParse(textEdit.Text, out double value))
+            {
+                textEdit.Text = (-Math.Abs(value)).ToString("F1", CultureInfo.InvariantCulture);
+            }
+        }
+
+        // 格式化正数参数（两位小数）
+        private void PositiveParameter2_Validated(object? sender, EventArgs e)
+        {
+            TextEdit? textEdit = sender as TextEdit;
+            if (textEdit == null) return;
+
+            if (double.TryParse(textEdit.Text, out double value))
+            {
+                textEdit.Text = Math.Abs(value).ToString("F2", CultureInfo.InvariantCulture);
+            }
+        }
+
+        // 格式化负数参数（两位小数，带负号）
+        private void NegativeParameter2_Validated(object? sender, EventArgs e)
+        {
+            TextEdit? textEdit = sender as TextEdit;
+            if (textEdit == null) return;
+
+            if (double.TryParse(textEdit.Text, out double value))
+            {
+                textEdit.Text = (-Math.Abs(value)).ToString("F2", CultureInfo.InvariantCulture);
+            }
+        }
+
+        private void RangeValidation(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            TextEdit? textEdit = sender as TextEdit;
+            if (textEdit == null) return;
+
+            // 根据参数类型设置范围验证
+            //电压
+            if (textEdit.Name == "ConstantCurrentCharge_VoltageLimit" ||
+                textEdit.Name == "ConstantCurrentDischarge_VoltageLimit" ||
+                textEdit.Name == "ConstantVoltageCharge_Voltage" ||
+                textEdit.Name == "ConstantVoltageDischarge_Voltage")
+            {
+                double value = double.Parse(textEdit.Text);
+                double max_value = double.Parse(overVoltageValue.Text);
+                double min_value = double.Parse(underVoltageValue.Text);
+                if (value < min_value || value > max_value)
+                {
+                    textEdit.ErrorText = $"电压值必须在 {min_value} 到 {max_value} V 之间";
+                    e.Cancel = true;
+                    return;
+                }
+            }
+            else if (textEdit.Name == "ConstantCurrentCharge_Current" ||
+                     textEdit.Name == "ConstantCurrentDischarge_Current" ||
+                     textEdit.Name == "ConstantVoltageCharge_CurrentLimit" ||
+                     textEdit.Name == "ConstantVoltageDischarge_CurrentLimit" ||
+                     textEdit.Name == "ConstantPowerCharge_CurrentLimit" ||
+                     textEdit.Name == "ConstantPowerDischarge_CurrentLimit")
+            {
+                double value = double.Parse(textEdit.Text);
+                double max_value = double.Parse(overCurrentValue.Text);
+                double min_value = double.Parse(underCurrentValue.Text);
+                if (value < min_value || value > max_value)
+                {
+                    textEdit.ErrorText = $"电压值必须在 {min_value} 到 {max_value} V 之间";
+                    e.Cancel = true;
+                    return;
+                }
+            }
+            else if (textEdit.Name == "ConstantPowerCharge_Power" ||
+                     textEdit.Name == "ConstantPowerDischarge_Power")
+            {
+                double value = double.Parse(textEdit.Text);
+                double max_value = double.Parse(overPowerValue.Text);
+                double min_value = double.Parse(underPowerValue.Text);
+                if (value < min_value || value > max_value)
+                {
+                    textEdit.ErrorText = $"电压值必须在 {min_value} 到 {max_value} V 之间";
+                    e.Cancel = true;
+                    return;
+                }
+            }
+        }
+
         // 加载保存的数据
         private void LoadSavedData()
         {
@@ -171,6 +280,13 @@ namespace ChargeDebug.Form
         // 保存当前设置
         private void SaveCurrentSettings()
         {
+            // 验证所有输入
+            if (!ValidateChildren())
+            {
+                XtraMessageBox.Show("请输入有效的参数值", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             // 保存基本参数
             configData.OverVoltage = overVoltageValue.Text;
             configData.UnderVoltage = underVoltageValue.Text;
@@ -274,12 +390,16 @@ namespace ChargeDebug.Form
             // 设定电流
             LabelControl currentLabel = new LabelControl { Text = "设定电流:", Location = new Point(50, yPos + 2) };
             TextEdit currentValue = new TextEdit { Location = new Point(130, yPos), Width = 100 };
+            currentValue.Validated += PositiveParameter2_Validated;
+            currentValue.Validating += RangeValidation;
             currentValue.Name = "ConstantCurrentCharge_Current";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(240, yPos + 2) };
 
             // 电压上限
             LabelControl voltageLimitLabel = new LabelControl { Text = "电压上限:", Location = new Point(350, yPos + 2) };
             TextEdit voltageLimitValue = new TextEdit { Location = new Point(430, yPos), Width = 100 };
+            voltageLimitValue.Validated += PositiveParameter2_Validated;
+            voltageLimitValue.Validating += RangeValidation;
             voltageLimitValue.Name = "ConstantCurrentCharge_VoltageLimit";
             LabelControl voltageUnit = new LabelControl { Text = "V", Location = new Point(540, yPos + 2) };
 
@@ -301,12 +421,16 @@ namespace ChargeDebug.Form
             // 设定电流
             LabelControl currentLabel = new LabelControl { Text = "设定电流:", Location = new Point(50, yPos + 2) };
             TextEdit currentValue = new TextEdit { Location = new Point(130, yPos), Width = 100 };
+            currentValue.Validated += NegativeParameter2_Validated;
+            currentValue.Validating += RangeValidation;
             currentValue.Name = "ConstantCurrentDischarge_Current";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(240, yPos + 2) };
 
             // 电压下限
             LabelControl voltageLimitLabel = new LabelControl { Text = "电压下限:", Location = new Point(350, yPos + 2) };
             TextEdit voltageLimitValue = new TextEdit { Location = new Point(430, yPos), Width = 100 };
+            voltageLimitValue.Validated += PositiveParameter2_Validated;
+            voltageLimitValue.Validating += RangeValidation;
             voltageLimitValue.Name = "ConstantCurrentDischarge_VoltageLimit";
             LabelControl voltageUnit = new LabelControl { Text = "V", Location = new Point(540, yPos + 2) };
 
@@ -328,12 +452,16 @@ namespace ChargeDebug.Form
             // 限制充电电流
             LabelControl currentLimitLabel = new LabelControl { Text = "限制充电电流:", Location = new Point(30, yPos + 2) };
             TextEdit currentLimitValue = new TextEdit { Location = new Point(150, yPos), Width = 100 };
+            currentLimitValue.Validated += PositiveParameter2_Validated;
+            currentLimitValue.Validating += RangeValidation;
             currentLimitValue.Name = "ConstantVoltageCharge_CurrentLimit";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(240, yPos + 2) };
 
             // 设定电压
             LabelControl voltageLabel = new LabelControl { Text = "设定电压:", Location = new Point(350, yPos + 2) };
             TextEdit voltageValue = new TextEdit { Location = new Point(430, yPos), Width = 100 };
+            voltageValue.Validated += PositiveParameter2_Validated;
+            voltageValue.Validating += RangeValidation;
             voltageValue.Name = "ConstantVoltageCharge_Voltage";
             LabelControl voltageUnit = new LabelControl { Text = "V", Location = new Point(540, yPos + 2) };
 
@@ -355,12 +483,16 @@ namespace ChargeDebug.Form
             // 限制放电电流
             LabelControl currentLimitLabel = new LabelControl { Text = "限制放电电流:", Location = new Point(30, yPos + 2) };
             TextEdit currentLimitValue = new TextEdit { Location = new Point(150, yPos), Width = 100 };
+            currentLimitValue.Validated += NegativeParameter2_Validated;
+            currentLimitValue.Validating += RangeValidation;
             currentLimitValue.Name = "ConstantVoltageDischarge_CurrentLimit";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(240, yPos + 2) };
 
             // 设定电压
             LabelControl voltageLabel = new LabelControl { Text = "设定电压:", Location = new Point(350, yPos + 2) };
             TextEdit voltageValue = new TextEdit { Location = new Point(430, yPos), Width = 100 };
+            voltageValue.Validated += PositiveParameter2_Validated;
+            voltageValue.Validating += RangeValidation;
             voltageValue.Name = "ConstantVoltageDischarge_Voltage";
             LabelControl voltageUnit = new LabelControl { Text = "V", Location = new Point(540, yPos + 2) };
 
@@ -382,12 +514,16 @@ namespace ChargeDebug.Form
             // 设定功率
             LabelControl powerLabel = new LabelControl { Text = "设定功率:", Location = new Point(50, yPos + 2) };
             TextEdit powerValue = new TextEdit { Location = new Point(130, yPos), Width = 100 };
+            powerValue.Validated += PositiveParameter2_Validated;
+            powerValue.Validating += RangeValidation;
             powerValue.Name = "ConstantPowerCharge_Power";
             LabelControl powerUnit = new LabelControl { Text = "KW", Location = new Point(240, yPos + 2) };
 
             // 限制充电电流
             LabelControl currentLimitLabel = new LabelControl { Text = "限制充电电流:", Location = new Point(350, yPos + 2) };
             TextEdit currentLimitValue = new TextEdit { Location = new Point(470, yPos), Width = 100 };
+            currentLimitValue.Validated += PositiveParameter2_Validated;
+            currentLimitValue.Validating += RangeValidation;
             currentLimitValue.Name = "ConstantPowerCharge_CurrentLimit";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(560, yPos + 2) };
 
@@ -409,12 +545,16 @@ namespace ChargeDebug.Form
             // 设定功率
             LabelControl powerLabel = new LabelControl { Text = "设定功率:", Location = new Point(50, yPos + 2) };
             TextEdit powerValue = new TextEdit { Location = new Point(130, yPos), Width = 100 };
+            powerValue.Validated += NegativeParameter2_Validated;
+            powerValue.Validating += RangeValidation;
             powerValue.Name = "ConstantPowerDischarge_Power";
             LabelControl powerUnit = new LabelControl { Text = "KW", Location = new Point(240, yPos + 2) };
 
             // 限制放电电流
             LabelControl currentLimitLabel = new LabelControl { Text = "限制放电电流:", Location = new Point(350, yPos + 2) };
             TextEdit currentLimitValue = new TextEdit { Location = new Point(470, yPos), Width = 100 };
+            currentLimitValue.Validated += NegativeParameter2_Validated;
+            currentLimitValue.Validating += RangeValidation;
             currentLimitValue.Name = "ConstantPowerDischarge_CurrentLimit";
             LabelControl currentUnit = new LabelControl { Text = "A", Location = new Point(560, yPos + 2) };
 

@@ -8,11 +8,13 @@ using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
-using DevExpress.XtraPrinting;
-using DevExpress.XtraWaitForm;
 using Log;
+using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace ChargeDebug.Form
 {
@@ -42,7 +44,7 @@ namespace ChargeDebug.Form
         private uint _acreadFaultCanId; // 读取AC故障指令的CAN ID
         private uint _dcreadFaultCanId; // 读取DC故障指令的CAN ID
         private System.Threading.Timer _readFaultTimer; // 读取故障定时器
-        private bool _isFaultMode; // 是否处于故障模式
+        private uint currentStatus;    //设备运行状态
 
         // 添加销毁状态标志
         private volatile bool _disposed = false;
@@ -58,13 +60,15 @@ namespace ChargeDebug.Form
 
         // +++ 新增故障显示相关字段 +++
         private readonly Queue<string> _faultDisplayQueue = new Queue<string>(); // 故障描述队列
-        //private System.Threading.Timer _faultDisplayTimer; // 故障显示定时器
         private readonly object _faultQueueLock = new object(); // 队列访问锁
-        //private const int FaultDisplayInterval = 1000; // 故障显示间隔(毫秒)
         private bool _isFaultDisplayActive; // 当前是否有故障显示
 
         // CAN ID对应的信号列表 <CAN ID, 信号列表>
         private Dictionary<uint, List<SignalInfo>> canIdSignals = new Dictionary<uint, List<SignalInfo>>();
+
+        private readonly ConcurrentDictionary<string, double> _signalValues = new ConcurrentDictionary<string, double>();
+        private System.Threading.Timer _uiUpdateTimer;
+        private const int UI_UPDATE_INTERVAL = 1000; // UI更新间隔1秒
 
         private GridControl gridControl;
         private GridView gridview;
@@ -86,16 +90,26 @@ namespace ChargeDebug.Form
 
         private StartupManager _startupManager;
 
-        //储存设备信息
+        // 储存设备信息
         private EquipmentModel _equipment;
         private bool _isConnected;
+
+        // 添加保护参数字段
+        private ConfigurationData _protectionParameters;
+        private bool _stopCommandSent = false; // 是否已发送停机指令
+
+        // 关键信号名称定义
+        private const string VOLTAGE_SIGNAL = "蓄电池电压";
+        private const string CURRENT_SIGNAL = "蓄电池电流";
+        private const string POWER_SIGNAL = "蓄电池功率";
+
         public bool IsConnected
         {
             get => _isConnected;
             set
             {
                 _isConnected = value;
-                UpdateConnectionStatusUI("已连接",Color.White);
+                UpdateConnectionStatusUI("已连接", Color.White);
             }
         }
 
@@ -112,14 +126,12 @@ namespace ChargeDebug.Form
                 if (_isConnected)
                 {
                     panelControl.Appearance.BackColor = color;
-                    //panelControl.Appearance.Options.UseBackColor = true;
                     panelControl.BorderStyle = BorderStyles.NoBorder;
                     lblConnectionStatus.Text = text;
                 }
                 else
                 {
                     panelControl.Appearance.BackColor = Color.Red;
-                    //panelControl.Appearance.Options.UseBackColor = true;
                     panelControl.BorderStyle = BorderStyles.NoBorder;
                     lblConnectionStatus.Text = "已断开";
 
@@ -137,13 +149,82 @@ namespace ChargeDebug.Form
             InitializeUI();
             ProcessSignals(signals);       // 处理信号定义
 
+            // 初始化UI更新定时器
+            _uiUpdateTimer = new System.Threading.Timer(_ => UpdateUIFromCache(), null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
+
             // 初始化启动管理器
             _startupManager = new StartupManager(equipment, title);
 
             // 初始化读取故障定时器（初始不启动）
             _readFaultTimer = new System.Threading.Timer(SendReadFaultCommand, null, Timeout.Infinite, Timeout.Infinite);
-            
+
             this.Load += Module_Load;
+        }
+
+        private void UpdateUIFromCache()
+        {
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+
+            // 切换到UI线程
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(UpdateUIFromCache));
+                return;
+            }
+
+            try
+            {
+                // 创建信号值的快照
+                var snapshot = _signalValues.ToArray();
+
+                foreach (var kv in snapshot)
+                {
+                    string signalName = kv.Key;
+                    double value = kv.Value;
+
+                    // 获取显示文本
+                    string displayValue = GetReuseSignalDisplayText(signalName, value);
+
+                    // 更新表格
+                    var dataItem = signalData.FirstOrDefault(s => s.SystemName == signalName);
+                    if (dataItem != null)
+                    {
+                        dataItem.Value = displayValue;
+                    }
+
+                    // 检查设备状态
+                    currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
+
+                    // 更新状态标签
+                    UpdateStatusLabels(signalName, displayValue);
+                    UpdateStatusDisplay(currentStatus);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"UI更新错误: {ex.Message}");
+            }
+        }
+
+        private void UpdateStatusDisplay(uint status)
+        {
+            switch (status)
+            {
+                case 0x00: // 待机
+                    UpdateConnectionStatusUI("待机", Color.Yellow);
+                    break;
+                case 0x01: // 启动过程中
+                    UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
+                    break;
+                case 0x02: // 运行
+                    UpdateConnectionStatusUI("运行", Color.Green);
+                    break;
+                case 0x03: // 停机过程中
+                    UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
+                    break;
+                default:
+                    break;
+            }
         }
 
         private void Module_Load(object? sender, EventArgs e)
@@ -166,13 +247,9 @@ namespace ChargeDebug.Form
 
             try
             {
-                // 停止并释放定时器
-                //_sendTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-                //_sendTimer?.Dispose();
-
-                // 释放故障显示定时器
-                //_faultDisplayTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-                //_faultDisplayTimer?.Dispose();
+                // 停止并释放UI更新定时器
+                _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _uiUpdateTimer?.Dispose();
 
                 // 释放读取故障定时器
                 _readFaultTimer?.Change(Timeout.Infinite, Timeout.Infinite);
@@ -237,12 +314,9 @@ namespace ChargeDebug.Form
                     // 添加到信号定义字典
                     signalDefinitions[signal.SystemName] = signal;
 
-                    if(signal.SystemName.Contains("故障-"))
+                    if (signal.SystemName.Contains("故障-"))
                     {
                         _faultSignalDefinitions[signal.SystemName] = signal;
-                        
-                        // 记录故障信号信息
-                        //LogService.Log($"发现故障信号: {signal.SystemName} (CAN ID: 0x{canId:X})");
                     }
                     else
                     {
@@ -261,8 +335,6 @@ namespace ChargeDebug.Form
                                 lblDCMode.Text = $"{signal.SystemName}:";
                                 break;
                             case "生命帧":
-                                //_sendCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    //System.Globalization.NumberStyles.HexNumber);
                                 break;
                             case "清除故障DC":
                                 _dcfaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
@@ -330,7 +402,6 @@ namespace ChargeDebug.Form
                 // 双重检查防止重复初始化
                 if (_disposed || !this.IsHandleCreated) return;
 
-
                 try
                 {
                     CANManager.Instance.Init();
@@ -353,12 +424,7 @@ namespace ChargeDebug.Form
                 }
                 catch (Exception ex)
                 {
-                    //logger.Info($"{title}注册失败：{ex.Message}");
                     LogService.Log($"{title}注册失败：{ex.Message}");
-                    //this.BeginInvoke((Action)(() =>
-                    //{
-                    //    XtraMessageBox.Show($"{title}CAN盒打开失败:{ex.Message}");
-                    //}));
                 }
             }
         }
@@ -371,9 +437,6 @@ namespace ChargeDebug.Form
             // 检查销毁状态和句柄
             if (_disposed || this.IsDisposed || !this.IsHandleCreated)
                 return;
-
-            // 聚合信号值（信号名 → 最新值）
-            var signalValues = new Dictionary<string, double>();
 
             foreach (var frame in frames)
             {
@@ -398,10 +461,22 @@ namespace ChargeDebug.Form
 
                     double physicalValue = Math.Round(value, decimalPlaces);
 
-                    // 存储信号值
-                    signalValues[signal.SystemName] = physicalValue;
+                    // 4. 更新缓存（实时更新）
+                    _signalValues[signal.SystemName] = physicalValue;
 
-                    // 检测运行状态信号
+                    // 5. 实时处理故障信号（不等待UI更新）
+                    if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
+                    {
+                        ProcessFaultSignal(signal.SystemName, physicalValue);
+                    }
+
+                    // 6. 实时监控关键信号（电压、电流、功率）
+                    if (_protectionParameters != null && !_stopCommandSent)
+                    {
+                        CheckCriticalSignals(signal.SystemName, physicalValue);
+                    }
+
+                    // 7. 实时更新运行状态
                     switch (signal.SystemName)
                     {
                         case "AC运行状态":
@@ -411,141 +486,160 @@ namespace ChargeDebug.Form
                             _dcRunStatus = Convert.ToUInt32(physicalValue);
                             break;
                     }
-                }
-            }
-            
-            // 检测是否进入/退出故障模式
-            bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF);
 
-            // 状态变化处理
-            if ((isFaultMode) || (_isFaultMode))
-            {
-                _isFaultMode = isFaultMode;
-                if(_isFaultMode)
-                {
-                    // 进入故障模式：启动读取故障定时器
-                    _readFaultTimer.Change(0, 1000); // 立即开始，每秒发送一次
-                    //LogService.Log("进入故障模式，启动故障读取定时器");
-                    // 只在故障模式下处理故障信号
-                    foreach (var kv in signalValues)
+                    if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
                     {
-                        string signalName = kv.Key;
-                        double value = kv.Value;
-
-                        // 只处理故障信号
-                        if (!_faultSignalDefinitions.ContainsKey(signalName))
-                            continue;
-
-                        if (value != 0) // 非0值表示故障
-                        {
-                            string faultDescription = GetReuseSignalDisplayText(signalName, value);
-
-                            lock (_faultQueueLock)
-                            {
-                                string name = "";
-                                if (faultDescription == "故障")
-                                {
-                                    name = signalName.Remove(0, 3);
-                                }
-                                else
-                                {
-                                    name = faultDescription;
-                                }
-
-                                if (!_activeFaults.ContainsKey(signalName))
-                                {
-                                    _activeFaults[signalName] = name;
-                                    _faultDisplayQueue.Enqueue(name);
-                                    LogService.Log($"检测到新故障: {signalName} → {name}");
-                                }
-                                else if (_activeFaults[signalName] != name)
-                                {
-                                    _activeFaults[signalName] = name;
-                                    LogService.Log($"故障更新: {signalName} → {name}");
-                                }
-                            }
-                        }
-                        else // 值为0表示故障清除
-                        {
-                            lock (_faultQueueLock)
-                            {
-                                if (_activeFaults.Remove(signalName))
-                                {
-                                    RemoveFaultFromDisplayQueue(signalName);
-                                    LogService.Log($"故障清除: {signalName}");
-                                }
-                            }
-                        }
+                        //触发停机指令，只发一次
+                        SendStopCommandIfNeeded();
                     }
                 }
-                else
-                {
-                    // 退出故障模式：停止定时器
-                    _readFaultTimer.Change(Timeout.Infinite, Timeout.Infinite);
-                    LogService.Log("退出故障模式，停止故障读取定时器");
-
-                    lock (_faultQueueLock)
-                    {
-                        if (_activeFaults.Count > 0)
-                        {
-                            _activeFaults.Clear();
-                            _faultDisplayQueue.Clear();
-                            _isFaultDisplayActive = false;
-                            this.BeginInvoke((Action)(() =>
-                                UpdateConnectionStatusUI("已连接", Color.White)));
-                        }
-                    }
-                }
-            }
-
-            // 6. 更新UI（确保在UI线程执行）
-            // 使用更安全的 Invoke 方式
-            if (this.InvokeRequired)
-            {
-                this.BeginInvoke(new Action(() =>
-                {
-                    if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
-                    UpdateUI(signalValues);
-                }));
-            }
-            else
-            {
-                UpdateUI(signalValues);
             }
         }
 
-        private void UpdateUI(Dictionary<string, double> signalValues)
+        // 新增方法：检查关键信号是否超出阈值
+        private void CheckCriticalSignals(string signalName, double value)
         {
-            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
-
-            // 更新信号值显示
-            foreach (var kv in signalValues)
+            try
             {
-                string signalName = kv.Key;
-                double value = kv.Value;
-
-                // 获取显示文本（复用信号映射或普通格式）
-                string displayValue = GetReuseSignalDisplayText(signalName, value);
-
-                // 更新表格中的数据项
-                var dataItem = signalData.FirstOrDefault(s => s.SystemName == signalName);
-                if (dataItem != null)
+                // 检查电压信号
+                if (signalName.Contains(VOLTAGE_SIGNAL) && _protectionParameters != null)
                 {
-                    dataItem.Value = displayValue;
+                    if (double.TryParse(_protectionParameters.OverVoltage, out double overVoltage) &&
+                        value > overVoltage)
+                    {
+                        LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
+                        SendStopCommandIfNeeded();
+                    }
+                    else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
+                             value < underVoltage)
+                    {
+                        LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
+                        SendStopCommandIfNeeded();
+                    }
                 }
 
-                // 更新状态标签（运行状态/模式）
-                UpdateStatusLabels(signalName, displayValue);
+                // 检查电流信号
+                if (signalName.Contains(CURRENT_SIGNAL) && _protectionParameters != null)
+                {
+                    if (double.TryParse(_protectionParameters.OverCurrent, out double overCurrent) &&
+                        value > overCurrent)
+                    {
+                        LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
+                        SendStopCommandIfNeeded();
+                    }
+                    else if (double.TryParse(_protectionParameters.UnderCurrent, out double underCurrent) &&
+                             value < underCurrent)
+                    {
+                        LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
+                        SendStopCommandIfNeeded();
+                    }
+                }
+
+                // 检查功率信号
+                if (signalName.Contains(POWER_SIGNAL) && _protectionParameters != null)
+                {
+                    if (double.TryParse(_protectionParameters.OverPower, out double overPower) &&
+                        value > overPower)
+                    {
+                        LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
+                        SendStopCommandIfNeeded();
+                    }
+                    else if (double.TryParse(_protectionParameters.UnderPower, out double underPower) &&
+                             value < underPower)
+                    {
+                        LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
+                        SendStopCommandIfNeeded();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"检查关键信号时出错: {ex.Message}");
+            }
+        }
+
+        // 新增方法：发送停机指令（如果需要）
+        private void SendStopCommandIfNeeded()
+        {
+            if (!_stopCommandSent)
+            {
+                _stopCommandSent = true;
+                LogService.Log("检测到异常，发送停机指令");
+
+                // 异步发送停机指令，避免阻塞CAN处理线程
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        bool success = await _startupManager.StopDeviceAsync();
+                        if (success)
+                        {
+                            LogService.Log("停机指令发送成功");
+                        }
+                        else
+                        {
+                            LogService.Log("停机指令发送失败");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Log($"发送停机指令时出错: {ex.Message}");
+                    }
+                });
+            }
+        }
+
+        // 新增方法：处理故障信号（实时）
+        private void ProcessFaultSignal(string signalName, double value)
+        {
+            if (value != 0) // 非0值表示故障
+            {
+                string faultDescription = GetReuseSignalDisplayText(signalName, value);
+
+                lock (_faultQueueLock)
+                {
+                    string name = "";
+                    if (faultDescription == "故障")
+                    {
+                        name = signalName.Remove(0, 3);
+                    }
+                    else
+                    {
+                        name = faultDescription;
+                    }
+
+                    if (!_activeFaults.ContainsKey(signalName))
+                    {
+                        _activeFaults[signalName] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log($"检测到新故障: {signalName} → {name}");
+                    }
+                    else if (_activeFaults[signalName] != name)
+                    {
+                        _activeFaults[signalName] = name;
+                        LogService.Log($"故障更新: {signalName} → {name}");
+                    }
+                }
+            }
+            else // 值为0表示故障清除
+            {
+                lock (_faultQueueLock)
+                {
+                    if (_activeFaults.Remove(signalName))
+                    {
+                        RemoveFaultFromDisplayQueue(signalName);
+                        LogService.Log($"故障清除: {signalName}");
+                    }
+                }
             }
         }
 
         // 新增方法：发送读取故障指令
-        private void SendReadFaultCommand(object state)
+        private void SendReadFaultCommand(object? state)
         {
             // 检查模块发送状态
             if (!_moduleSendingEnabled)
             {
-                //XtraMessageBox.Show("当前发送被禁用，无法清除故障");
                 return;
             }
 
@@ -576,7 +670,7 @@ namespace ChargeDebug.Form
                         data
                     );
             }
-            
+
             //查询故障显示方法
             DisplayNextFault(null);
         }
@@ -706,6 +800,7 @@ namespace ChargeDebug.Form
                 LogService.Log($"故障显示错误: {ex.Message}");
             }
         }
+
         private string GetReuseSignalDisplayText(string signalName, double value)
         {
             if (_reuseMappings.TryGetValue(signalName, out var mapping))
@@ -767,8 +862,6 @@ namespace ChargeDebug.Form
             groupControl.Controls.Add(layoutControl);
 
             //添加控件项
-            //AddACStatusRow(layoutControl); // 新增状态行
-            //AddDCStatusRow(layoutControl); // 新增状态行
             AddACDCStatusRows(layoutControl); // 新增状态行
             AddParameters(layoutControl);//参数表格
             AddExceptionAlert(layoutControl);//异常信息
@@ -854,7 +947,7 @@ namespace ChargeDebug.Form
                     data
                 );
             }
-            
+
             XtraMessageBox.Show("清除故障成功");
             LogService.Log("清除故障成功");
         }
@@ -882,44 +975,153 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,待机、停机过程情况下才能启动
-                if ((_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x00) ||
-                    (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x03))
+                if (currentStatus == 0x00 || currentStatus == 0x03)
                 {
+                    // 显示启动配置对话框
+                    using (var configForm = new StartConfiguration(_title,"启动配置"))
+                    {
+                        if (configForm.ShowDialog() == DialogResult.OK)
+                        {
+                            // 获取用户设置的配置数据
+                            _protectionParameters = configForm.Configuration;
+                            _stopCommandSent = false; // 重置停机指令发送标志
+
+                            //开始启动
+                            bool run = await _startupManager.StartDeviceAsync(_protectionParameters, true);
+
+                            if (run)
+                            {
+                                // 检测设备状态变化
+                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
+
+                                if (!statusChanged)
+                                {
+                                    // 状态没有变化，启动失败
+                                    LogService.Log("设备启动失败，状态未改变");
+                                    XtraMessageBox.Show("设备启动失败，状态未改变");
+
+                                    // 发送停机指令
+                                    bool stopSuccess = await _startupManager.StopDeviceAsync();
+                                    if (!stopSuccess)
+                                    {
+                                        XtraMessageBox.Show("停机指令发送失败");
+                                    }
+                                }
+                                else
+                                {
+                                    // 状态已改变，启动成功
+                                    LogService.Log("设备启动成功");
+                                    //XtraMessageBox.Show("设备启动成功");
+                                }
+                            }
+                            else
+                            {
+                                LogService.Log("设备启动失败!");
+                                XtraMessageBox.Show("设备启动失败!");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    LogService.Log("设备状态异常，禁止启动!");
                     XtraMessageBox.Show("设备状态异常，禁止启动");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"设备启动失败:{ex.Message}");
+                XtraMessageBox.Show($"设备启动失败:{ex.Message}");
+            }
+        }
+
+        // 新增方法：检测设备状态是否改变
+        private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout)
+        {
+            DateTime startTime = DateTime.Now;
+            uint initialStatus = currentStatus;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
+                if (currentStatus == 0x01 || currentStatus == 0x02)
+                {
+                    return true; // 状态已改变
+                }
+
+                // 等待一段时间再检查
+                await Task.Delay(100); // 每100毫秒检查一次
+            }
+
+            // 超时，状态未改变
+            return false;
+        }
+
+        private async void ParameterSet(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 检查设备状态,运行情况下才能设置参数
+                if (currentStatus != 0x02)
+                {
+                    XtraMessageBox.Show("设备状态异常，禁止设置参数");
                     return;
                 }
 
-                // 显示启动配置对话框
-                using (var configForm = new StartConfiguration(_title))
-                {
-                    if (configForm.ShowDialog() == DialogResult.OK)
-                    {
-                        // 获取用户设置的配置数据
-                        ConfigurationData configData = configForm.Configuration;
+                // 保存当前保护参数以便比较
+                ConfigurationData currentParams = _protectionParameters;
 
-                        //开始启动
-                        bool run = await _startupManager.StartDeviceAsync(configData);
-                        if (!run)
+                // 创建参数设置窗体
+                using (var paramForm = new StartConfiguration(_title, "参数配置"))
+                {
+                    if (paramForm.ShowDialog() == DialogResult.OK)
+                    {
+                        // 获取用户设置的新参数
+                        ConfigurationData newParams = paramForm.Configuration;
+
+                        // 比较参数是否有变化  true-保护参数有变化
+                        bool hasChanges = CompareParameters(currentParams, newParams);
+
+                        // 发送新的参数
+                        bool success = await _startupManager.StartDeviceAsync(_protectionParameters, hasChanges);
+
+                        if (success)
                         {
-                            XtraMessageBox.Show($"设备启动失败!");
+                            // 更新当前保护参数
+                            _protectionParameters = newParams;
+                            LogService.Log("参数设置成功");
+                            XtraMessageBox.Show("参数设置成功");
+                        }
+                        else
+                        {
+                            LogService.Log("参数发送失败");
+                            XtraMessageBox.Show("参数发送失败");
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                XtraMessageBox.Show($"设备启动失败:{ex.Message}");
+                LogService.Log($"设置参数失败: {ex.Message}");
+                XtraMessageBox.Show($"设置参数失败: {ex.Message}");
             }
         }
 
-        private void ParameterSet(object? sender, EventArgs e)
+        // 比较参数是否有变化
+        private bool CompareParameters(ConfigurationData oldParams, ConfigurationData newParams)
         {
-            // 检查设备状态,运行情况下才能设置参数
-            if (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x02)
+            // 比较保护参数
+            if (oldParams.OverVoltage != newParams.OverVoltage ||
+                oldParams.UnderVoltage != newParams.UnderVoltage ||
+                oldParams.OverCurrent != newParams.OverCurrent ||
+                oldParams.UnderCurrent != newParams.UnderCurrent ||
+                oldParams.OverPower != newParams.OverPower ||
+                oldParams.UnderPower != newParams.UnderPower)
             {
-                XtraMessageBox.Show("设备状态异常，禁止设置参数");
-                return;
+                return true;
             }
+
+            return false;
         }
 
         private async void ShutDown(object? sender, EventArgs e)
@@ -927,32 +1129,38 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,运行、和启动中情况下才能停机
-                if ((_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x02) ||
-                    (_startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus) != 0x01))
+                if (currentStatus == 0x02 && currentStatus == 0x01)
                 {
+                    // 确认对话框
+                    if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    {
+                        return;
+                    }
+
+                    // 发送停机指令
+                    bool success = await _startupManager.StopDeviceAsync();
+
+                    if (success)
+                    {
+                        LogService.Log("设备停机成功");
+                    }
+                    else
+                    {
+                        LogService.Log("设备停止失败，请检查设备状态");
+                        XtraMessageBox.Show("设备停止失败，请检查设备状态");
+                    }
+                }
+                else
+                {
+                    LogService.Log("设备状态异常，禁止停机");
                     XtraMessageBox.Show("设备状态异常，禁止停机");
-                    return;
-                }
-
-                // 确认对话框
-                if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                {
-                    return;
-                }
-
-                // 发送停机指令
-                bool success = await _startupManager.StopDeviceAsync();
-
-                if (!success)
-                {
-                    XtraMessageBox.Show("设备停止失败，请检查设备状态");
                 }
             }
             catch (Exception ex)
             {
-                XtraMessageBox.Show($"停机操作失败: {ex.Message}");
                 LogService.Log($"停机操作失败: {ex.Message}");
+                XtraMessageBox.Show($"停机操作失败: {ex.Message}");
             }
         }
 
@@ -972,8 +1180,6 @@ namespace ChargeDebug.Form
             container.AddItem(CreateStatusRow(out lblACStatus, out lblACMode));
             // 添加DC状态行
             container.AddItem(CreateStatusRow(out lblDCStatus, out lblDCMode));
-            // 添加系统时间行
-            //container.AddItem(CreateStatusRow(out lblACTime, out lblDCTime));
         }
 
         private LayoutControlItem CreateStatusRow(out LabelControl lblStatus, out LabelControl lblMode)
@@ -1043,7 +1249,6 @@ namespace ChargeDebug.Form
                 MaxSize = new Size(0, 100)
             };
             layoutControl.AddItem(item);
-
 
             // 创建状态标签
             lblConnectionStatus = new LabelControl
@@ -1179,6 +1384,5 @@ namespace ChargeDebug.Form
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
-
     }
 }
