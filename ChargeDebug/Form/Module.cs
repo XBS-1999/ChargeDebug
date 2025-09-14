@@ -17,100 +17,99 @@ namespace ChargeDebug.Form
 {
     /*
      * 监控模块类 (集成新版ZCAN API)
+     * 负责设备监控、CAN通信、故障检测和用户界面管理
      */
     public partial class Module : XtraUserControl, IDisposable
     {
-        // 添加模块级发送控制
-        private bool _moduleSendingEnabled = true;
-        public bool ModuleSendingEnabled
-        {
-            get => _moduleSendingEnabled;
-            set
-            {
-                _moduleSendingEnabled = value;
-            }
-        }
+        // ==================== 字段声明区域 ====================
+        #region 字段声明
 
-        // 添加初始化状态标志
+        // 模块控制字段
+        private bool _moduleSendingEnabled = true;
         private bool _initialized = false;
+        private volatile bool _disposed = false;
+        private bool _isConnected;
+        private bool _stopCommandSent = false;
+        private bool _isFaultDisplayActive;
+
+        // CAN通信相关字段
         private uint _dcfaultCanId;
         private uint _acfaultCanId;
         private uint _voltageCanId;
-        private uint _acRunStatus = 0; // 初始化为正常状态
-        private uint _dcRunStatus = 0; // 初始化为正常状态
-        private uint _acRunMode = 0; // 初始化为正常状态
-        private uint _dcRunMode = 0; // 初始化为正常状态
-        private uint _acreadFaultCanId; // 读取AC故障指令的CAN ID
-        private uint _dcreadFaultCanId; // 读取DC故障指令的CAN ID
-        private System.Threading.Timer _readFaultTimer; // 读取故障定时器
-        private uint currentStatus;    //设备运行状态
+        private uint _acreadFaultCanId;
+        private uint _dcreadFaultCanId;
 
-        private DateTime _startTime; // 设备启动时间
-        private DateTime _stepStartTime; // 当前工步开始时间
-        private System.Windows.Forms.Timer _totalTimeTimer; // 累计运行时间计时器
-        private System.Windows.Forms.Timer _stepTimeTimer; // 工步运行时间计时器
+        // 设备状态字段
+        private uint _acRunStatus = 0;
+        private uint _dcRunStatus = 0;
+        private uint _acRunMode = 0;
+        private uint _dcRunMode = 0;
+        private uint currentStatus;
+
+        // 时间管理字段
+        private DateTime _startTime;
+        private DateTime _stepStartTime;
         private Showdata _totalTimeData;
         private Showdata _stepTimeData;
-        private string _currentStepMode = ""; // 当前工步模式
 
-        // 添加销毁状态标志
-        private volatile bool _disposed = false;
-
-        // 在Module类中添加字段
+        // 信号处理字段
         private readonly Dictionary<string, SignalInfo> _faultSignalDefinitions = new();
-        private readonly Dictionary<string, string> _activeFaults = new(); // <信号名, 故障描述>
-
-        // 信号定义字典 <信号名称, 信号定义>
+        private readonly Dictionary<string, string> _activeFaults = new();
         private Dictionary<string, SignalInfo> signalDefinitions = new Dictionary<string, SignalInfo>();
-        // 添加复用信号映射字典
         private readonly Dictionary<string, Dictionary<string, string>> _reuseMappings = new();
-
-        // +++ 新增故障显示相关字段 +++
-        private readonly Queue<string> _faultDisplayQueue = new Queue<string>(); // 故障描述队列
-        private readonly object _faultQueueLock = new object(); // 队列访问锁
-        private bool _isFaultDisplayActive; // 当前是否有故障显示
-
-        // CAN ID对应的信号列表 <CAN ID, 信号列表>
         private Dictionary<uint, List<SignalInfo>> canIdSignals = new Dictionary<uint, List<SignalInfo>>();
-
         private readonly ConcurrentDictionary<string, double> _signalValues = new ConcurrentDictionary<string, double>();
-        private System.Threading.Timer _uiUpdateTimer;
-        private const int UI_UPDATE_INTERVAL = 1000; // UI更新间隔1秒
 
+        // 故障显示字段
+        private readonly Queue<string> _faultDisplayQueue = new Queue<string>();
+        private readonly object _faultQueueLock = new object();
+        private bool faultindicator = false;
+
+        // UI组件字段
         private GridControl gridControl;
         private GridView gridview;
         private PanelControl panelControl;
-        // 新增字段存储状态标签
         private LabelControl lblConnectionStatus;
-
-        // 新增DC状态标签字段
         private LabelControl lblACStatus, lblACMode;
         private LabelControl lblDCStatus, lblDCMode;
-
-        // 添加标题字段
         private string _title;
         private static readonly object _canInitLock = new object();
-
         private BindingList<Showdata> signalData = new BindingList<Showdata>();
-
         private ContextMenuStrip contextMenu;
         private List<Showdata> allSignals = new List<Showdata>();
 
+        // 管理类字段
         private StartupManager _startupManager;
-
-        // 储存设备信息
         private EquipmentModel _equipment;
-        private bool _isConnected;
-
-        // 添加保护参数字段
         private ConfigurationData _protectionParameters;
-        private bool _stopCommandSent = false; // 是否已发送停机指令
 
-        // 关键信号名称定义
+        // 定时器字段
+        private System.Threading.Timer _uiUpdateTimer;
+        private System.Threading.Timer _readFaultTimer;
+        private const int UI_UPDATE_INTERVAL = 1000;
+
+        // 常量定义
         private const string VOLTAGE_SIGNAL = "蓄电池电压";
         private const string CURRENT_SIGNAL = "蓄电池电流";
         private const string POWER_SIGNAL = "蓄电池功率";
 
+        #endregion
+
+        // ==================== 属性区域 ====================
+        #region 属性
+
+        /// <summary>
+        /// 模块发送使能状态
+        /// </summary>
+        public bool ModuleSendingEnabled
+        {
+            get => _moduleSendingEnabled;
+            set => _moduleSendingEnabled = value;
+        }
+
+        /// <summary>
+        /// 设备连接状态
+        /// </summary>
         public bool IsConnected
         {
             get => _isConnected;
@@ -121,46 +120,30 @@ namespace ChargeDebug.Form
             }
         }
 
-        private void UpdateConnectionStatusUI(string text, Color color)
-        {
-            // 添加销毁状态检查
-            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+        #endregion
 
-            this.BeginInvoke((Action)(() =>
-            {
-                // 再次检查，因为可能在调用过程中被销毁
-                if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+        // ==================== 构造函数与初始化区域 ====================
+        #region 构造函数与初始化
 
-                if (_isConnected)
-                {
-                    panelControl.Appearance.BackColor = color;
-                    panelControl.BorderStyle = BorderStyles.NoBorder;
-                    lblConnectionStatus.Text = text;
-                }
-                else
-                {
-                    panelControl.Appearance.BackColor = Color.Red;
-                    panelControl.BorderStyle = BorderStyles.NoBorder;
-                    lblConnectionStatus.Text = "已断开";
-
-                    // 添加重连指示器
-                    lblConnectionStatus.Text += " (重连中...)";
-                }
-            }));
-        }
-
+        /// <summary>
+        /// 模块构造函数
+        /// </summary>
+        /// <param name="title">模块标题</param>
+        /// <param name="equipment">设备模型</param>
+        /// <param name="signals">信号列表</param>
         public Module(string title, EquipmentModel equipment, List<SignalInfo> signals)
         {
             _equipment = equipment;
-            _title = title; // 保存标题
+            _title = title;
             InitializeComponent();
             InitializeUI();
-            ProcessSignals(signals);       // 处理信号定义
+            ProcessSignals(signals);
 
+            // 初始化UI更新定时器
             _uiUpdateTimer = new System.Threading.Timer(_ =>
             {
                 UpdateUIFromCache();
-                UpdateTimeDisplay(); // 新增时间更新
+                UpdateTimeDisplay();
             }, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
 
             // 初始化启动管理器
@@ -172,72 +155,72 @@ namespace ChargeDebug.Form
             this.Load += Module_Load;
         }
 
-        private void UpdateUIFromCache()
+        /// <summary>
+        /// 初始化用户界面
+        /// </summary>
+        private void InitializeUI()
         {
-            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+            // 设置模块容器大小
+            this.ClientSize = new Size(400, 700);
 
-            // 切换到UI线程
-            if (this.InvokeRequired)
-            {
-                this.BeginInvoke(new Action(UpdateUIFromCache));
-                return;
-            }
+            // 通道容器
+            GroupControl groupControl = new GroupControl();
+            groupControl.Text = _title;
+            groupControl.Dock = DockStyle.Fill;
+            groupControl.Padding = new System.Windows.Forms.Padding(-3);
+            groupControl.Margin = new System.Windows.Forms.Padding(0);
 
-            try
-            {
-                // 创建信号值的快照
-                var snapshot = _signalValues.ToArray();
+            // 主布局容器
+            LayoutControl layoutControl = new LayoutControl();
+            layoutControl.Dock = DockStyle.Fill;
+            layoutControl.Root.Padding = new DevExpress.XtraLayout.Utils.Padding(-3);
+            groupControl.Controls.Add(layoutControl);
 
-                foreach (var kv in snapshot)
-                {
-                    string signalName = kv.Key;
-                    double value = kv.Value;
+            // 添加控件项
+            AddACDCStatusRows(layoutControl);
+            AddParameters(layoutControl);
+            AddExceptionAlert(layoutControl);
 
-                    // 获取显示文本
-                    string displayValue = GetReuseSignalDisplayText(signalName, value);
+            // 添加上下文菜单
+            InitializeContextMenu();
 
-                    // 更新表格
-                    var dataItem = signalData.FirstOrDefault(s => s.SystemName == signalName);
-                    if (dataItem != null)
-                    {
-                        dataItem.Value = displayValue;
-                    }
-
-                    // 检查设备状态
-                    currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
-
-                    // 更新状态标签
-                    UpdateStatusLabels(signalName, displayValue);
-                    UpdateStatusDisplay(currentStatus);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"UI更新错误: {ex.Message}");
-            }
+            this.Controls.Add(groupControl);
         }
 
-        private void UpdateStatusDisplay(uint status)
+        /// <summary>
+        /// 初始化上下文菜单
+        /// </summary>
+        private void InitializeContextMenu()
         {
-            switch (status)
-            {
-                case 0x00: // 待机
-                    UpdateConnectionStatusUI("待机", Color.Yellow);
-                    break;
-                case 0x01: // 启动过程中
-                    UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
-                    break;
-                case 0x02: // 运行
-                    UpdateConnectionStatusUI("运行", Color.Green);
-                    break;
-                case 0x03: // 停机过程中
-                    UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
-                    break;
-                default:
-                    break;
-            }
+            contextMenu = new ContextMenuStrip();
+            var dataselection = new ToolStripMenuItem("数据选择");
+            var poweron = new ToolStripMenuItem("启动测试");
+            var parameterset = new ToolStripMenuItem("参数设置");
+            var shutDown = new ToolStripMenuItem("停止测试");
+            var clearfault = new ToolStripMenuItem("清除故障");
+            var lowvoltage = new ToolStripMenuItem("电压低档");
+            var gavoltage = new ToolStripMenuItem("电压高档");
+
+            dataselection.Click += ShowSignalSelector;
+            poweron.Click += PoweronAsync;
+            parameterset.Click += ParameterSet;
+            shutDown.Click += ShutDown;
+            clearfault.Click += Clearfault;
+            lowvoltage.Click += Wvoltage;
+            gavoltage.Click += Gavoltage;
+
+            contextMenu.Items.AddRange(new[] { dataselection, poweron, parameterset, shutDown, clearfault });
+            gridControl.ContextMenuStrip = contextMenu;
         }
 
+        #endregion
+
+        // ==================== 事件处理区域 ====================
+        #region 事件处理
+
+        /// <summary>
+        /// 模块加载事件处理
+        /// </summary>
         private void Module_Load(object? sender, EventArgs e)
         {
             if (_disposed) return;
@@ -250,51 +233,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // Module.cs
-        public new void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-
-            try
-            {
-                // 停止并释放UI更新定时器
-                _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-                _uiUpdateTimer?.Dispose();
-
-                // 释放读取故障定时器
-                _readFaultTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-                _readFaultTimer?.Dispose();
-
-                // 注销CAN通道
-                CANManager.Instance.UnregisterChannel(
-                    _equipment.DeviceIndex,
-                    _equipment.CanIndex
-                );
-
-                // 注销CAN处理器
-                CANManager.Instance.UnregisterDataHandler(
-                    _equipment.DeviceIndex,
-                    _equipment.CanIndex,
-                    HandleCANFrame
-                );
-
-                // 注销连接状态事件
-                CANManager.Instance.OnConnectionStatusChanged -= HandleConnectionStatusChanged;
-
-                LogService.Log($"模块 {_title} 已注销");
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"模块注销错误: {ex.Message}");
-            }
-            finally
-            {
-                // 确保调用基类Dispose
-                base.Dispose();
-            }
-        }
-
+        /// <summary>
+        /// 连接状态变化事件处理
+        /// </summary>
         private void HandleConnectionStatusChanged(string key, bool status)
         {
             if (key == CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex))
@@ -303,9 +244,149 @@ namespace ChargeDebug.Form
             }
         }
 
-        /*
-         * 处理信号定义
-         */
+        #endregion
+
+        // ==================== CAN通信区域 ====================
+        #region CAN通信
+
+        /// <summary>
+        /// 初始化CAN通信
+        /// </summary>
+        private void InitializeCAN(string title)
+        {
+            lock (_canInitLock)
+            {
+                // 双重检查防止重复初始化
+                if (_disposed || !this.IsHandleCreated) return;
+
+                try
+                {
+                    CANManager.Instance.Init();
+
+                    // 1. 注册数据处理器
+                    CANManager.Instance.RegisterDataHandler(_equipment.DeviceIndex, _equipment.CanIndex, HandleCANFrame);
+
+                    // 2. 向CAN管理器注册信号定义
+                    foreach (var kvp in canIdSignals)
+                    {
+                        CANManager.Instance.RegisterSignals(kvp.Key, kvp.Value);
+                    }
+
+                    // 3. 注册连接状态变化事件
+                    CANManager.Instance.OnConnectionStatusChanged += HandleConnectionStatusChanged;
+
+                    // 4. 向CAN管理器注册通道
+                    CANManager.Instance.RegisterChannel(_equipment);
+                    LogService.Log($"{title}注册成功:{_equipment.DeviceIP}");
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"{title}注册失败：{ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// CAN数据帧处理函数
+        /// </summary>
+        private void HandleCANFrame(List<CANManager.ZCAN_Receive_Data> frames)
+        {
+            // 检查销毁状态和句柄
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated)
+                return;
+
+            foreach (var frame in frames)
+            {
+                // 提取标准CAN ID（去除扩展位）
+                uint canId = frame.can_id & 0x1FFFFFFF;
+
+                // 检查该CAN ID是否有注册的信号
+                if (!canIdSignals.TryGetValue(canId, out var signals)) continue;
+
+                foreach (var signal in signals)
+                {
+                    if (!signalDefinitions.TryGetValue(signal.SystemName, out var signalDef)) continue;
+
+                    // 1. 从CAN帧中提取原始值
+                    ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalDef);
+
+                    // 2. 转换为物理值
+                    double value = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalDef);
+
+                    // 3. 根据精度要求四舍五入
+                    int decimalPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(signalDef.Factor);
+                    double physicalValue = Math.Round(value, decimalPlaces);
+
+                    // 4. 更新缓存（实时更新）
+                    _signalValues[signal.SystemName] = physicalValue;
+
+                    // 5. 实时处理故障信号（不等待UI更新）
+                    if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
+                    {
+                        ProcessFaultSignal(signal.SystemName, physicalValue);
+                    }
+
+                    // 6. 实时监控关键信号（电压、电流、功率）
+                    if (_protectionParameters != null && !_stopCommandSent)
+                    {
+                        CheckCriticalSignals(signal.SystemName, physicalValue);
+                    }
+
+                    // 7. 实时更新运行状态
+                    UpdateDeviceStatus(signal.SystemName, physicalValue);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 发送读取故障指令
+        /// </summary>
+        private void SendReadFaultCommand(object? state)
+        {
+            // 检查模块发送状态
+            if (!_moduleSendingEnabled)
+            {
+                return;
+            }
+
+            if ((_acRunStatus == 0xFF) && (_acreadFaultCanId != 0))
+            {
+                // 构造读取故障指令
+                byte[] data = new byte[8];
+                data[0] = 0x01;
+                CANManager.Instance.SendCommand(
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        _acreadFaultCanId,
+                        data
+                    );
+            }
+
+            if ((_dcRunStatus == 0xFF) && (_dcreadFaultCanId != 0))
+            {
+                // 构造读取故障指令
+                byte[] data = new byte[8];
+                data[0] = 0x01;
+                CANManager.Instance.SendCommand(
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        _dcreadFaultCanId,
+                        data
+                    );
+            }
+
+            // 查询故障显示方法
+            DisplayNextFault(null);
+        }
+
+        #endregion
+
+        // ==================== 信号处理区域 ====================
+        #region 信号处理
+
+        /// <summary>
+        /// 处理信号定义
+        /// </summary>
         private void ProcessSignals(List<SignalInfo> signals)
         {
             // 添加时间显示项到信号列表
@@ -360,56 +441,7 @@ namespace ChargeDebug.Form
                     }
                     else
                     {
-                        switch (signal.SystemName)
-                        {
-                            case "AC运行状态":
-                                lblACStatus.Text = $"{signal.SystemName}:";
-                                break;
-                            case "AC运行模式":
-                                lblACMode.Text = $"{signal.SystemName}:";
-                                break;
-                            case "DC运行状态":
-                                lblDCStatus.Text = $"{signal.SystemName}:";
-                                break;
-                            case "DC运行模式":
-                                lblDCMode.Text = $"{signal.SystemName}:";
-                                break;
-                            case "生命帧":
-                                break;
-                            case "清除故障DC":
-                                _dcfaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    System.Globalization.NumberStyles.HexNumber);
-                                break;
-                            case "清除故障AC":
-                                _acfaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    System.Globalization.NumberStyles.HexNumber);
-                                break;
-                            // +++ 新增读取故障信号识别 +++
-                            case "读取AC故障":
-                                _acreadFaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    System.Globalization.NumberStyles.HexNumber);
-                                break;
-                            case "读取DC故障":
-                                _dcreadFaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    System.Globalization.NumberStyles.HexNumber);
-                                break;
-                            case "电压档位选择":
-                                _voltageCanId = uint.Parse(signal.CANID.Replace("0x", ""),
-                                    System.Globalization.NumberStyles.HexNumber);
-                                break;
-                            default:
-                                allSignals.Add(new Showdata
-                                {
-                                    SystemName = signal.SystemName,
-                                    Unit = signal.Unit,
-                                });
-                                signalData.Add(new Showdata
-                                {
-                                    SystemName = signal.SystemName,
-                                    Unit = signal.Unit,
-                                });
-                                break;
-                        }
+                        ProcessNonFaultSignal(signal, canId);
                     }
                 }
 
@@ -425,167 +457,132 @@ namespace ChargeDebug.Form
                 }
             }
 
-            // +++ 新增故障信号统计 +++
+            // 新增故障信号统计
             LogService.Log($"共发现 {_faultSignalDefinitions.Count} 个故障信号");
 
             // 加载默认全部信号到表格
             gridControl.DataSource = signalData;
         }
 
-        // 更新时间显示
-        private void UpdateTimeDisplay()
+        /// <summary>
+        /// 处理非故障信号
+        /// </summary>
+        private void ProcessNonFaultSignal(SignalInfo signal, uint canId)
         {
-            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
-
-            try
+            switch (signal.SystemName)
             {
-                // 切换到UI线程更新
-                if (this.InvokeRequired)
-                {
-                    this.BeginInvoke(new Action(UpdateTimeDisplay));
-                    return;
-                }
-
-                // 更新累计运行时间
-                if (_startupManager.IsRunning && _startTime != DateTime.MinValue)
-                {
-                    TimeSpan totalTime = DateTime.Now - _startTime;
-                    _totalTimeData.Value = $"{totalTime.Hours:00}:{totalTime.Minutes:00}:{totalTime.Seconds:00}";
-                }
-                else
-                {
-                    //_totalTimeData.Value = "00:00:00";
-                }
-
-                // 更新工步运行时间
-                if (_startupManager.IsRunning && _stepStartTime != DateTime.MinValue)
-                {
-                    TimeSpan stepTime = DateTime.Now - _stepStartTime;
-                    _stepTimeData.Value = $"{stepTime.Hours:00}:{stepTime.Minutes:00}:{stepTime.Seconds:00}";
-                }
-                else
-                {
-                    //_stepTimeData.Value = "00:00:00";
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"更新时间显示错误: {ex.Message}");
+                case "AC运行状态":
+                    lblACStatus.Text = $"{signal.SystemName}:";
+                    break;
+                case "AC运行模式":
+                    lblACMode.Text = $"{signal.SystemName}:";
+                    break;
+                case "DC运行状态":
+                    lblDCStatus.Text = $"{signal.SystemName}:";
+                    break;
+                case "DC运行模式":
+                    lblDCMode.Text = $"{signal.SystemName}:";
+                    break;
+                case "生命帧":
+                    break;
+                case "清除故障DC":
+                    _dcfaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
+                        System.Globalization.NumberStyles.HexNumber);
+                    break;
+                case "清除故障AC":
+                    _acfaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
+                        System.Globalization.NumberStyles.HexNumber);
+                    break;
+                case "读取AC故障":
+                    _acreadFaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
+                        System.Globalization.NumberStyles.HexNumber);
+                    break;
+                case "读取DC故障":
+                    _dcreadFaultCanId = uint.Parse(signal.CANID.Replace("0x", ""),
+                        System.Globalization.NumberStyles.HexNumber);
+                    break;
+                case "电压档位选择":
+                    _voltageCanId = uint.Parse(signal.CANID.Replace("0x", ""),
+                        System.Globalization.NumberStyles.HexNumber);
+                    break;
+                default:
+                    allSignals.Add(new Showdata
+                    {
+                        SystemName = signal.SystemName,
+                        Unit = signal.Unit,
+                    });
+                    signalData.Add(new Showdata
+                    {
+                        SystemName = signal.SystemName,
+                        Unit = signal.Unit,
+                    });
+                    break;
             }
         }
 
-        /*
-         * 初始化CAN通信 (使用新版API)
-         */
-        private void InitializeCAN(string title)
+        /// <summary>
+        /// 获取复用信号显示文本
+        /// </summary>
+        private string GetReuseSignalDisplayText(string signalName, double value)
         {
-            lock (_canInitLock)
+            if (_reuseMappings.TryGetValue(signalName, out var mapping))
             {
-                // 双重检查防止重复初始化
-                if (_disposed || !this.IsHandleCreated) return;
+                // 将数值转换为十六进制键
+                string key = $"0x{Convert.ToInt32(value).ToString("X2")}";
 
-                try
+                if (mapping.TryGetValue(key, out var description))
                 {
-                    CANManager.Instance.Init();
-
-                    // 1. 注册数据处理器
-                    CANManager.Instance.RegisterDataHandler(_equipment.DeviceIndex, _equipment.CanIndex, HandleCANFrame);
-
-                    // 2. 向CAN管理器注册信号定义
-                    foreach (var kvp in canIdSignals)
-                    {
-                        CANManager.Instance.RegisterSignals(kvp.Key, kvp.Value);
-                    }
-
-                    // 3.注册连接状态变化事件
-                    CANManager.Instance.OnConnectionStatusChanged += HandleConnectionStatusChanged;
-
-                    // 4.向CAN管理器注册通道
-                    CANManager.Instance.RegisterChannel(_equipment);
-                    LogService.Log($"{title}注册成功:{_equipment.DeviceIP}");
+                    return description;
                 }
-                catch (Exception ex)
-                {
-                    LogService.Log($"{title}注册失败：{ex.Message}");
-                }
+                return $"未知值({value})";
+            }
+
+            // 非复用信号：根据信号定义格式化
+            if (signalDefinitions.TryGetValue(signalName, out var signalDef))
+            {
+                int decimalPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(signalDef.Factor);
+                return Math.Round(value, decimalPlaces).ToString();
+            }
+
+            return value.ToString();
+        }
+
+        #endregion
+
+        // ==================== 设备状态管理区域 ====================
+        #region 设备状态管理
+
+        /// <summary>
+        /// 更新设备状态
+        /// </summary>
+        private void UpdateDeviceStatus(string signalName, double physicalValue)
+        {
+            switch (signalName)
+            {
+                case "AC运行状态":
+                    _acRunStatus = Convert.ToUInt32(physicalValue);
+                    break;
+                case "DC运行状态":
+                    _dcRunStatus = Convert.ToUInt32(physicalValue);
+                    break;
+                case "AC运行模式":
+                    _acRunMode = Convert.ToUInt32(physicalValue);
+                    break;
+                case "DC运行模式":
+                    _dcRunMode = Convert.ToUInt32(physicalValue);
+                    break;
+            }
+
+            if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
+            {
+                // 触发停机指令，只发一次
+                SendStopCommandIfNeeded();
             }
         }
 
-        /*
-         * CAN数据帧处理函数 (新版API)
-         */
-        private void HandleCANFrame(List<CANManager.ZCAN_Receive_Data> frames)
-        {
-            // 检查销毁状态和句柄
-            if (_disposed || this.IsDisposed || !this.IsHandleCreated)
-                return;
-
-            foreach (var frame in frames)
-            {
-                // 提取标准CAN ID（去除扩展位）
-                uint canId = frame.can_id & 0x1FFFFFFF;
-
-                // 检查该CAN ID是否有注册的信号
-                if (!canIdSignals.TryGetValue(canId, out var signals)) continue;
-
-                foreach (var signal in signals)
-                {
-                    if (!signalDefinitions.TryGetValue(signal.SystemName, out var signalDef)) continue;
-
-                    // 1. 从CAN帧中提取原始值
-                    ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalDef);
-
-                    // 2. 转换为物理值
-                    double value = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalDef);
-
-                    // 3. 根据精度要求四舍五入
-                    int decimalPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(signalDef.Factor);
-
-                    double physicalValue = Math.Round(value, decimalPlaces);
-
-                    // 4. 更新缓存（实时更新）
-                    _signalValues[signal.SystemName] = physicalValue;
-
-                    // 5. 实时处理故障信号（不等待UI更新）
-                    if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
-                    {
-                        ProcessFaultSignal(signal.SystemName, physicalValue);
-                    }
-
-                    // 6. 实时监控关键信号（电压、电流、功率）
-                    if (_protectionParameters != null && !_stopCommandSent)
-                    {
-                        CheckCriticalSignals(signal.SystemName, physicalValue);
-                    }
-
-                    // 7. 实时更新运行状态
-                    switch (signal.SystemName)
-                    {
-                        case "AC运行状态":
-                            _acRunStatus = Convert.ToUInt32(physicalValue);
-                            break;
-                        case "DC运行状态":
-                            _dcRunStatus = Convert.ToUInt32(physicalValue);
-                            break;
-                        case "AC运行模式":
-                            _acRunMode = Convert.ToUInt32(physicalValue);
-                            break;
-                        case "DC运行模式":
-                            _dcRunMode = Convert.ToUInt32(physicalValue);
-                            break;
-
-                    }
-
-                    if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
-                    {
-                        //触发停机指令，只发一次
-                        SendStopCommandIfNeeded();
-                    }
-                }
-            }
-        }
-
-        // 新增方法：检查关键信号是否超出阈值
+        /// <summary>
+        /// 检查关键信号是否超出阈值
+        /// </summary>
         private void CheckCriticalSignals(string signalName, double value)
         {
             try
@@ -596,14 +593,18 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverVoltage, out double overVoltage) &&
                         value > overVoltage)
                     {
-                        LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
+                        XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
                              value < underVoltage)
                     {
-                        LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
+                        XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
                     }
                 }
 
@@ -613,14 +614,18 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverCurrent, out double overCurrent) &&
                         value > overCurrent)
                     {
-                        LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
+                        XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderCurrent, out double underCurrent) &&
                              value < underCurrent)
                     {
-                        LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
+                        XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
                     }
                 }
 
@@ -630,14 +635,18 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverPower, out double overPower) &&
                         value > overPower)
                     {
-                        LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
+                        XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderPower, out double underPower) &&
                              value < underPower)
                     {
-                        LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
+                        faultindicator = true;
                         SendStopCommandIfNeeded();
+                        LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
+                        XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
                     }
                 }
             }
@@ -647,7 +656,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 新增方法：发送停机指令（如果需要）
+        /// <summary>
+        /// 发送停机指令（如果需要）
+        /// </summary>
         private void SendStopCommandIfNeeded()
         {
             if (!_stopCommandSent)
@@ -678,7 +689,104 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 新增方法：处理故障信号（实时）
+        /// <summary>
+        /// 检测设备状态是否改变
+        /// </summary>
+        private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout)
+        {
+            DateTime startTime = DateTime.Now;
+            uint initialStatus = currentStatus;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
+                if (currentStatus == 0x01 || currentStatus == 0x02)
+                {
+                    return true; // 状态已改变
+                }
+
+                // 等待一段时间再检查
+                await Task.Delay(100);
+            }
+
+            // 超时，状态未改变
+            return false;
+        }
+
+        /// <summary>
+        /// 检查运行模式
+        /// </summary>
+        private Task<bool> CheckRunMode(string workingMode)
+        {
+            uint mode = 0;
+            switch (workingMode)
+            {
+                case "恒流充电":
+                    mode = 0x03;
+                    break;
+                case "恒流放电":
+                    mode = 0x23;
+                    break;
+                case "恒压充电":
+                    mode = 0x02;
+                    break;
+                case "恒压放电":
+                    mode = 0x22;
+                    break;
+                case "恒功率充电":
+                    mode = 0x01;
+                    break;
+                case "恒功率放电":
+                    mode = 0x21;
+                    break;
+                case "搁置":
+                    mode = 0x05;
+                    break;
+                case "静置":
+                    mode = 0x06;
+                    break;
+                case "停机":
+                    mode = 0x00;
+                    break;
+            }
+
+            if (mode == _dcRunMode)
+            {
+                return Task.FromResult(true);
+            }
+            else
+            {
+                return Task.FromResult(false);
+            }
+        }
+
+        /// <summary>
+        /// 比较参数是否有变化
+        /// </summary>
+        private bool CompareParameters(ConfigurationData oldParams, ConfigurationData newParams)
+        {
+            // 比较保护参数
+            if (oldParams.OverVoltage != newParams.OverVoltage ||
+                oldParams.UnderVoltage != newParams.UnderVoltage ||
+                oldParams.OverCurrent != newParams.OverCurrent ||
+                oldParams.UnderCurrent != newParams.UnderCurrent ||
+                oldParams.OverPower != newParams.OverPower ||
+                oldParams.UnderPower != newParams.UnderPower)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        #endregion
+
+        // ==================== 故障处理区域 ====================
+        #region 故障处理
+
+        /// <summary>
+        /// 处理故障信号（实时）
+        /// </summary>
         private void ProcessFaultSignal(string signalName, double value)
         {
             if (value != 0) // 非0值表示故障
@@ -723,48 +831,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 新增方法：发送读取故障指令
-        private void SendReadFaultCommand(object? state)
-        {
-            // 检查模块发送状态
-            if (!_moduleSendingEnabled)
-            {
-                return;
-            }
-
-            if ((_acRunStatus == 0xFF) && (_acreadFaultCanId != 0))
-            {
-                // 构造读取故障指令（根据协议可能需要特定数据）
-                byte[] data = new byte[8];
-                // 示例：第一个字节为0x01表示读取故障
-                data[0] = 0x01;
-                CANManager.Instance.SendCommand(
-                        _equipment.DeviceIndex,
-                        _equipment.CanIndex,
-                        _acreadFaultCanId,
-                        data
-                    );
-            }
-
-            if ((_dcRunStatus == 0xFF) && (_dcreadFaultCanId != 0))
-            {
-                // 构造读取故障指令（根据协议可能需要特定数据）
-                byte[] data = new byte[8];
-                // 示例：第一个字节为0x01表示读取故障
-                data[0] = 0x01;
-                CANManager.Instance.SendCommand(
-                        _equipment.DeviceIndex,
-                        _equipment.CanIndex,
-                        _dcreadFaultCanId,
-                        data
-                    );
-            }
-
-            //查询故障显示方法
-            DisplayNextFault(null);
-        }
-
-        // +++ 新增方法：从显示队列中移除特定故障 +++
+        /// <summary>
+        /// 从显示队列中移除特定故障
+        /// </summary>
         private void RemoveFaultFromDisplayQueue(string signalName)
         {
             lock (_faultQueueLock)
@@ -793,7 +862,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // +++ 新增方法：重建显示队列（确保只包含当前活跃故障） +++
+        /// <summary>
+        /// 重建显示队列（确保只包含当前活跃故障）
+        /// </summary>
         private void RebuildFaultDisplayQueue()
         {
             lock (_faultQueueLock)
@@ -811,7 +882,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // +++ 新增故障显示方法 +++
+        /// <summary>
+        /// 显示下一个故障
+        /// </summary>
         private void DisplayNextFault(object state)
         {
             // 添加销毁状态检查
@@ -890,30 +963,153 @@ namespace ChargeDebug.Form
             }
         }
 
-        private string GetReuseSignalDisplayText(string signalName, double value)
+        #endregion
+
+        // ==================== 用户界面更新区域 ====================
+        #region 用户界面更新
+
+        /// <summary>
+        /// 从缓存更新UI
+        /// </summary>
+        private void UpdateUIFromCache()
         {
-            if (_reuseMappings.TryGetValue(signalName, out var mapping))
-            {
-                // 将数值转换为十六进制键（如0x01）
-                string key = $"0x{Convert.ToInt32(value).ToString("X2")}";
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
 
-                if (mapping.TryGetValue(key, out var description))
+            // 切换到UI线程
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(UpdateUIFromCache));
+                return;
+            }
+
+            try
+            {
+                // 创建信号值的快照
+                var snapshot = _signalValues.ToArray();
+
+                foreach (var kv in snapshot)
                 {
-                    return description;
+                    string signalName = kv.Key;
+                    double value = kv.Value;
+
+                    // 获取显示文本
+                    string displayValue = GetReuseSignalDisplayText(signalName, value);
+
+                    // 更新表格
+                    var dataItem = signalData.FirstOrDefault(s => s.SystemName == signalName);
+                    if (dataItem != null)
+                    {
+                        dataItem.Value = displayValue;
+                    }
+
+                    // 检查设备状态
+                    currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
+
+                    // 更新状态标签
+                    UpdateStatusLabels(signalName, displayValue);
+                    UpdateStatusDisplay(currentStatus);
                 }
-                return $"未知值({value})";
             }
-
-            // 非复用信号：根据信号定义格式化
-            if (signalDefinitions.TryGetValue(signalName, out var signalDef))
+            catch (Exception ex)
             {
-                int decimalPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(signalDef.Factor);
-                return Math.Round(value, decimalPlaces).ToString();
+                LogService.Log($"UI更新错误: {ex.Message}");
             }
-
-            return value.ToString();
         }
 
+        /// <summary>
+        /// 更新状态显示
+        /// </summary>
+        private void UpdateStatusDisplay(uint status)
+        {
+            switch (status)
+            {
+                case 0x00: // 待机
+                    UpdateConnectionStatusUI("待机", Color.Yellow);
+                    break;
+                case 0x01: // 启动过程中
+                    UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
+                    break;
+                case 0x02: // 运行
+                    UpdateConnectionStatusUI("运行", Color.Green);
+                    break;
+                case 0x03: // 停机过程中
+                    UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 更新连接状态UI
+        /// </summary>
+        private void UpdateConnectionStatusUI(string text, Color color)
+        {
+            // 添加销毁状态检查
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+
+            this.BeginInvoke((Action)(() =>
+            {
+                // 再次检查，因为可能在调用过程中被销毁
+                if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+
+                if (_isConnected)
+                {
+                    panelControl.Appearance.BackColor = color;
+                    panelControl.BorderStyle = BorderStyles.NoBorder;
+                    lblConnectionStatus.Text = text;
+                }
+                else
+                {
+                    panelControl.Appearance.BackColor = Color.Red;
+                    panelControl.BorderStyle = BorderStyles.NoBorder;
+                    lblConnectionStatus.Text = "已断开";
+
+                    // 添加重连指示器
+                    lblConnectionStatus.Text += " (重连中...)";
+                }
+            }));
+        }
+
+        /// <summary>
+        /// 更新时间显示
+        /// </summary>
+        private void UpdateTimeDisplay()
+        {
+            if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+
+            try
+            {
+                // 切换到UI线程更新
+                if (this.InvokeRequired)
+                {
+                    this.BeginInvoke(new Action(UpdateTimeDisplay));
+                    return;
+                }
+
+                // 更新累计运行时间
+                if (_startupManager.IsRunning && _startTime != DateTime.MinValue)
+                {
+                    TimeSpan totalTime = DateTime.Now - _startTime;
+                    _totalTimeData.Value = $"{totalTime.Hours:00}:{totalTime.Minutes:00}:{totalTime.Seconds:00}";
+                }
+
+                // 更新工步运行时间
+                if (_startupManager.IsRunning && _stepStartTime != DateTime.MinValue)
+                {
+                    TimeSpan stepTime = DateTime.Now - _stepStartTime;
+                    _stepTimeData.Value = $"{stepTime.Hours:00}:{stepTime.Minutes:00}:{stepTime.Seconds:00}";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"更新时间显示错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新状态标签
+        /// </summary>
         private void UpdateStatusLabels(string signalName, string displayValue)
         {
             switch (signalName)
@@ -933,132 +1129,75 @@ namespace ChargeDebug.Form
             }
         }
 
-        private void InitializeUI()
+        /// <summary>
+        /// 动态调整标签字体大小以适应可用空间
+        /// </summary>
+        private void AdjustFontSizeToFitLabel()
         {
-            //设置模块容器大小
-            this.ClientSize = new Size(400, 700);
-            //通道容器
-            GroupControl groupControl = new GroupControl();
-            groupControl.Text = _title;
-            groupControl.Dock = DockStyle.Fill;
-            groupControl.Padding = new System.Windows.Forms.Padding(-3);
-            groupControl.Margin = new System.Windows.Forms.Padding(0);
-
-            //主布局容器
-            LayoutControl layoutControl = new LayoutControl();
-            layoutControl.Dock = DockStyle.Fill;
-            layoutControl.Root.Padding = new DevExpress.XtraLayout.Utils.Padding(-3);
-            groupControl.Controls.Add(layoutControl);
-
-            //添加控件项
-            AddACDCStatusRows(layoutControl); // 新增状态行
-            AddParameters(layoutControl);//参数表格
-            AddExceptionAlert(layoutControl);//异常信息
-
-            // 添加上下文菜单
-            contextMenu = new ContextMenuStrip();
-            var dataselection = new ToolStripMenuItem("数据选择");
-            var poweron = new ToolStripMenuItem("启动测试");
-            var parameterset = new ToolStripMenuItem("参数设置");
-            var shutDown = new ToolStripMenuItem("停止测试");
-            var clearfault = new ToolStripMenuItem("清除故障");
-            var lowvoltage = new ToolStripMenuItem("电压低档");
-            var gavoltage = new ToolStripMenuItem("电压高档");
-            dataselection.Click += ShowSignalSelector;
-            poweron.Click += PoweronAsync;
-            parameterset.Click += ParameterSet;
-            shutDown.Click += ShutDown;
-            clearfault.Click += Clearfault;
-            lowvoltage.Click += Wvoltage;
-            gavoltage.Click += Gavoltage;
-            contextMenu.Items.AddRange(new[] { dataselection, poweron, parameterset, shutDown, clearfault });
-            gridControl.ContextMenuStrip = contextMenu;
-
-            this.Controls.Add(groupControl);
-        }
-
-        private void Gavoltage(object? sender, EventArgs e)
-        {
-            if (_voltageCanId != 0)
+            // 确保标签已初始化且有文本内容
+            if (lblConnectionStatus == null ||
+                string.IsNullOrEmpty(lblConnectionStatus.Text) ||
+                lblConnectionStatus.Width <= 0)
             {
-                byte[] data = new byte[8];
-                data[0] = 0x02;
-                CANManager.Instance.SendCommand(
-                _equipment.DeviceIndex,
-                _equipment.CanIndex,
-                _voltageCanId,
-                data
-                );
-            }
-            XtraMessageBox.Show("电压高档位切换成功");
-        }
-
-        private void Wvoltage(object? sender, EventArgs e)
-        {
-            if (_voltageCanId != 0)
-            {
-                byte[] data = new byte[8];
-                data[0] = 0x01;
-                CANManager.Instance.SendCommand(
-                _equipment.DeviceIndex,
-                _equipment.CanIndex,
-                _voltageCanId,
-                data
-                );
-            }
-            XtraMessageBox.Show("电压低档位切换成功");
-        }
-
-        private void Clearfault(object? sender, EventArgs e)
-        {
-            if (_acfaultCanId != 0)
-            {
-                byte[] data = new byte[8];
-                data[0] = 0x01;
-
-                CANManager.Instance.SendCommand(
-                    _equipment.DeviceIndex,
-                    _equipment.CanIndex,
-                    _acfaultCanId,
-                    data
-                );
+                return;
             }
 
-            if (_dcfaultCanId != 0)
+            try
             {
-                byte[] data = new byte[8];
-                data[0] = 0x01;
-
-                CANManager.Instance.SendCommand(
-                    _equipment.DeviceIndex,
-                    _equipment.CanIndex,
-                    _dcfaultCanId,
-                    data
-                );
-            }
-
-            XtraMessageBox.Show("清除故障成功");
-            LogService.Log("清除故障成功");
-        }
-
-        private void ShowSignalSelector(object? sender, EventArgs e)
-        {
-            var form = new SignalSelectorForm(allSignals, signalData.ToList());
-            if (form.ShowDialog() == DialogResult.OK)
-            {
-                signalData.Clear();
-                foreach (var signal in form.SelectedSignals)
+                using (Graphics g = lblConnectionStatus.CreateGraphics())
                 {
-                    signalData.Add(new Showdata
+                    SizeF textSize;
+                    float maxFontSize = 72f;
+                    float minFontSize = 8f;
+                    float currentFontSize = maxFontSize;
+                    Font testFont;
+
+                    // 使用二分查找确定最佳字体大小
+                    while (maxFontSize - minFontSize > 0.1f)
                     {
-                        SystemName = signal.SystemName,
-                        Value = "",
-                        Unit = signal.Unit
-                    });
+                        currentFontSize = (maxFontSize + minFontSize) / 2;
+                        testFont = new Font(lblConnectionStatus.Font.FontFamily,
+                                           currentFontSize,
+                                           lblConnectionStatus.Font.Style);
+
+                        // 测量文本所需空间
+                        textSize = g.MeasureString(lblConnectionStatus.Text, testFont);
+
+                        // 检查文本是否适合标签宽度（保留10%边距）
+                        if (textSize.Width < lblConnectionStatus.Width * 0.9f)
+                        {
+                            minFontSize = currentFontSize;
+                        }
+                        else
+                        {
+                            maxFontSize = currentFontSize;
+                        }
+
+                        testFont.Dispose();
+                    }
+
+                    // 应用新字体大小
+                    lblConnectionStatus.Font = new Font(
+                        lblConnectionStatus.Font.FontFamily,
+                        minFontSize,
+                        lblConnectionStatus.Font.Style
+                    );
                 }
             }
+            catch (Exception ex)
+            {
+                LogService.Log($"字体调整错误: {ex.Message}");
+            }
         }
 
+        #endregion
+
+        // ==================== 设备控制区域 ====================
+        #region 设备控制
+
+        /// <summary>
+        /// 异步启动设备
+        /// </summary>
         private async void PoweronAsync(object? sender, EventArgs e)
         {
             try
@@ -1067,22 +1206,22 @@ namespace ChargeDebug.Form
                 if (currentStatus == 0x00 || currentStatus == 0x03)
                 {
                     // 显示启动配置对话框
-                    using (var configForm = new StartConfiguration(_title,"启动配置"))
+                    using (var configForm = new StartConfiguration(_title, "启动配置"))
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
                             // 获取用户设置的配置数据
                             _protectionParameters = configForm.Configuration;
-                            _stopCommandSent = false; // 重置停机指令发送标志
+                            _stopCommandSent = false;
 
-                            //开始启动
+                            // 开始启动
                             bool run = await _startupManager.StartDeviceAsync(_protectionParameters, true);
 
                             if (run)
                             {
-                                // 检测设备状态变化_dcRunMode
+                                // 检测设备状态变化
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
-                                
+
                                 // 检测设备运行工步码是否一致
                                 bool runmode = await CheckRunMode(configForm.Configuration.WorkingMode);
 
@@ -1102,13 +1241,11 @@ namespace ChargeDebug.Form
                                 else
                                 {
                                     // 状态已改变，启动成功
-                                    // 在启动设备成功后记录时间
                                     _totalTimeData.Value = "00:00:00";
                                     _stepTimeData.Value = "00:00:00";
                                     _startTime = DateTime.Now;
                                     _stepStartTime = DateTime.Now;
                                     LogService.Log("设备启动成功");
-                                    //XtraMessageBox.Show("设备启动成功");
                                 }
                             }
                             else
@@ -1132,72 +1269,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        private Task<bool> CheckRunMode(string workingMode)
-        {
-            uint mode = 0;
-            switch (workingMode)
-            {
-                case "恒流充电":
-                    mode = 0x03;
-                    break;
-                case "恒流放电":
-                    mode = 0x23;
-                    break;
-                case "恒压充电":
-                    mode = 0x02;
-                    break;
-                case "恒压放电":
-                    mode = 0x22;
-                    break;
-                case "恒功率充电":
-                    mode = 0x01;
-                    break;
-                case "恒功率放电":
-                    mode = 0x21;
-                    break;
-                case "搁置":
-                    mode = 0x05;
-                    break;
-                case "静置":
-                    mode = 0x06;
-                    break;
-                case "停机":
-                    mode = 0x00;
-                    break;
-            }
-
-            if (mode == _dcRunMode)
-            {
-                return Task.FromResult(true);
-            }
-            else
-            {
-                return Task.FromResult(false);
-            }
-        }
-
-        // 新增方法：检测设备状态是否改变
-        private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout)
-        {
-            DateTime startTime = DateTime.Now;
-            uint initialStatus = currentStatus;
-
-            while (DateTime.Now - startTime < timeout)
-            {
-                // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
-                if (currentStatus == 0x01 || currentStatus == 0x02)
-                {
-                    return true; // 状态已改变
-                }
-
-                // 等待一段时间再检查
-                await Task.Delay(100); // 每100毫秒检查一次
-            }
-
-            // 超时，状态未改变
-            return false;
-        }
-
+        /// <summary>
+        /// 参数设置
+        /// </summary>
         private async void ParameterSet(object? sender, EventArgs e)
         {
             try
@@ -1220,7 +1294,7 @@ namespace ChargeDebug.Form
                         // 获取用户设置的新参数
                         ConfigurationData newParams = paramForm.Configuration;
 
-                        // 比较参数是否有变化  true-保护参数有变化
+                        // 比较参数是否有变化
                         bool hasChanges = CompareParameters(currentParams, newParams);
 
                         // 发送新的参数
@@ -1232,7 +1306,7 @@ namespace ChargeDebug.Form
                             _stepTimeData.Value = "00:00:00";
                             _stepStartTime = DateTime.Now;
 
-                            await Task.Delay(100);//延时100ms
+                            await Task.Delay(100);
 
                             // 检测设备运行工步码是否一致
                             bool runmode = await CheckRunMode(paramForm.Configuration.WorkingMode);
@@ -1265,23 +1339,9 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 比较参数是否有变化
-        private bool CompareParameters(ConfigurationData oldParams, ConfigurationData newParams)
-        {
-            // 比较保护参数
-            if (oldParams.OverVoltage != newParams.OverVoltage ||
-                oldParams.UnderVoltage != newParams.UnderVoltage ||
-                oldParams.OverCurrent != newParams.OverCurrent ||
-                oldParams.UnderCurrent != newParams.UnderCurrent ||
-                oldParams.OverPower != newParams.OverPower ||
-                oldParams.UnderPower != newParams.UnderPower)
-            {
-                return true;
-            }
-
-            return false;
-        }
-
+        /// <summary>
+        /// 停止设备
+        /// </summary>
         private async void ShutDown(object? sender, EventArgs e)
         {
             try
@@ -1301,7 +1361,7 @@ namespace ChargeDebug.Form
 
                     if (success)
                     {
-                        await Task.Delay(100);//延时100ms
+                        await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
                         bool runmode = await CheckRunMode("停机");
@@ -1337,12 +1397,93 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 清除故障
+        /// </summary>
+        private void Clearfault(object? sender, EventArgs e)
+        {
+            if (_acfaultCanId != 0)
+            {
+                byte[] data = new byte[8];
+                data[0] = 0x01;
+
+                CANManager.Instance.SendCommand(
+                    _equipment.DeviceIndex,
+                    _equipment.CanIndex,
+                    _acfaultCanId,
+                    data
+                );
+            }
+
+            if (_dcfaultCanId != 0)
+            {
+                byte[] data = new byte[8];
+                data[0] = 0x01;
+
+                CANManager.Instance.SendCommand(
+                    _equipment.DeviceIndex,
+                    _equipment.CanIndex,
+                    _dcfaultCanId,
+                    data
+                );
+            }
+
+            XtraMessageBox.Show("清除故障成功");
+            LogService.Log("清除故障成功");
+        }
+
+        /// <summary>
+        /// 电压低档切换
+        /// </summary>
+        private void Wvoltage(object? sender, EventArgs e)
+        {
+            if (_voltageCanId != 0)
+            {
+                byte[] data = new byte[8];
+                data[0] = 0x01;
+                CANManager.Instance.SendCommand(
+                _equipment.DeviceIndex,
+                _equipment.CanIndex,
+                _voltageCanId,
+                data
+                );
+            }
+            XtraMessageBox.Show("电压低档位切换成功");
+        }
+
+        /// <summary>
+        /// 电压高档切换
+        /// </summary>
+        private void Gavoltage(object? sender, EventArgs e)
+        {
+            if (_voltageCanId != 0)
+            {
+                byte[] data = new byte[8];
+                data[0] = 0x02;
+                CANManager.Instance.SendCommand(
+                _equipment.DeviceIndex,
+                _equipment.CanIndex,
+                _voltageCanId,
+                data
+                );
+            }
+            XtraMessageBox.Show("电压高档位切换成功");
+        }
+
+        #endregion
+
+        // ==================== UI组件创建区域 ====================
+        #region UI组件创建
+
+        /// <summary>
+        /// 添加AC/DC状态行
+        /// </summary>
         private void AddACDCStatusRows(LayoutControl layoutControl)
         {
             // 创建垂直排列的容器
             var container = new LayoutControlGroup
             {
-                DefaultLayoutType = LayoutType.Vertical, //垂直排列
+                DefaultLayoutType = LayoutType.Vertical,
                 GroupStyle = GroupStyle.Light,
                 TextVisible = false,
                 Padding = new DevExpress.XtraLayout.Utils.Padding(-3),
@@ -1353,10 +1494,11 @@ namespace ChargeDebug.Form
             container.AddItem(CreateStatusRow(out lblACStatus, out lblACMode));
             // 添加DC状态行
             container.AddItem(CreateStatusRow(out lblDCStatus, out lblDCMode));
-            // 添加运行时间行
-            //container.AddItem(CreateStatusRow(out _lblStepTime, out _lblTotalTime));
         }
 
+        /// <summary>
+        /// 创建状态行
+        /// </summary>
         private LayoutControlItem CreateStatusRow(out LabelControl lblStatus, out LabelControl lblMode)
         {
             // 状态标签
@@ -1391,6 +1533,9 @@ namespace ChargeDebug.Form
             };
         }
 
+        /// <summary>
+        /// 添加参数表格
+        /// </summary>
         private void AddParameters(LayoutControl layoutControl)
         {
             gridControl = new GridControl();
@@ -1409,6 +1554,9 @@ namespace ChargeDebug.Form
             layoutControl.AddItem("参数列表", gridControl);
         }
 
+        /// <summary>
+        /// 添加异常警报
+        /// </summary>
         private void AddExceptionAlert(LayoutControl layoutControl)
         {
             panelControl = new PanelControl();
@@ -1436,14 +1584,13 @@ namespace ChargeDebug.Form
                     {
                         HAlignment = HorzAlignment.Center,
                         VAlignment = VertAlignment.Center,
-                        WordWrap = WordWrap.NoWrap // 禁止自动换行
+                        WordWrap = WordWrap.NoWrap
                     }
                 }
             };
 
-            // 设置初始字体（稍后会动态调整）
+            // 设置初始字体
             lblConnectionStatus.Font = new Font("Tahoma", 12, FontStyle.Bold);
-
             lblConnectionStatus.Appearance.Font = new Font("Tahoma", 24F, FontStyle.Bold);
 
             // 绑定事件
@@ -1454,67 +1601,85 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 动态调整标签字体大小以适应可用空间
+        /// 显示信号选择器
         /// </summary>
-        private void AdjustFontSizeToFitLabel()
+        private void ShowSignalSelector(object? sender, EventArgs e)
         {
-            // 确保标签已初始化且有文本内容
-            if (lblConnectionStatus == null ||
-                string.IsNullOrEmpty(lblConnectionStatus.Text) ||
-                lblConnectionStatus.Width <= 0)
+            var form = new SignalSelectorForm(allSignals, signalData.ToList());
+            if (form.ShowDialog() == DialogResult.OK)
             {
-                return;
+                signalData.Clear();
+                foreach (var signal in form.SelectedSignals)
+                {
+                    signalData.Add(new Showdata
+                    {
+                        SystemName = signal.SystemName,
+                        Value = "",
+                        Unit = signal.Unit
+                    });
+                }
             }
+        }
+
+        #endregion
+
+        // ==================== 资源清理区域 ====================
+        #region 资源清理
+
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        public new void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
 
             try
             {
-                using (Graphics g = lblConnectionStatus.CreateGraphics())
-                {
-                    SizeF textSize;
-                    float maxFontSize = 72f;  // 最大字体大小
-                    float minFontSize = 8f;   // 最小字体大小
-                    float currentFontSize = maxFontSize;
-                    Font testFont;
+                // 停止并释放UI更新定时器
+                _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _uiUpdateTimer?.Dispose();
 
-                    // 使用二分查找确定最佳字体大小
-                    while (maxFontSize - minFontSize > 0.1f)
-                    {
-                        currentFontSize = (maxFontSize + minFontSize) / 2;
-                        testFont = new Font(lblConnectionStatus.Font.FontFamily,
-                                           currentFontSize,
-                                           lblConnectionStatus.Font.Style);
+                // 释放读取故障定时器
+                _readFaultTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _readFaultTimer?.Dispose();
 
-                        // 测量文本所需空间
-                        textSize = g.MeasureString(lblConnectionStatus.Text, testFont);
+                // 注销CAN通道
+                CANManager.Instance.UnregisterChannel(
+                    _equipment.DeviceIndex,
+                    _equipment.CanIndex
+                );
 
-                        // 检查文本是否适合标签宽度（保留10%边距）
-                        if (textSize.Width < lblConnectionStatus.Width * 0.9f)
-                        {
-                            minFontSize = currentFontSize;  // 可以尝试更大字体
-                        }
-                        else
-                        {
-                            maxFontSize = currentFontSize;  // 需要更小字体
-                        }
+                // 注销CAN处理器
+                CANManager.Instance.UnregisterDataHandler(
+                    _equipment.DeviceIndex,
+                    _equipment.CanIndex,
+                    HandleCANFrame
+                );
 
-                        testFont.Dispose();
-                    }
+                // 注销连接状态事件
+                CANManager.Instance.OnConnectionStatusChanged -= HandleConnectionStatusChanged;
 
-                    // 应用新字体大小
-                    lblConnectionStatus.Font = new Font(
-                        lblConnectionStatus.Font.FontFamily,
-                        minFontSize,
-                        lblConnectionStatus.Font.Style
-                    );
-                }
+                LogService.Log($"模块 {_title} 已注销");
             }
             catch (Exception ex)
             {
-                LogService.Log($"字体调整错误: {ex.Message}");
+                LogService.Log($"模块注销错误: {ex.Message}");
+            }
+            finally
+            {
+                // 确保调用基类Dispose
+                base.Dispose();
             }
         }
+
+        #endregion
     }
 
+    /// <summary>
+    /// 数据显示类
+    /// 实现属性变更通知接口
+    /// </summary>
     public class Showdata : INotifyPropertyChanged
     {
         private string _systemName;
@@ -1551,7 +1716,7 @@ namespace ChargeDebug.Form
             }
         }
 
-        public bool IsSelected { get; set; } // 新增选中状态属性
+        public bool IsSelected { get; set; }
 
         public event PropertyChangedEventHandler PropertyChanged;
 
