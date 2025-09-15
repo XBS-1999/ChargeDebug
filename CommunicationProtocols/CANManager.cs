@@ -241,7 +241,7 @@ namespace ChargeDebug.Service
 
         // 重连定时器
         private System.Threading.Timer _reconnectTimer;
-        private const int RECONNECT_INTERVAL = 3000; // 3秒尝试重连一次
+        private const int RECONNECT_INTERVAL = 5000; // 5秒尝试重连一次
 
         // 在CANManager类中添加以下字段
         public readonly ConcurrentDictionary<string, ConcurrentQueue<ZCAN_Receive_Data>> _receiveQueues =

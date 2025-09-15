@@ -19,14 +19,10 @@ namespace ChargeDebug
         private readonly EquipmentModel _equipment;
         private readonly string _title;
 
-        // 添加运行状态属性
-        public bool IsRunning { get; private set; }
-
         public StartupManager(EquipmentModel equipment, string title)
         {
             _equipment = equipment;
             _title = title;
-            IsRunning = false; // 初始状态为未运行
         }
 
         /// <summary>
@@ -37,29 +33,24 @@ namespace ChargeDebug
             // 检查设备运行状态 0x00-待机 0x01-启动过程中 0x02-运行 0x03-停机过程中 0xFF-故障
             if ((acRunStatus == 0x02) && (dcRunStatus == 0x02))
             {
-                IsRunning = true;
                 return 0x02;
             }
             else if ((acRunStatus == 0x00) && (dcRunStatus == 0x00))
             {
-                IsRunning = false;
                 return 0x00;
             }
             else
             {
                 if ((acRunStatus == 0xFF) || (dcRunStatus == 0xFF))
                 {
-                    IsRunning = false;
                     return 0xFF;
                 }
                 else if ((acRunStatus == 0x01) || (dcRunStatus == 0x01))
                 {
-                    IsRunning = true;
                     return 0x01;
                 }
                 else
                 {
-                    IsRunning = true;
                     return 0x03;
                 }
             }
@@ -158,7 +149,7 @@ namespace ChargeDebug
                         data
                     );
                     
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
                     {
@@ -230,7 +221,7 @@ namespace ChargeDebug
                         data
                     );
 
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
                     {
@@ -439,7 +430,7 @@ namespace ChargeDebug
                         data
                     );
 
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
                     {
@@ -541,7 +532,7 @@ namespace ChargeDebug
                         data
                     );
 
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
                     {
@@ -608,7 +599,7 @@ namespace ChargeDebug
                         data
                     );
 
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 20);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
                     {

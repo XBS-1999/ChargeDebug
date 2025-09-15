@@ -22,7 +22,7 @@ using DataModel;
 namespace ChargeDebug.Form
 {
     /// <summary>
-    /// 协议配置界面 - 支持多种协议类型（CAN总线、Modbus等）的动态显示和配置
+    /// 协议配置界面 - 支持多种协议类型（CAN总线、RS485-Modbus等）的动态显示和配置
     /// </summary>
     public partial class Agreement : XtraUserControl
     {
@@ -228,7 +228,7 @@ namespace ChargeDebug.Form
                     canHandler.RepositoryTextEdit
                 });
             }
-            else if (protocolType == "Modbus" && _currentProtocolHandler is ModbusProtocolHandler modbusHandler)
+            else if (protocolType == "MODBUS" && _currentProtocolHandler is ModbusProtocolHandler modbusHandler)
             {
                 treeList.RepositoryItems.AddRange(new RepositoryItem[] {
                     modbusHandler.RepoByteOrder,
@@ -2326,7 +2326,7 @@ namespace ChargeDebug.Form
                 catch (Exception ex)
                 {
                     // 记录错误日志或显示错误消息
-                    XtraMessageBox.Show($"加载 Modbus 数据失败: {ex.Message}");
+                    XtraMessageBox.Show($"加载 RS485-Modbus 数据失败: {ex.Message}");
                 }
                 finally
                 {
@@ -2385,7 +2385,7 @@ namespace ChargeDebug.Form
                             long currentDbcFileId, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
             {
                 // Modbus协议不需要复用信号功能
-                XtraMessageBox.Show("Modbus协议不支持复用信号配置");
+                XtraMessageBox.Show("RS485-Modbus协议不支持复用信号配置");
             }
 
             public void AddNewItem(TreeList treeList, string dbcPath)
@@ -2485,13 +2485,13 @@ namespace ChargeDebug.Form
             public void AddNewChildItem(TreeList treeList, string dbcPath)
             {
                 // Modbus协议没有子项概念
-                XtraMessageBox.Show("Modbus协议不支持添加子项");
+                XtraMessageBox.Show("RS485-Modbus协议不支持添加子项");
             }
 
             public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback)
             {
                 // Modbus协议没有子项概念
-                XtraMessageBox.Show("Modbus协议不支持删除子项");
+                XtraMessageBox.Show("RS485-Modbus协议不支持删除子项");
             }
 
             public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
@@ -2530,7 +2530,7 @@ namespace ChargeDebug.Form
             {
                 using (var workbook = new XLWorkbook())
                 {
-                    var worksheet = workbook.Worksheets.Add("Modbus协议");
+                    var worksheet = workbook.Worksheets.Add("RS485-Modbus协议");
 
                     // 添加标题行
                     worksheet.Cell(1, 1).Value = "寄存器地址";
@@ -2650,7 +2650,7 @@ namespace ChargeDebug.Form
                 }
                 catch (Exception ex)
                 {
-                    throw new Exception($"复制Modbus数据失败: {ex.Message}");
+                    throw new Exception($"复制RS485-Modbus数据失败: {ex.Message}");
                 }
             }
 

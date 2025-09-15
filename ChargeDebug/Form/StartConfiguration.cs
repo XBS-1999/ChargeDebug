@@ -46,7 +46,9 @@ namespace ChargeDebug.Form
         // 添加一个公共属性来暴露配置数据
         public ConfigurationData Configuration => configData;
 
-        public StartConfiguration(string channelKey,string text)
+        public event EventHandler Applied;
+
+        public StartConfiguration(string channelKey, string text)
         {
             _channelKey = channelKey;
             InitializeComponent();
@@ -569,20 +571,21 @@ namespace ChargeDebug.Form
             dynamicControls.Add("ConstantPowerDischarge_CurrentLimit", currentLimitValue);
         }
 
-        private void BtnOK_Click(object sender, EventArgs e)
+        private void BtnOK_Click(object? sender, EventArgs e)
         {
             SaveCurrentSettings();
+            Applied?.Invoke(this, EventArgs.Empty);
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
 
-        private void BtnApplication_Click(object sender, EventArgs e)
+        private void BtnApplication_Click(object? sender, EventArgs e)
         {
             SaveCurrentSettings();
-            this.DialogResult = DialogResult.OK;
+            Applied?.Invoke(this, EventArgs.Empty);
         }
 
-        private void BtnCancel_Click(object sender, EventArgs e)
+        private void BtnCancel_Click(object? sender, EventArgs e)
         {
             this.DialogResult = DialogResult.Cancel;
             this.Close();

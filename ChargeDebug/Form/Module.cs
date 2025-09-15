@@ -29,7 +29,7 @@ namespace ChargeDebug.Form
         private bool _initialized = false;
         private volatile bool _disposed = false;
         private bool _isConnected;
-        private bool _stopCommandSent = false;
+        private bool _stopCommandSent = true;
         private bool _isFaultDisplayActive;
 
         // CAN通信相关字段
@@ -44,7 +44,7 @@ namespace ChargeDebug.Form
         private uint _dcRunStatus = 0;
         private uint _acRunMode = 0;
         private uint _dcRunMode = 0;
-        private uint currentStatus;
+        //private uint currentStatus;
 
         // 时间管理字段
         private DateTime _startTime;
@@ -63,7 +63,6 @@ namespace ChargeDebug.Form
         // 故障显示字段
         private readonly Queue<string> _faultDisplayQueue = new Queue<string>();
         private readonly object _faultQueueLock = new object();
-        private bool faultindicator = false;
 
         // UI组件字段
         private GridControl gridControl;
@@ -77,6 +76,7 @@ namespace ChargeDebug.Form
         private BindingList<Showdata> signalData = new BindingList<Showdata>();
         private ContextMenuStrip contextMenu;
         private List<Showdata> allSignals = new List<Showdata>();
+        private StartConfiguration? _paramForm;
 
         // 管理类字段
         private StartupManager _startupManager;
@@ -148,7 +148,7 @@ namespace ChargeDebug.Form
 
             // 初始化启动管理器
             _startupManager = new StartupManager(equipment, title);
-
+            
             // 初始化读取故障定时器（初始不启动）
             _readFaultTimer = new System.Threading.Timer(SendReadFaultCommand, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -278,6 +278,9 @@ namespace ChargeDebug.Form
                     // 4. 向CAN管理器注册通道
                     CANManager.Instance.RegisterChannel(_equipment);
                     LogService.Log($"{title}注册成功:{_equipment.DeviceIP}");
+
+                    // 初始化前先发送停机指令，只发一次
+                    //SendStopCommandIfNeeded();
                 }
                 catch (Exception ex)
                 {
@@ -327,7 +330,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 6. 实时监控关键信号（电压、电流、功率）
-                    if (_protectionParameters != null && !_stopCommandSent)
+                    if (_protectionParameters != null && _stopCommandSent)
                     {
                         CheckCriticalSignals(signal.SystemName, physicalValue);
                     }
@@ -557,6 +560,9 @@ namespace ChargeDebug.Form
         /// </summary>
         private void UpdateDeviceStatus(string signalName, double physicalValue)
         {
+            uint oldDcRunStatus = _dcRunStatus;
+            uint oldAcRunStatus = _acRunStatus;
+
             switch (signalName)
             {
                 case "AC运行状态":
@@ -573,10 +579,54 @@ namespace ChargeDebug.Form
                     break;
             }
 
+            CheckAndControlFaultTimer(oldDcRunStatus, oldAcRunStatus);
+
             if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
             {
                 // 触发停机指令，只发一次
                 SendStopCommandIfNeeded();
+            }
+        }
+
+        /// <summary>
+        /// 检查和控制故障读取定时器
+        /// </summary>
+        private void CheckAndControlFaultTimer(uint oldDcStatus, uint oldAcStatus)
+        {
+            // 检查DC运行状态是否变为故障状态
+            bool dcBecameFault = (oldDcStatus != 0xFF && _dcRunStatus == 0xFF);
+            bool dcRecovered = (oldDcStatus == 0xFF && _dcRunStatus != 0xFF);
+
+            // 检查AC运行状态是否变为故障状态
+            bool acBecameFault = (oldAcStatus != 0xFF && _acRunStatus == 0xFF);
+            bool acRecovered = (oldAcStatus == 0xFF && _acRunStatus != 0xFF);
+
+            // 如果有任一设备进入故障状态，启动定时器
+            if ((dcBecameFault || acBecameFault) && (_acreadFaultCanId != 0 || _dcreadFaultCanId != 0))
+            {
+                // 立即发送一次读取故障指令
+                SendReadFaultCommand(null);
+
+                // 启动定时器，每隔2秒发送一次读取故障指令
+                _readFaultTimer.Change(2000, 2000);
+                LogService.Log("检测到故障状态，启动故障读取定时器");
+            }
+            // 如果所有设备都恢复正常，停止定时器
+            else if ((dcRecovered && _acRunStatus != 0xFF) || (acRecovered && _dcRunStatus != 0xFF))
+            {
+                _readFaultTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                LogService.Log("设备恢复正常，停止故障读取定时器");
+
+                // 清除故障显示
+                lock (_faultQueueLock)
+                {
+                    _activeFaults.Clear();
+                    _faultDisplayQueue.Clear();
+                }
+
+                // 恢复正常状态显示
+                UpdateConnectionStatusUI("已连接", Color.White);
+                _isFaultDisplayActive = false;
             }
         }
 
@@ -593,18 +643,16 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverVoltage, out double overVoltage) &&
                         value > overVoltage)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
-                        XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
+                        //XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
                              value < underVoltage)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
-                        XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
+                        //XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
                     }
                 }
 
@@ -614,18 +662,16 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverCurrent, out double overCurrent) &&
                         value > overCurrent)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
-                        XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
+                        //XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderCurrent, out double underCurrent) &&
                              value < underCurrent)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
-                        XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
+                        //XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
                     }
                 }
 
@@ -635,18 +681,16 @@ namespace ChargeDebug.Form
                     if (double.TryParse(_protectionParameters.OverPower, out double overPower) &&
                         value > overPower)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
-                        XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
+                        //XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderPower, out double underPower) &&
                              value < underPower)
                     {
-                        faultindicator = true;
                         SendStopCommandIfNeeded();
                         LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
-                        XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
+                        //XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
                     }
                 }
             }
@@ -661,10 +705,9 @@ namespace ChargeDebug.Form
         /// </summary>
         private void SendStopCommandIfNeeded()
         {
-            if (!_stopCommandSent)
+            if (_stopCommandSent)
             {
-                _stopCommandSent = true;
-                LogService.Log("检测到异常，发送停机指令");
+                _stopCommandSent = false;
 
                 // 异步发送停机指令，避免阻塞CAN处理线程
                 Task.Run(async () =>
@@ -674,6 +717,9 @@ namespace ChargeDebug.Form
                         bool success = await _startupManager.StopDeviceAsync();
                         if (success)
                         {
+                            // 在停止设备时重置时间
+                            _startTime = DateTime.MinValue;
+                            _stepStartTime = DateTime.MinValue;
                             LogService.Log("停机指令发送成功");
                         }
                         else
@@ -690,17 +736,179 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 检查新参数是否安全（当前信号值不会超出新阈值）
+        /// </summary>
+        private async Task<bool> CheckParametersSafe(ConfigurationData newParams)
+        {
+            try
+            {
+                // 等待获取最新的信号值
+                await Task.Delay(100); // 给一点时间确保信号值已更新
+
+                // 检查电压信号
+                var voltageSignals = _signalValues.Where(kv => kv.Key.Contains(VOLTAGE_SIGNAL)).ToList();
+                foreach (var signal in voltageSignals)
+                {
+                    double value = signal.Value;
+                    if (double.TryParse(newParams.OverVoltage, out double overVoltage) &&
+                        value > overVoltage)
+                    {
+                        LogService.Log($"参数检查失败: 当前电压{value} > 新过压保护值{overVoltage}");
+                        return false;
+                    }
+                    if (double.TryParse(newParams.UnderVoltage, out double underVoltage) &&
+                        value < underVoltage)
+                    {
+                        LogService.Log($"参数检查失败: 当前电压{value} < 新欠压保护值{underVoltage}");
+                        return false;
+                    }
+                }
+
+                // 检查电流信号
+                var currentSignals = _signalValues.Where(kv => kv.Key.Contains(CURRENT_SIGNAL)).ToList();
+                foreach (var signal in currentSignals)
+                {
+                    double value = signal.Value;
+                    if (double.TryParse(newParams.OverCurrent, out double overCurrent) &&
+                        value > overCurrent)
+                    {
+                        LogService.Log($"参数检查失败: 当前电流{value} > 新过流保护值{overCurrent}");
+                        return false;
+                    }
+                    if (double.TryParse(newParams.UnderCurrent, out double underCurrent) &&
+                        value < underCurrent)
+                    {
+                        LogService.Log($"参数检查失败: 当前电流{value} < 新欠流保护值{underCurrent}");
+                        return false;
+                    }
+                }
+
+                // 检查功率信号
+                var powerSignals = _signalValues.Where(kv => kv.Key.Contains(POWER_SIGNAL)).ToList();
+                foreach (var signal in powerSignals)
+                {
+                    double value = signal.Value;
+                    if (double.TryParse(newParams.OverPower, out double overPower) &&
+                        value > overPower)
+                    {
+                        LogService.Log($"参数检查失败: 当前功率{value} > 新过功率保护值{overPower}");
+                        return false;
+                    }
+                    if (double.TryParse(newParams.UnderPower, out double underPower) &&
+                        value < underPower)
+                    {
+                        LogService.Log($"参数检查失败: 当前功率{value} < 新欠功率保护值{underPower}");
+                        return false;
+                    }
+                }
+
+                return true; // 所有检查通过
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"参数安全检查错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 启动前检查关键信号是否超出阈值
+        /// </summary>
+        private async Task<bool> CheckCriticalSignalsBeforeStart()
+        {
+            try
+            {
+                // 等待获取最新的信号值
+                await Task.Delay(100); // 给一点时间确保信号值已更新
+
+                // 检查电压信号
+                var voltageSignals = _signalValues.Where(kv => kv.Key.Contains(VOLTAGE_SIGNAL)).ToList();
+
+                foreach (var signal in voltageSignals)
+                {
+                    double value = signal.Value;
+                    if (_protectionParameters != null)
+                    {
+                        if (double.TryParse(_protectionParameters.OverVoltage, out double overVoltage) &&
+                            value > overVoltage)
+                        {
+                            LogService.Log($"启动前电压异常: {value} > {overVoltage} (过压保护值)");
+                            return false;
+                        }
+                        else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
+                                 value < underVoltage)
+                        {
+                            LogService.Log($"启动前电压异常: {value} < {underVoltage} (欠压保护值)");
+                            return false;
+                        }
+                    }
+                }
+
+                // 检查电流信号
+                var currentSignals = _signalValues.Where(kv => kv.Key.Contains(CURRENT_SIGNAL)).ToList();
+
+                foreach (var signal in currentSignals)
+                {
+                    double value = signal.Value;
+                    if (_protectionParameters != null)
+                    {
+                        if (double.TryParse(_protectionParameters.OverCurrent, out double overCurrent) &&
+                            value > overCurrent)
+                        {
+                            LogService.Log($"启动前电流异常: {value} > {overCurrent} (过流保护值)");
+                            return false;
+                        }
+                        else if (double.TryParse(_protectionParameters.UnderCurrent, out double underCurrent) &&
+                                 value < underCurrent)
+                        {
+                            LogService.Log($"启动前电流异常: {value} < {underCurrent} (欠流保护值)");
+                            return false;
+                        }
+                    }
+                }
+
+                // 检查功率信号
+                var powerSignals = _signalValues.Where(kv => kv.Key.Contains(POWER_SIGNAL)).ToList();
+                foreach (var signal in powerSignals)
+                {
+                    double value = signal.Value;
+                    if (_protectionParameters != null)
+                    {
+                        if (double.TryParse(_protectionParameters.OverPower, out double overPower) &&
+                            value > overPower)
+                        {
+                            LogService.Log($"启动前功率异常: {value} > {overPower} (过功率保护值)");
+                            return false;
+                        }
+                        else if (double.TryParse(_protectionParameters.UnderPower, out double underPower) &&
+                                 value < underPower)
+                        {
+                            LogService.Log($"启动前功率异常: {value} < {underPower} (欠功率保护值)");
+                            return false;
+                        }
+                    }
+                }
+
+                return true; // 所有关键信号正常
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"启动前检查关键信号时出错: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 检测设备状态是否改变
         /// </summary>
         private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout)
         {
             DateTime startTime = DateTime.Now;
-            uint initialStatus = currentStatus;
 
             while (DateTime.Now - startTime < timeout)
             {
                 // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
-                if (currentStatus == 0x01 || currentStatus == 0x02)
+                if (_dcRunStatus == 0x01 || _dcRunStatus == 0x02)
                 {
                     return true; // 状态已改变
                 }
@@ -1003,11 +1211,11 @@ namespace ChargeDebug.Form
                     }
 
                     // 检查设备状态
-                    currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
+                    //currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
 
                     // 更新状态标签
                     UpdateStatusLabels(signalName, displayValue);
-                    UpdateStatusDisplay(currentStatus);
+                    UpdateStatusDisplay(_dcRunStatus);
                 }
             }
             catch (Exception ex)
@@ -1021,6 +1229,11 @@ namespace ChargeDebug.Form
         /// </summary>
         private void UpdateStatusDisplay(uint status)
         {
+            if (_dcRunStatus == 0xFF || _acRunStatus == 0xFF)
+            {
+                return;
+            }
+
             switch (status)
             {
                 case 0x00: // 待机
@@ -1088,14 +1301,14 @@ namespace ChargeDebug.Form
                 }
 
                 // 更新累计运行时间
-                if (_startupManager.IsRunning && _startTime != DateTime.MinValue)
+                if (_startTime != DateTime.MinValue)
                 {
                     TimeSpan totalTime = DateTime.Now - _startTime;
                     _totalTimeData.Value = $"{totalTime.Hours:00}:{totalTime.Minutes:00}:{totalTime.Seconds:00}";
                 }
 
                 // 更新工步运行时间
-                if (_startupManager.IsRunning && _stepStartTime != DateTime.MinValue)
+                if (_stepStartTime != DateTime.MinValue)
                 {
                     TimeSpan stepTime = DateTime.Now - _stepStartTime;
                     _stepTimeData.Value = $"{stepTime.Hours:00}:{stepTime.Minutes:00}:{stepTime.Seconds:00}";
@@ -1203,7 +1416,7 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,待机、停机过程情况下才能启动
-                if (currentStatus == 0x00 || currentStatus == 0x03)
+                if (_dcRunStatus == 0x00 || _dcRunStatus == 0x03)
                 {
                     // 显示启动配置对话框
                     using (var configForm = new StartConfiguration(_title, "启动配置"))
@@ -1212,13 +1425,22 @@ namespace ChargeDebug.Form
                         {
                             // 获取用户设置的配置数据
                             _protectionParameters = configForm.Configuration;
-                            _stopCommandSent = false;
+
+                            // ============ 新增：启动前检查关键信号 ============
+                            if (!await CheckParametersSafe(_protectionParameters))
+                            {
+                                LogService.Log("启动前检查失败：关键信号超出阈值");
+                                XtraMessageBox.Show("启动前检查失败：关键信号超出阈值，请检查设备状态");
+                                return;
+                            }
+                            // ============ 新增结束 ============
 
                             // 开始启动
                             bool run = await _startupManager.StartDeviceAsync(_protectionParameters, true);
 
                             if (run)
                             {
+                                _stopCommandSent = true;
                                 // 检测设备状态变化
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
 
@@ -1227,16 +1449,16 @@ namespace ChargeDebug.Form
 
                                 if ((!statusChanged) || (!runmode))
                                 {
-                                    // 状态没有变化，启动失败
-                                    LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
-                                    XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
-
                                     // 发送停机指令
                                     bool stopSuccess = await _startupManager.StopDeviceAsync();
                                     if (!stopSuccess)
                                     {
                                         XtraMessageBox.Show("停机指令发送失败");
                                     }
+
+                                    // 状态没有变化，启动失败
+                                    LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
                                 }
                                 else
                                 {
@@ -1272,57 +1494,74 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 参数设置
         /// </summary>
-        private async void ParameterSet(object? sender, EventArgs e)
+        private void ParameterSet(object? sender, EventArgs e)
         {
             try
             {
                 // 检查设备状态,运行情况下才能设置参数
-                if (currentStatus != 0x02)
+                if (_dcRunStatus != 0x02)
                 {
                     XtraMessageBox.Show("设备状态异常，禁止设置参数");
+                    return;
+                }
+
+                // 检查是否已有窗体实例存在
+                if (_paramForm != null && !_paramForm.IsDisposed)
+                {
+                    _paramForm.Activate(); // 激活已有窗体
                     return;
                 }
 
                 // 保存当前保护参数以便比较
                 ConfigurationData currentParams = _protectionParameters;
 
-                // 创建参数设置窗体
-                using (var paramForm = new StartConfiguration(_title, "参数配置"))
+                _paramForm = new StartConfiguration(_title, "参数配置");
+
+                // 设置窗体位置居中
+                CenterFormToParent(_paramForm);
+
+                // 订阅窗体关闭事件以便清理引用
+                _paramForm.FormClosed += (s, args) =>
                 {
-                    if (paramForm.ShowDialog() == DialogResult.OK)
+                    _paramForm = null;
+                };
+
+                _paramForm.Applied += async (s, args) =>
+                {
+                    // 获取用户设置的新参数
+                    ConfigurationData newParams = _paramForm.Configuration;
+
+                    // ============ 新增：检查新参数是否会导致当前信号值超出阈值 ============
+                    if (!await CheckParametersSafe(newParams))
                     {
-                        // 获取用户设置的新参数
-                        ConfigurationData newParams = paramForm.Configuration;
+                        XtraMessageBox.Show("新参数设置会导致当前信号值超出保护阈值，请调整参数或设备状态");
+                        return;
+                    }
+                    // ============ 新增结束 ============
 
-                        // 比较参数是否有变化
-                        bool hasChanges = CompareParameters(currentParams, newParams);
+                    // 比较参数是否有变化
+                    bool hasChanges = CompareParameters(currentParams, newParams);
 
-                        // 发送新的参数
-                        bool success = await _startupManager.StartDeviceAsync(_protectionParameters, hasChanges);
+                    // 发送新的参数
+                    bool success = await _startupManager.StartDeviceAsync(newParams, hasChanges);
 
-                        if (success)
+                    if (success)
+                    {
+                        _stepStartTime = DateTime.MinValue;
+                        _stepTimeData.Value = "00:00:00";
+                        _stepStartTime = DateTime.Now;
+
+                        await Task.Delay(100);
+
+                        // 检测设备运行工步码是否一致
+                        bool runmode = await CheckRunMode(_paramForm.Configuration.WorkingMode);
+
+                        if (runmode)
                         {
-                            _stepStartTime = DateTime.MinValue;
-                            _stepTimeData.Value = "00:00:00";
-                            _stepStartTime = DateTime.Now;
-
-                            await Task.Delay(100);
-
-                            // 检测设备运行工步码是否一致
-                            bool runmode = await CheckRunMode(paramForm.Configuration.WorkingMode);
-
-                            if (runmode)
-                            {
-                                // 更新当前保护参数
-                                _protectionParameters = newParams;
-                                LogService.Log("参数设置成功");
-                                XtraMessageBox.Show("参数设置成功");
-                            }
-                            else
-                            {
-                                LogService.Log("参数发送失败");
-                                XtraMessageBox.Show("参数发送失败");
-                            }
+                            // 更新当前保护参数
+                            _protectionParameters = newParams;
+                            LogService.Log("参数设置成功");
+                            XtraMessageBox.Show("参数设置成功");
                         }
                         else
                         {
@@ -1330,12 +1569,37 @@ namespace ChargeDebug.Form
                             XtraMessageBox.Show("参数发送失败");
                         }
                     }
-                }
+                    else
+                    {
+                        LogService.Log("参数发送失败");
+                        XtraMessageBox.Show("参数发送失败");
+                    }
+                };
+
+                _paramForm.Show(); // 非模态显示
             }
             catch (Exception ex)
             {
                 LogService.Log($"设置参数失败: {ex.Message}");
                 XtraMessageBox.Show($"设置参数失败: {ex.Message}");
+            }
+        }
+
+        // 辅助方法：居中窗体
+        private void CenterFormToParent(XtraForm formToCenter)
+        {
+            var ownerForm = this.FindForm();
+            if (ownerForm != null && ownerForm.Visible)
+            {
+                formToCenter.StartPosition = FormStartPosition.Manual;
+                formToCenter.Location = new Point(
+                    ownerForm.Location.X + (ownerForm.Width - formToCenter.Width) / 2,
+                    ownerForm.Location.Y + (ownerForm.Height - formToCenter.Height) / 2
+                );
+            }
+            else
+            {
+                formToCenter.StartPosition = FormStartPosition.CenterScreen;
             }
         }
 
@@ -1347,7 +1611,7 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,运行、和启动中情况下才能停机
-                if (currentStatus == 0x02 || currentStatus == 0x01)
+                if (_dcRunStatus == 0x02 || _dcRunStatus == 0x01)
                 {
                     // 确认对话框
                     if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
@@ -1361,6 +1625,10 @@ namespace ChargeDebug.Form
 
                     if (success)
                     {
+                        // 在停止设备时重置时间
+                        _startTime = DateTime.MinValue;
+                        _stepStartTime = DateTime.MinValue;
+
                         await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
@@ -1368,8 +1636,6 @@ namespace ChargeDebug.Form
 
                         if (runmode)
                         {
-                            // 在停止设备时重置时间
-                            _startTime = DateTime.MinValue;
                             LogService.Log("设备停机成功");
                         }
                         else
@@ -1636,6 +1902,13 @@ namespace ChargeDebug.Form
 
             try
             {
+                // 关闭参数设置窗体
+                if (_paramForm != null && !_paramForm.IsDisposed)
+                {
+                    _paramForm.Close();
+                    _paramForm.Dispose();
+                }
+
                 // 停止并释放UI更新定时器
                 _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 _uiUpdateTimer?.Dispose();
