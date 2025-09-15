@@ -1554,7 +1554,7 @@ namespace ChargeDebug.Form
                         await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode(_paramForm.Configuration.WorkingMode);
+                        bool runmode = await CheckRunMode(newParams.WorkingMode);
 
                         if (runmode)
                         {
