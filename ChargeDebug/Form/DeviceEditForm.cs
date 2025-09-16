@@ -144,7 +144,7 @@ namespace ChargeDebug.Form
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cantype.Properties.Items.AddRange(new[] { "CANET-2E-U", "RS485-MODBUS", "USB-SCPI" });
+            cantype.Properties.Items.AddRange(new[] { "CANET-2E-U", "RS485-MODBUS", "USB-SCPI", "RS232" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
 
@@ -395,6 +395,22 @@ namespace ChargeDebug.Form
                     serialGroup.Location = new Point(0, 140);
                 }
             }
+            else if (cantype.Text == "RS232")
+            {
+                // 显示串口配置，隐藏网口配置
+                networkGroup.Visible = false;
+                serialGroup.Visible = true;
+
+                // 设置位置
+                if (deviceType.Text == "充放电设备")
+                {
+                    serialGroup.Location = new Point(0, 245);
+                }
+                else
+                {
+                    serialGroup.Location = new Point(0, 140);
+                }
+            }
             else if (cantype.Text == "USB-SCPI")
             {
                 // 隐藏网口和串口配置
@@ -416,6 +432,10 @@ namespace ChargeDebug.Form
                 {
                     buttonY = serialGroup.Bottom;
                 }
+                else if (cantype.Text == "RS232")
+                {
+                    buttonY = serialGroup.Bottom;
+                }
             }
             else
             {
@@ -426,6 +446,10 @@ namespace ChargeDebug.Form
                     buttonY = networkGroup.Bottom;
                 }
                 else if (cantype.Text == "RS485-MODBUS")
+                {
+                    buttonY = serialGroup.Bottom;
+                }
+                else if (cantype.Text == "RS232")
                 {
                     buttonY = serialGroup.Bottom;
                 }
@@ -455,6 +479,10 @@ namespace ChargeDebug.Form
                     else if (cantype.Text == "RS485-MODBUS")
                     {
                         agreementType = "MODBUS";
+                    }
+                    else if (cantype.Text == "RS232")
+                    {
+                        agreementType = "RS232";
                     }
                     else if (cantype.Text == "USB-SCPI")
                     {
@@ -551,6 +579,14 @@ namespace ChargeDebug.Form
                 parity.Text = row.Table.Columns.Contains("Parity") ? row["Parity"].ToString() : "无";
                 stopBits.Text = row.Table.Columns.Contains("StopBits") ? row["StopBits"].ToString() : "1";
             }
+            else if (cantype.Text == "RS232")
+            {
+                comPort.Text = row.Table.Columns.Contains("ComPort") ? row["ComPort"].ToString() : "";
+                baudRate.Text = row.Table.Columns.Contains("BaudRate") ? row["BaudRate"].ToString() : "9600";
+                dataBits.Text = row.Table.Columns.Contains("DataBits") ? row["DataBits"].ToString() : "8";
+                parity.Text = row.Table.Columns.Contains("Parity") ? row["Parity"].ToString() : "无";
+                stopBits.Text = row.Table.Columns.Contains("StopBits") ? row["StopBits"].ToString() : "1";
+            }
             else if (cantype.Text == "USB-SCPI")
             {
 
@@ -627,6 +663,45 @@ namespace ChargeDebug.Form
                 }
             }
             else if (cantype.Text == "RS485-MODBUS")
+            {
+                // 验证串口号
+                if (string.IsNullOrWhiteSpace(comPort.Text))
+                {
+                    ShowError("串口号不能为空！", comPort);
+                    return false;
+                }
+
+                // 验证波特率
+                if (string.IsNullOrWhiteSpace(baudRate.Text) ||
+                    !int.TryParse(baudRate.Text, out int baud) || baud <= 0)
+                {
+                    ShowError("波特率必须为有效的正数！", baudRate);
+                    return false;
+                }
+
+                // 验证数据位
+                if (string.IsNullOrWhiteSpace(dataBits.Text) ||
+                    !int.TryParse(dataBits.Text, out int bits) || bits < 5 || bits > 8)
+                {
+                    ShowError("数据位必须是5-8之间的整数！", dataBits);
+                    return false;
+                }
+
+                // 验证校验位
+                if (string.IsNullOrWhiteSpace(parity.Text))
+                {
+                    ShowError("校验位不能为空！", parity);
+                    return false;
+                }
+
+                // 验证停止位
+                if (string.IsNullOrWhiteSpace(stopBits.Text))
+                {
+                    ShowError("停止位不能为空！", stopBits);
+                    return false;
+                }
+            }
+            else if (cantype.Text == "RS232")
             {
                 // 验证串口号
                 if (string.IsNullOrWhiteSpace(comPort.Text))

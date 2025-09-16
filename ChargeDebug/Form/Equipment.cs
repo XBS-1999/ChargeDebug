@@ -426,6 +426,18 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@Parity", form.Parity);
                                     cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
                                 }
+                                else if (form.CanType == "RS232")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ComPort", form.ComPort);
+                                    cmd.Parameters.AddWithValue("@BaudRate", form.BaudRate);
+                                    cmd.Parameters.AddWithValue("@DataBits", form.DataBits);
+                                    cmd.Parameters.AddWithValue("@Parity", form.Parity);
+                                    cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
+                                }
 
                                 if (form.DeviceType == "充放电设备")
                                 {
@@ -534,6 +546,18 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
                                 }
                                 else if (form.CanType == "RS485-MODBUS")
+                                {
+                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ComPort", form.ComPort);
+                                    cmd.Parameters.AddWithValue("@BaudRate", form.BaudRate);
+                                    cmd.Parameters.AddWithValue("@DataBits", form.DataBits);
+                                    cmd.Parameters.AddWithValue("@Parity", form.Parity);
+                                    cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
+                                }
+                                else if (form.CanType == "RS232")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);

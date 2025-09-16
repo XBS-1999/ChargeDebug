@@ -253,7 +253,6 @@ namespace ChargeDebug.Form
                             }
                         }
                         
-
                         // 创建模块（同时包含AC和DC通道）
                         string title = $"{equipment.DeviceName}-通道";
                         title += i < equipment.ACNumber ? $"A{acnum}" : "";
@@ -331,13 +330,6 @@ namespace ChargeDebug.Form
             }
             layoutControl.BeginUpdate();
             layoutControl.EndUpdate();
-        }
-
-        // 添加模块时注册
-        public void AddModule(Module module)
-        {
-            _modules.Add(module);
-            this.Controls.Add(module);
         }
 
         // 设置发送状态

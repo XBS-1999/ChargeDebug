@@ -103,6 +103,51 @@ namespace ChargeDebug
         }
 
         /// <summary>
+        /// 启动设备-静置
+        /// </summary>Constant  
+        public async Task<bool> StartCurrent(ConfigurationData configData)
+        {
+            try
+            {
+                // 步骤1: 发送保护参数52YCC
+                bool protectparameters = await SendProtectionParams52YCC(configData);
+                if (!protectparameters)
+                {
+                    return false;
+                }
+
+                // 步骤2: 发送保护参数62YCC
+                bool protectparameters1 = await SendProtectionParams62YCC(configData);
+                if (!protectparameters1)
+                {
+                    return false;
+                }
+
+                configData.WorkingMode = "静置";
+
+                // 步骤3: 发送控制参数32YCC
+                //bool controlparameters = await SendControlParams32YCC(configData);
+                //if (!controlparameters)
+                //{
+                //    return false;
+                //}
+
+                // 步骤4: 发送工步参数22YCC
+                bool processparameters = await SendStepParams22YCC(configData);
+                if (!processparameters)
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设备启动失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 发送保护参数52YCC
         /// </summary>
         private async Task<bool> SendProtectionParams52YCC(ConfigurationData configData)

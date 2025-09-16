@@ -251,6 +251,16 @@ namespace ChargeDebug.Form
                 return;
             }
 
+            if (signaltype.Text == "电流")
+            {
+                if (Convert.ToInt32(calibrationnumber.Text) % 2 != 0)
+                {
+                    XtraMessageBox.Show("电流校准点个数需要是偶数!");
+                    calibrationnumber.Focus();
+                    return;
+                }
+            }
+            
             // 验证校准精度格式
             if (string.IsNullOrEmpty(calibrationaccuracy.Text))
             {

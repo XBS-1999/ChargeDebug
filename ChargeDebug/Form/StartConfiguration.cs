@@ -11,6 +11,7 @@ namespace ChargeDebug.Form
     {
         // 添加通道标识字段
         private string _channelKey;
+        private bool _flagbit; // 存储flagbit参数
 
         // 保护参数
         private TextEdit overVoltageValue;
@@ -48,9 +49,10 @@ namespace ChargeDebug.Form
 
         public event EventHandler Applied;
 
-        public StartConfiguration(string channelKey, string text)
+        public StartConfiguration(string channelKey, string text,bool flagbit)
         {
             _channelKey = channelKey;
+            _flagbit = flagbit; // 保存flagbit参数
             InitializeComponent();
             this.Text = $"{text} - {channelKey}";
             InitializeUI();
@@ -97,8 +99,10 @@ namespace ChargeDebug.Form
             LabelControl underPower = new LabelControl { Text = "KW", Location = new Point(610, 102) };
 
             labelWorkingMode = new LabelControl { Text = "工步模式:", Location = new Point(240, 162) };
+            labelWorkingMode.Visible = _flagbit;
             workingMode = new ComboBoxEdit { Location = new Point(310, 160), Width = 150 };
             workingMode.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            workingMode.Visible = _flagbit; // 根据flagbit设置可见性
             workingMode.Properties.Items.AddRange(new[] { "搁置", "静置", "恒流充电", "恒流放电", "恒压充电", "恒压放电", "恒功率充电", "恒功率放电", "停机" });
             workingMode.SelectedIndexChanged += WorkingMode_SelectedIndexChanged;
 
@@ -107,7 +111,8 @@ namespace ChargeDebug.Form
             {
                 Location = new Point(20, 200),
                 Size = new Size(640, 60),
-                BorderStyle = BorderStyle.FixedSingle
+                BorderStyle = BorderStyle.FixedSingle,
+                Visible = _flagbit // 根据flagbit设置可见性
             };
 
             // 添加确定/取消按钮
@@ -115,7 +120,7 @@ namespace ChargeDebug.Form
             {
                 Text = "确定",
                 DialogResult = DialogResult.None,
-                Location = new Point(150, 280),
+                Location = new Point(150, _flagbit ? 280 : 170), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnOK.Click += BtnOK_Click;
@@ -124,7 +129,7 @@ namespace ChargeDebug.Form
             {
                 Text = "应用",
                 DialogResult = DialogResult.None,
-                Location = new Point(300, 280),
+                Location = new Point(300, _flagbit ? 280 : 170), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnApplication.Click += BtnApplication_Click;
@@ -133,10 +138,16 @@ namespace ChargeDebug.Form
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(450, 280),
+                Location = new Point(450, _flagbit ? 280 : 170), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnCancel.Click += BtnCancel_Click;
+
+            // 如果flagbit为false，调整窗体高度
+            if (!_flagbit)
+            {
+                this.Height = 250; // 减少窗体高度
+            }
 
             // 添加所有控件到表单
             this.Controls.AddRange(new Control[]

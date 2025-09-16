@@ -834,7 +834,10 @@ namespace ChargeDebug.Service
                         Marshal.FreeHGlobal(buffer); // 及时释放缓冲区
                     }
                 }
+
+                Thread.Sleep(1);
             }
+
         }
 
         public async Task<ZCAN_Receive_Data> ReceiveFrameAsync(string channelKey, uint expectedCanId, int timeoutMs)

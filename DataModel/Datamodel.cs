@@ -25,6 +25,7 @@ namespace DataModel
         public string? DataBits { get; set; }
         public string? Parity { get; set; }
         public string? StopBits { get; set; }
+        public string? FlowControl { get; set; }
     }
     public class MessageInfo
     {
