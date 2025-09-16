@@ -1402,11 +1402,11 @@ namespace ChargeDebug.Form
                     calibrationPoints,
                     voltageSource,
                     voltmeter,
-                    voltageSourceProtocols,
-                    voltmeterProtocols,
                     treeSignalProtocols,
                     debugSignals,
-                    cancellationToken);
+                    cancellationToken,"电压",
+                    voltageSourceProtocols,
+                    voltmeterProtocols);
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.AfterCalibration, "开始断开校准仪器:");
@@ -1551,6 +1551,18 @@ namespace ChargeDebug.Form
 
                 // 10. 遍历每个校准点进行校准
                 bool calibrationSuccess = await ProcessCalibrationPoints(
+                    calibrationPoints,
+                    currentSource,
+                    ammeter,
+                    treeSignalProtocols,
+                    debugSignals,
+                    cancellationToken, "电流");
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.BeforeCalibration, "开始验证电流:");
+
+                // 11. 进行校准后验证
+                bool verificationSuccess = await PerformPostCalibrationVerification(
                     calibrationPoints,
                     currentSource,
                     ammeter,
@@ -1889,7 +1901,6 @@ namespace ChargeDebug.Form
 
                     double voltage = 0;
                     bool fig = false;
-
                     foreach (var point in points)
                     {
                         if (point.Voltage > 0 && !fig)
@@ -2066,12 +2077,26 @@ namespace ChargeDebug.Form
                                       progress);
                     }
 
-                    //关闭输出0.0
-                    bool voltageset = await SendEquipmentCommand(
-                                CommandType.SetVoltage,
-                                voltageSource,
-                                voltageSourceSignals,
-                                0.0);
+                    if (type == "电压")
+                    {
+                        //关闭输出0.0
+                        bool outpower = await SendEquipmentCommand(
+                                    CommandType.SetVoltage,
+                                    voltageSource,
+                                    voltageSourceSignals,
+                                    0.0);
+                    }
+                    else if (type == "电流")
+                    {
+                        bool outpower = await SendEquipmentCommand(
+                                            CommandType.EnableOutput,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            0x00);
+                    }
+                    
+
+                    
 
                     // 计算校准系数 (使用线性回归 y = kx + b)
                     if (measuredValues.Count >= 2)
@@ -2264,11 +2289,11 @@ namespace ChargeDebug.Form
             Dictionary<string, List<CalibrationPoint>> calibrationPoints,
             EquipmentModel voltageSource,
             EquipmentModel voltmeter,
-            List<ModbusSignal> voltageSourceSignals,
-            List<ModbusSignal> voltmeterSignals,
             List<SignalInfo> treeSignals,
             Dictionary<string, List<SignalInfo>> debugSignals,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, string type,
+            List<ModbusSignal> voltageSourceSignals = null,
+            List<ModbusSignal> voltmeterSignals = null)
         {
             try
             {
@@ -2293,60 +2318,193 @@ namespace ChargeDebug.Form
                     var (ratingVoltage, precisionRange) = GetRatingVoltageAndPrecision(
                         firstPoint.DeviceName, firstPoint.SignalName);
 
+                    double voltage = 0;
+                    bool fig = false;
                     foreach (var point in points)
                     {
+                        if (point.Voltage > 0 && !fig)
+                        {
+                            fig = true;
+                            voltage = 0;
+                        }
+
                         cancellationToken.ThrowIfCancellationRequested();
 
                         globalPointIndex++;
 
                         try
                         {
-                            LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
-
-                            // 设置电压源输出到当前校准点电压
-                            bool voltageSet = await SendEquipmentCommand(
-                                CommandType.SetVoltage,
-                                voltageSource,
-                                voltageSourceSignals,
-                                point.Voltage);
-
-                            if (!voltageSet)
+                            if (type == "电压")
                             {
-                                LogService.Log($"设置电压 {point.Voltage}V 失败，跳过此校准点");
-                                continue;
+                                LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
+
+                                // 设置电压源输出到当前校准点电压
+                                bool voltageSet = await SendEquipmentCommand(
+                                    CommandType.SetVoltage,
+                                    voltageSource,
+                                    voltageSourceSignals,
+                                    point.Voltage);
+
+                                if (!voltageSet)
+                                {
+                                    LogService.Log($"设置电压 {point.Voltage}V 失败，跳过此校准点");
+                                    continue;
+                                }
+
+                                // 等待电压稳定
+                                LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
+                                await Task.Delay(point.ReadTimeMs, cancellationToken);
+
+                                var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
+                                    voltmeter,
+                                    voltmeterSignals,
+                                    firstPoint.DeviceName,
+                                    firstPoint.SignalInfo,
+                                    treeSignals);
+
+                                LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+
+                                // 计算精度: (采样电压 - 测量电压) / 额定电压
+                                double accuracy = (deviceVoltage - actualVoltage) / ratingVoltage;
+                                double accuracyPercentage = accuracy * 100; // 转换为百分比
+
+                                // 判断是否在精度范围内
+                                bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                                LogService.Log($"校准精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                                // 更新UI：校准后电压采样值、测量值、校准精度、是否合格
+                                UpdateTreeNodePostCalibrationValues(
+                                    firstPoint.DeviceName,
+                                    firstPoint.SignalName,
+                                    globalPointIndex,
+                                    deviceVoltage,
+                                    actualVoltage,
+                                    accuracyPercentage,
+                                    withinPrecision,"电压");
                             }
+                            else if (type == "电流")
+                            {
+                                if (point.Voltage < 0)
+                                {
+                                    while (point.Voltage < voltage)
+                                    {
+                                        voltage = voltage - 20;
+                                        bool setcurrent = false;
 
-                            // 等待电压稳定
-                            LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
-                            await Task.Delay(point.ReadTimeMs, cancellationToken);
+                                        if (point.Voltage >= voltage)
+                                        {
+                                            LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}A");
 
-                            var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
-                                voltmeter,
-                                voltmeterSignals,
-                                firstPoint.DeviceName,
-                                firstPoint.SignalInfo,
-                                treeSignals);
+                                            voltage = point.Voltage;
 
-                            LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+                                            // 设置电流源输出到当前校准点电流
+                                            setcurrent = await SendEquipmentCommand(
+                                            CommandType.SetCurrent,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            point.Voltage);
+                                        }
+                                        else
+                                        {
+                                            LogService.Log($"设置电流 {voltage}A");
 
-                            // 计算精度: (采样电压 - 测量电压) / 额定电压
-                            double accuracy = (deviceVoltage - actualVoltage) / ratingVoltage;
-                            double accuracyPercentage = accuracy * 100; // 转换为百分比
+                                            // 设置电流源输出到当前校准点电流
+                                            setcurrent = await SendEquipmentCommand(
+                                            CommandType.SetCurrent,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            voltage);
+                                        }
 
-                            // 判断是否在精度范围内
-                            bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+                                        bool enableOutput = await SendEquipmentCommand(
+                                            CommandType.EnableOutput,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            0x23);
 
-                            LogService.Log($"校准精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+                                        if (!setcurrent || !enableOutput)
+                                        {
+                                            LogService.Log($"设置电流 {point.Voltage}A 失败，跳过此校准点");
+                                            continue;
+                                        }
 
-                            // 更新UI：校准后电压采样值、测量值、校准精度、是否合格
-                            UpdateTreeNodePostCalibrationValues(
-                                firstPoint.DeviceName,
-                                firstPoint.SignalName,
-                                globalPointIndex,
-                                deviceVoltage,
-                                actualVoltage,
-                                accuracyPercentage,
-                                withinPrecision);
+                                        await Task.Delay(point.ReadTimeMs, cancellationToken);
+                                    }
+                                }
+                                else
+                                {
+                                    while (point.Voltage > voltage)
+                                    {
+                                        voltage = voltage + 20;
+                                        bool setcurrent = false;
+                                        if (point.Voltage <= voltage)
+                                        {
+                                            LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}A");
+                                            voltage = point.Voltage;
+
+                                            // 设置电流源输出到当前校准点电流
+                                            setcurrent = await SendEquipmentCommand(
+                                            CommandType.SetCurrent,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            point.Voltage);
+                                        }
+                                        else
+                                        {
+                                            LogService.Log($"设置电流 {voltage}A");
+
+                                            // 设置电流源输出到当前校准点电流
+                                            setcurrent = await SendEquipmentCommand(
+                                            CommandType.SetCurrent,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            voltage);
+                                        }
+
+                                        bool enableOutput = await SendEquipmentCommand(
+                                            CommandType.EnableOutput,
+                                            voltageSource,
+                                            voltageSourceSignals,
+                                            0x03);
+
+                                        if (!setcurrent || !enableOutput)
+                                        {
+                                            LogService.Log($"设置电流 {point.Voltage}A 失败，跳过此校准点");
+                                            continue;
+                                        }
+
+                                        await Task.Delay(point.ReadTimeMs, cancellationToken);
+                                    }
+                                }
+
+                                // 等待电流稳定
+                                LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
+                                await Task.Delay(point.ReadTimeMs, cancellationToken);
+
+                                var currentvalue = await ReadCurrentValue(voltmeter);
+
+                                LogService.Log($"电流表测量值: {currentvalue}A, 设备电流采样值: {point.Voltage}A");
+
+                                // 计算精度: (采样电压 - 测量电压) / 额定电压
+                                double accuracy = (point.Voltage - currentvalue) / ratingVoltage;
+                                double accuracyPercentage = accuracy * 100; // 转换为百分比
+
+                                // 判断是否在精度范围内
+                                bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                                LogService.Log($"校准精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                                // 更新UI：校准后电压采样值、测量值、校准精度、是否合格
+                                UpdateTreeNodePostCalibrationValues(
+                                    firstPoint.DeviceName,
+                                    firstPoint.SignalName,
+                                    globalPointIndex,
+                                    point.Voltage,
+                                    currentvalue,
+                                    accuracyPercentage,
+                                    withinPrecision, "电流");
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -3037,12 +3195,12 @@ namespace ChargeDebug.Form
             double deviceVoltage,
             double actualVoltage,
             double accuracy,
-            bool isQualified)
+            bool isQualified, string type)
         {
             if (this.InvokeRequired)
             {
                 this.Invoke(new Action(() => UpdateTreeNodePostCalibrationValues(
-                    deviceName, signalName, pointIndex, deviceVoltage, actualVoltage, accuracy, isQualified)));
+                    deviceName, signalName, pointIndex, deviceVoltage, actualVoltage, accuracy, isQualified, type)));
                 return;
             }
 
@@ -3066,8 +3224,14 @@ namespace ChargeDebug.Form
                         {
                             if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
                             {
-                                // 更新校准后值
-                                childNode.SetValue("NewDeviceVoltageSample", voltageDisplay);
+                                if (type == "电压")
+                                {
+                                    childNode.SetValue("NewDeviceVoltageSample", voltageDisplay);
+                                }
+                                else if (type == "电流")
+                                {
+                                    childNode.SetValue("NewDeviceCurrentSample", voltageDisplay);
+                                }
                                 childNode.SetValue("CalibrationAccuracy", $"{Math.Abs(accuracy):F4}%");
                                 childNode.SetValue("CalibrationResult", isQualified ? "合格" : "不合格");
 
