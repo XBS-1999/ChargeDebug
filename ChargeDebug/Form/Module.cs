@@ -13,6 +13,7 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     /*
@@ -29,7 +30,7 @@ namespace ChargeDebug.Form
         private bool _initialized = false;
         private volatile bool _disposed = false;
         private bool _isConnected;
-        private bool _stopCommandSent = true;
+        private bool _stopCommandSent = false;
         private bool _isFaultDisplayActive;
         private bool _uiMode = true;
 
@@ -1466,6 +1467,7 @@ namespace ChargeDebug.Form
                             if (run)
                             {
                                 _stopCommandSent = true;
+
                                 // 检测设备状态变化
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
 

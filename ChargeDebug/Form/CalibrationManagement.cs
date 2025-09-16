@@ -16,6 +16,7 @@ using System.IO;
 using ClosedXML.Excel;
 using System.Data;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     /// <summary>
