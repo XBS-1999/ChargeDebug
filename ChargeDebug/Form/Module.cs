@@ -121,7 +121,7 @@ namespace ChargeDebug.Form
             set
             {
                 _isConnected = value;
-                UpdateConnectionStatusUI("已连接", Color.White);
+                UpdateConnectionStatusUI("", Color.White);
             }
         }
 
@@ -644,7 +644,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 恢复正常状态显示
-                UpdateConnectionStatusUI("已连接", Color.White);
+                //UpdateConnectionStatusUI("已连接", Color.White);
                 _isFaultDisplayActive = false;
             }
         }
@@ -1138,7 +1138,7 @@ namespace ChargeDebug.Form
                         if (_isFaultDisplayActive)
                         {
                             _isFaultDisplayActive = false;
-                            UpdateConnectionStatusUI("已连接", Color.White);
+                            //UpdateConnectionStatusUI("已连接", Color.White);
                         }
                         return;
                     }
@@ -1250,7 +1250,7 @@ namespace ChargeDebug.Form
         /// </summary>
         private void UpdateStatusDisplay(uint status)
         {
-            if (_dcRunStatus == 0xFF || _acRunStatus == 0xFF)
+            if (_dcRunStatus == 0xFF || _acRunStatus == 0xFF || !_isConnected)
             {
                 return;
             }
@@ -1476,21 +1476,29 @@ namespace ChargeDebug.Form
                                     if (!stopSuccess)
                                     {
                                         XtraMessageBox.Show("停机指令发送失败");
+                                        return;
                                     }
 
                                     // 状态没有变化，启动失败
                                     LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    return;
                                 }
                                 else
                                 {
                                     // 状态已改变，启动成功
                                     _totalTimeData.Value = "00:00:00";
-                                    _stepTimeData.Value = "00:00:00";
                                     _startTime = DateTime.Now;
-                                    _stepStartTime = DateTime.Now;
+                                    
                                     LogService.Log("设备启动成功");
                                 }
+
+                                // 异步等待设备进入运行状态
+                                await WaitForRunStatus(0x02, TimeSpan.FromSeconds(30));
+
+                                // 设置工步开始时间
+                                _stepTimeData.Value = "00:00:00";
+                                _stepStartTime = DateTime.Now;
                             }
                             else
                             {
@@ -1511,6 +1519,32 @@ namespace ChargeDebug.Form
                 LogService.Log($"设备启动失败:{ex.Message}");
                 XtraMessageBox.Show($"设备启动失败:{ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 异步等待设备达到指定状态
+        /// </summary>
+        /// <param name="targetStatus">目标状态</param>
+        /// <param name="timeout">超时时间</param>
+        /// <returns>是否成功达到目标状态</returns>
+        private async Task<bool> WaitForRunStatus(uint targetStatus, TimeSpan timeout)
+        {
+            DateTime startTime = DateTime.Now;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                if (_dcRunStatus == targetStatus)
+                    return true;
+
+                // 如果设备进入故障状态，立即返回
+                if (_dcRunStatus == 0xFF)
+                    return false;
+
+                // 等待一段时间再检查
+                await Task.Delay(100);
+            }
+
+            return false; // 超时
         }
 
         /// <summary>
