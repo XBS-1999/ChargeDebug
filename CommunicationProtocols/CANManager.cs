@@ -150,7 +150,7 @@ namespace ChargeDebug.Service
         public void Init()
         {
             //LogService("CAN管理器初始化开始");
-            _isRunning = true;
+            //_isRunning = true;
 
             _reconnectTimer?.Dispose();
             // 初始化重连定时器 (取消注释)
@@ -175,6 +175,7 @@ namespace ChargeDebug.Service
                         if (_equipmentInfo.TryGetValue(channelKey, out var equipment))
                         {
                             // 使用统一的重连方法
+                            _isRunning = false;
                             RegisterChannel(equipment, true);
                         }
                     }
@@ -186,6 +187,7 @@ namespace ChargeDebug.Service
                         if (_equipmentInfo.TryGetValue(channelKey, out var equipment))
                         {
                             // 使用统一的重连方法
+                            _isRunning = false;
                             RegisterChannel(equipment, true);
                         }
                     }
@@ -320,12 +322,12 @@ namespace ChargeDebug.Service
                 if (_deviceHandles.ContainsKey(key) && !isReconnect)
                 {
                     UpdateConnectionStatus(key, true);
-                    LogService.Log($"{equipment.DeviceNumber}已启动，跳过重复启动");
+                    LogService.Log($"{equipment.DeviceName}已启动，跳过重复启动");
                     return;
                 }
                 else
                 {
-                    LogService.Log($"{equipment.DeviceNumber}通讯失败，重连中...");
+                    LogService.Log($"{equipment.DeviceName}通讯失败，重连中...");
                 }
 
                 try
@@ -838,7 +840,6 @@ namespace ChargeDebug.Service
 
                 Thread.Sleep(1);
             }
-
         }
 
         public async Task<ZCAN_Receive_Data> ReceiveFrameAsync(string channelKey, uint expectedCanId, int timeoutMs)
