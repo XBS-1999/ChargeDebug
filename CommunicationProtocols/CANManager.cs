@@ -5,6 +5,7 @@ using System.Diagnostics;
 using DataModel;
 using Log;
 
+#pragma warning disable
 namespace ChargeDebug.Service
 {
     /*
@@ -773,7 +774,7 @@ namespace ChargeDebug.Service
         // 修改接收线程逻辑 - 使用批量处理提高效率
         private void ReceiveLoop()
         {
-            const int BATCH_SIZE = 100;
+            const int BATCH_SIZE = 10000;
             int structSize = Marshal.SizeOf(typeof(ZCAN_Receive_Data));
 
             while (_isRunning)

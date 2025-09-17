@@ -6,6 +6,7 @@ using System.Text;
 using DataModel;
 using Log;
 
+#pragma warning disable
 namespace ChargeDebug.Service
 {
     /// <summary>

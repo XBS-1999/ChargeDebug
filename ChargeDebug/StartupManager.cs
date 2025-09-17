@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Globalization;
 
+#pragma warning disable
 namespace ChargeDebug
 {
     /// <summary>

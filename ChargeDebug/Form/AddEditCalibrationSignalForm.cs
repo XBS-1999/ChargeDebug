@@ -4,6 +4,7 @@ using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using System.Data.SQLite;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class AddEditCalibrationSignalForm : XtraForm

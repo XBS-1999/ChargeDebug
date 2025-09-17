@@ -1,5 +1,6 @@
 ﻿using NationalInstruments.Visa;
 
+#pragma warning disable
 namespace CommunicationProtocols
 {
     public sealed class Keysight34465A_Communicator : IDisposable
