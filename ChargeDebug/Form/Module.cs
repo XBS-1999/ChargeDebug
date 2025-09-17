@@ -95,6 +95,10 @@ namespace ChargeDebug.Form
         private const string CURRENT_SIGNAL = "蓄电池电流";
         private const string POWER_SIGNAL = "蓄电池功率";
 
+        public ConfigurationData ProtectionParameters { get; set; }
+
+        public event Action<string> FaultDetected; // 专门用于故障通知的事件
+
         #endregion
 
         // ==================== 属性区域 ====================
@@ -603,6 +607,20 @@ namespace ChargeDebug.Form
                     break;
             }
 
+            _startupManager.DCRunStatus = _dcRunStatus;
+
+            // 检查状态变化并通知
+            if (signalName == "DC运行状态" && oldDcRunStatus != _dcRunStatus)
+            {
+                // 如果是故障状态，触发故障事件
+                if (_dcRunStatus == 0xFF)
+                {
+                    string faultMessage = "DC设备故障状态检测";
+                    FaultDetected?.Invoke(faultMessage);
+                    LogService.Log(faultMessage);
+                }
+            }
+
             CheckAndControlFaultTimer(oldDcRunStatus, oldAcRunStatus);
 
             if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
@@ -720,7 +738,7 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                LogService.Log($"检查关键信号时出错: {ex.Message}");
+                LogService.Log($"检查保护参数时出错: {ex.Message}");
             }
         }
 

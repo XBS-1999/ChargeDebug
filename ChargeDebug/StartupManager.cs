@@ -2,12 +2,8 @@
 using DataModel;
 using Log;
 using ChargeDebug.Form;
-using DevExpress.XtraEditors;
-using DocumentFormat.OpenXml.Spreadsheet;
-using DevExpress.XtraRichEdit.Fields;
-using System.Diagnostics;
-using System.Threading.Tasks;
 using System.Globalization;
+using System.Threading;
 
 #pragma warning disable
 namespace ChargeDebug
@@ -19,6 +15,13 @@ namespace ChargeDebug
     {
         private readonly EquipmentModel _equipment;
         private readonly string _title;
+        private uint dcRunStatus = 0;
+
+        public uint DCRunStatus
+        {
+            get => dcRunStatus;
+            set => dcRunStatus = value;
+        }
 
         public StartupManager(EquipmentModel equipment, string title)
         {
@@ -32,7 +35,7 @@ namespace ChargeDebug
         public uint CheckDeviceStatus(uint acRunStatus, uint dcRunStatus)
         {
             // 检查设备运行状态 0x00-待机 0x01-启动过程中 0x02-运行 0x03-停机过程中 0xFF-故障
-            if ((acRunStatus == 0x02) && (dcRunStatus == 0x02))
+            if (dcRunStatus == 0x02)
             {
                 return 0x02;
             }
@@ -105,7 +108,7 @@ namespace ChargeDebug
 
         /// <summary>
         /// 启动设备-静置
-        /// </summary>Constant  
+        /// </summary>  
         public async Task<bool> StartCurrent(ConfigurationData configData)
         {
             try
@@ -140,12 +143,60 @@ namespace ChargeDebug
                     return false;
                 }
 
-                return true;
+                //return true;
+                LogService.Log("等待设备启动:15S");
+                await Task.Delay(15000);
+                //监控运行状态是否变化
+                if (dcRunStatus == 0x02) //启动过程中
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
             }
             catch (Exception ex)
             {
                 throw new Exception($"设备启动失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 设置参数
+        /// </summary>
+        public async Task<bool> SetParameters(uint workstepcode, double currentValue, double voltageValue)
+        {
+            try
+            {
+                if (dcRunStatus == 0x02)
+                {
+                    //步骤1: 发送控制参数32YCC
+                    bool controlparameters = await SendControlParams32YCC(currentValue, voltageValue);
+                    if (!controlparameters)
+                    {
+                        return false;
+                    }
+
+                    // 步骤2: 发送工步参数22YCC
+                    bool processparameters = await SendStepParams22YCC(workstepcode);
+                    if (!processparameters)
+                    {
+                        return false;
+                    }
+
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设备设置参数: {ex.Message}");
+            }
+
         }
 
         /// <summary>
@@ -505,6 +556,79 @@ namespace ChargeDebug
         }
 
         /// <summary>
+        /// 发送控制参数32YCC
+        /// </summary>
+        private async Task<bool> SendControlParams32YCC(double currentValue, double voltageValue)
+        {
+            try
+            {
+                // 通道号 (从标题中提取，如"通道1" -> 1)
+                uint channelNum = Convert.ToUInt32(_title.Substring(_title.Length - 1, 1));
+                //发送CANID
+                uint sendCanId = 0x320CC + (channelNum - 1) * 0x100;
+                //接收CANID
+                uint receiveCanId = 0x3CC20 + (channelNum - 1) * 0x01;
+
+                // 构造保护参数数据
+                byte[] data = new byte[8];
+
+                // 控制参数1
+                int controlparameters1 = (int)(currentValue * 100);
+                data[0] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                data[1] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+                data[2] = (byte)((controlparameters1 >> 16) & 0xFF);   // 次高有效字节
+                data[3] = (byte)((controlparameters1 >> 24) & 0xFF);   // 最高有效字节
+
+                // 控制参数2
+                int controlparameters2 = (int)(voltageValue * 100);
+                data[4] = (byte)(controlparameters2 & 0xFF);
+                data[5] = (byte)((controlparameters2 >> 8) & 0xFF);
+                data[6] = (byte)((controlparameters2 >> 16) & 0xFF);
+                data[7] = (byte)((controlparameters2 >> 24) & 0xFF);
+
+                // 构造通道键
+                string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
+
+                int number = 0;
+                while (number < 3)
+                {
+                    CANManager.Instance.SendCommand
+                    (
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
+
+                    if (response.data != null)
+                    {
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        number++;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送控制参数32YCC失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 发送工步参数22YCC
         /// </summary>
         private async Task<bool> SendStepParams22YCC(ConfigurationData configData)
@@ -556,6 +680,73 @@ namespace ChargeDebug
                         break;
                 }
 
+                data[1] = 0x00;
+                data[2] = 0x00;
+                data[3] = 0x00;
+                data[4] = 0x00;
+                data[5] = 0x00;
+                data[6] = 0x00;
+                data[7] = 0x00;
+
+                // 构造通道键
+                string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
+
+                int number = 0;
+                while (number < 3)
+                {
+                    CANManager.Instance.SendCommand
+                    (
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
+
+                    if (response.data != null)
+                    {
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        number++;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送工步参数22YCC失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 发送工步参数22YCC
+        /// </summary>
+        private async Task<bool> SendStepParams22YCC(uint workstepcode)
+        {
+            try
+            {
+                // 通道号 (从标题中提取，如"通道1" -> 1)
+                uint channelNum = Convert.ToUInt32(_title.Substring(_title.Length - 1, 1));
+                //发送CANID
+                uint sendCanId = 0x220CC + (channelNum - 1) * 0x100;
+                //接收CANID
+                uint receiveCanId = 0x2CC20 + (channelNum - 1) * 0x01;
+
+                // 构造数据
+                byte[] data = new byte[8];
+                data[0] = (byte)workstepcode;
                 data[1] = 0x00;
                 data[2] = 0x00;
                 data[3] = 0x00;
