@@ -486,7 +486,7 @@ namespace ChargeDebug.Service
                     _lastReceiveTime[key] = DateTime.Now;
 
                     _receiveQueues.GetOrAdd(key, new ConcurrentQueue<ZCAN_Receive_Data>());
-                    EnsureReceiveThreadRunning();  // +++ 确保接收线程运行 +++
+                    //EnsureReceiveThreadRunning();  // +++ 确保接收线程运行 +++
 
                     return true;
                     //logger.Info($"通道{(isReconnect ? "重连" : "启动")}成功: {key}");

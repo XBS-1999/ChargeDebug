@@ -32,7 +32,6 @@ namespace ChargeDebug.Form
         private bool _isConnected;
         private bool _stopCommandSent = false;
         private bool _isFaultDisplayActive;
-        private bool _uiMode = true;
 
         // CAN通信相关字段
         private uint _dcfaultCanId;
@@ -159,28 +158,6 @@ namespace ChargeDebug.Form
             _readFaultTimer = new System.Threading.Timer(SendReadFaultCommand, null, Timeout.Infinite, Timeout.Infinite);
 
             this.Load += Module_Load;
-        }
-
-        /// <summary>
-        /// 设置UI模式
-        /// </summary>
-        /// <param name="enable">是否启用UI</param>
-        public void SetUIMode(bool enable)
-        {
-            _uiMode = enable;
-
-            if (!_uiMode)
-            {
-                // 隐藏所有UI组件
-                if (this.Parent != null)
-                {
-                    this.Parent.Visible = false;
-                }
-                this.Visible = false;
-
-                // 停止UI更新定时器
-                _uiUpdateTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            }
         }
 
         /// <summary>
@@ -1223,7 +1200,7 @@ namespace ChargeDebug.Form
         /// </summary>
         private void UpdateUIFromCache()
         {
-            if (!_uiMode) return; // 无UI模式不更新界面
+            //if (!_uiMode) return; // 无UI模式不更新界面
 
             if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
 
