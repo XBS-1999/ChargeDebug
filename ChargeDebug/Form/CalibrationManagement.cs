@@ -323,66 +323,102 @@ namespace ChargeDebug.Form
         /// </summary>
         private async void BtnVoltageCalibration_Click(object? sender, EventArgs e)
         {
-            // 检查是否正在进行校准
-            if (_isCalibrating)
+            // 1. 弹出设备编号输入对话框
+            using (var inputForm = new DeviceNumberInputForm())
             {
-                XtraMessageBox.Show("当前正在进行校准，请先完成或停止当前校准操作!");
-                return;
-            }
+                if (inputForm.ShowDialog() != DialogResult.OK)
+                    return;
 
-            try
-            {
-                // 设置校准状态
-                _isCalibrating = true;
+                string deviceNumber = inputForm.DeviceNumber;
 
-                // 禁用电流校准按钮
-                btnCurrentCalibration.Enabled = false;
-
-                // 重置进度条和标签
-                ResetProgress();
-
-                // 初始化取消令牌
-                _cancellationTokenSource = new CancellationTokenSource();
-                var cancellationToken = _cancellationTokenSource.Token;
-                _calibrationCancellationRequested = false;
-
-                // 禁用按钮，防止重复点击
-                btnVoltageCalibration.Enabled = false;
-                btnStopCalibration.Enabled = true;
-
-                // 执行电压校准
-                bool success = await ExecuteVoltageCalibration(cancellationToken);
-
-                if (success)
+                // 2. 检查设备编号是否存在
+                bool exists = await CheckDeviceNumberExists(deviceNumber);
+                if (exists)
                 {
-                    XtraMessageBox.Show("电压校准完成!");
+                    // 提示是否覆盖
+                    if (XtraMessageBox.Show($"设备编号 {deviceNumber} 已存在校准记录，是否覆盖?",
+                                          "确认覆盖",
+                                          MessageBoxButtons.YesNo,
+                                          MessageBoxIcon.Question) != DialogResult.Yes)
+                    {
+                        return;
+                    }
                 }
-                else if (_calibrationCancellationRequested)
-                {
-                    XtraMessageBox.Show("电压校准已取消!");
-                }
-                else
-                {
-                    XtraMessageBox.Show("电压校准失败，请查看日志!");
-                }
-            }
-            catch (Exception ex)
-            {
-                XtraMessageBox.Show($"电压校准失败: {ex.Message}");
-            }
-            finally
-            {
-                // 重新启用按钮
-                btnVoltageCalibration.Enabled = true;
-                btnStopCalibration.Enabled = false;
-                btnCurrentCalibration.Enabled = true;
 
-                // 重置校准状态
-                _isCalibrating = false;
+                // 检查是否正在进行校准
+                if (_isCalibrating)
+                {
+                    XtraMessageBox.Show("当前正在进行校准，请先完成或停止当前校准操作!");
+                    return;
+                }
 
-                // 清理取消令牌
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
+                try
+                {
+                    // 设置校准状态
+                    _isCalibrating = true;
+
+                    // 禁用电流校准按钮
+                    btnCurrentCalibration.Enabled = false;
+
+                    // 重置进度条和标签
+                    ResetProgress();
+
+                    // 初始化取消令牌
+                    _cancellationTokenSource = new CancellationTokenSource();
+                    var cancellationToken = _cancellationTokenSource.Token;
+                    _calibrationCancellationRequested = false;
+
+                    // 禁用按钮，防止重复点击
+                    btnVoltageCalibration.Enabled = false;
+                    btnStopCalibration.Enabled = true;
+
+                    // 执行电压校准
+                    bool success = await ExecuteVoltageCalibration(cancellationToken);
+
+                    if (success)
+                    {
+                        // 4. 校准完成后保存数据
+                        bool saveSuccess = await SaveCalibrationDataToDatabase(deviceNumber);
+                        if (saveSuccess)
+                        {
+                            // 5. 自动导出数据
+                            string exportPath = GetDefaultExportPath(deviceNumber);
+                            ExportToExcel(exportPath);
+
+                            XtraMessageBox.Show($"校准完成，数据已保存！");
+                        }
+                        else
+                        {
+                            XtraMessageBox.Show($"校准完成，数据保存失败！");
+                        }
+                    }
+                    else if (_calibrationCancellationRequested)
+                    {
+                        XtraMessageBox.Show("电压校准已取消!");
+                    }
+                    else
+                    {
+                        XtraMessageBox.Show("电压校准失败，请查看日志!");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"电压校准失败: {ex.Message}");
+                }
+                finally
+                {
+                    // 重新启用按钮
+                    btnVoltageCalibration.Enabled = true;
+                    btnStopCalibration.Enabled = false;
+                    btnCurrentCalibration.Enabled = true;
+
+                    // 重置校准状态
+                    _isCalibrating = false;
+
+                    // 清理取消令牌
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
             }
         }
 
@@ -1712,7 +1748,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 读取原有的比例系数和零点系数
-                    double originalScaleFactor = 1.0;
+                    double originalScaleFactor = 0.0;
                     double originalZeroFactor = 0.0;
 
                     if (scaleFactorSignal != null && zeroFactorSignal != null)
@@ -1722,10 +1758,17 @@ namespace ChargeDebug.Form
                                             scaleFactorSignal,
                                             zeroFactorSignal);
 
-                        originalScaleFactor = scale;
-                        originalZeroFactor = zero;
-
-                        LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
+                        if (scale == 0.0 && zero == 0.0)
+                        {
+                            LogService.Log($"读取原有校准系数失败");
+                            return false;
+                        }
+                        else
+                        {
+                            originalScaleFactor = scale;
+                            originalZeroFactor = zero;
+                            LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
+                        }
                     }
 
                     // 对于电流校准，按照特定顺序处理校准点
@@ -3231,7 +3274,7 @@ namespace ChargeDebug.Form
                 var equipment = equipmentList.FirstOrDefault(e => e.DeviceName == deviceName.Split('-')[0]);
                 string channel = deviceName.Split('-')[1];
                 if (equipment == null)
-                    return (1.0, 0.0);
+                    return (0.0, 0.0);
 
                 // 发送读取请求帧
                 await SendReadCalibrationRequest(equipment, channel,scaleFactorSignal);
@@ -3243,7 +3286,7 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 LogService.Log($"读取校准系数失败: {ex.Message}");
-                return (1.0, 0.0);
+                return (0.0, 0.0);
             }
         }
 
@@ -3470,12 +3513,12 @@ namespace ChargeDebug.Form
                 }
 
                 // 等待并接收响应帧
-                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, baseCanId, 500);
+                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, baseCanId, 1000);
 
                 if (response.IsEmpty())
                 {
                     LogService.Log("接收校准系数响应超时");
-                    return (1.0, 0.0);
+                    return (0.0, 0.0);
                 }
 
                 // 从响应帧中提取比例系数和零点系数
@@ -3487,7 +3530,7 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 LogService.Log($"解析校准系数响应失败: {ex.Message}");
-                return (1.0, 0.0);
+                return (0.0, 0.0);
             }
         }
 
@@ -4276,6 +4319,208 @@ namespace ChargeDebug.Form
         //    }
         //    base.Dispose(disposing);
         //}
+
+        #endregion
+
+        #region 操作数据库方法
+        /// <summary>
+        /// 保存校准数据到数据库
+        /// </summary>
+        private async Task<bool> SaveCalibrationDataToDatabase(string deviceNumber, string operatorName = "")
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    await conn.OpenAsync();
+
+                    // 开始事务
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 1. 插入主表记录
+                            string insertMasterSql = @"
+                                INSERT INTO CalibrationMaster (DeviceNumber, CalibrationDate, Operator, Comments)
+                                VALUES (@DeviceNumber, @CalibrationDate, @Operator, @Comments);
+                                SELECT last_insert_rowid();";
+
+                            long masterId;
+                            using (var cmd = new SQLiteCommand(insertMasterSql, conn, transaction))
+                            {
+                                cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                                cmd.Parameters.AddWithValue("@CalibrationDate", DateTime.Now);
+                                cmd.Parameters.AddWithValue("@Operator", operatorName);
+                                cmd.Parameters.AddWithValue("@Comments", "自动校准生成");
+
+                                masterId = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+                            }
+
+                            // 2. 插入明细表记录
+                            string insertDetailSql = @"
+                                INSERT INTO CalibrationDetails 
+                                (MasterID, SignalName, RatedValue, ScaleFactor, ZeroFactor, 
+                                 BeforeDeviceValue, BeforeActualValue, AfterDeviceValue, AfterActualValue, 
+                                 Accuracy, TestResult)
+                                VALUES 
+                                (@MasterID, @SignalName, @RatedValue, @ScaleFactor, @ZeroFactor, 
+                                 @BeforeDeviceValue, @BeforeActualValue, @AfterDeviceValue, @AfterActualValue, 
+                                 @Accuracy, @TestResult)";
+
+                            foreach (TreeListNode node in treeList.Nodes)
+                            {
+                                // 只处理有校准数据的节点
+                                if (!node.HasChildren) continue;
+
+                                string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                                string ratedValueStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                                string scaleFactorStr = node.GetValue("ScaleFactor")?.ToString() ?? "";
+                                string zeroFactorStr = node.GetValue("ZeroFactor")?.ToString() ?? "";
+
+                                if (string.IsNullOrEmpty(signalName) || !double.TryParse(ratedValueStr, out double ratedValue))
+                                    continue;
+
+                                double scaleFactor = double.TryParse(scaleFactorStr, out double sf) ? sf : 1.0;
+                                double zeroFactor = double.TryParse(zeroFactorStr, out double zf) ? zf : 0.0;
+
+                                // 处理每个校准点的数据
+                                foreach (TreeListNode childNode in node.Nodes)
+                                {
+                                    // 解析校准前后数据
+                                    ParseCalibrationData(childNode, out double beforeDevice, out double beforeActual,
+                                                        out double afterDevice, out double afterActual,
+                                                        out double accuracy, out string testResult);
+
+                                    using (var cmd = new SQLiteCommand(insertDetailSql, conn, transaction))
+                                    {
+                                        cmd.Parameters.AddWithValue("@MasterID", masterId);
+                                        cmd.Parameters.AddWithValue("@SignalName", signalName);
+                                        cmd.Parameters.AddWithValue("@RatedValue", ratedValue);
+                                        cmd.Parameters.AddWithValue("@ScaleFactor", scaleFactor);
+                                        cmd.Parameters.AddWithValue("@ZeroFactor", zeroFactor);
+                                        cmd.Parameters.AddWithValue("@BeforeDeviceValue", beforeDevice);
+                                        cmd.Parameters.AddWithValue("@BeforeActualValue", beforeActual);
+                                        cmd.Parameters.AddWithValue("@AfterDeviceValue", afterDevice);
+                                        cmd.Parameters.AddWithValue("@AfterActualValue", afterActual);
+                                        cmd.Parameters.AddWithValue("@Accuracy", accuracy);
+                                        cmd.Parameters.AddWithValue("@TestResult", testResult);
+
+                                        await cmd.ExecuteNonQueryAsync();
+                                    }
+                                }
+                            }
+
+                            transaction.Commit();
+                            return true;
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"保存校准数据失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 解析校准数据
+        /// </summary>
+        private void ParseCalibrationData(TreeListNode node, out double beforeDevice, out double beforeActual,
+                                         out double afterDevice, out double afterActual,
+                                         out double accuracy, out string testResult)
+        {
+            beforeDevice = 0; beforeActual = 0;
+            afterDevice = 0; afterActual = 0;
+            accuracy = 0;
+            testResult = "不合格";
+
+            try
+            {
+                // 解析校准前数据 (格式: "采样值/测量值")
+                string beforeData = node.GetValue("DeviceVoltageSample")?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(beforeData) && beforeData.Contains("/"))
+                {
+                    var parts = beforeData.Split('/');
+                    if (parts.Length == 2)
+                    {
+                        double.TryParse(parts[0], out beforeDevice);
+                        double.TryParse(parts[1], out beforeActual);
+                    }
+                }
+
+                // 解析校准后数据
+                string afterData = node.GetValue("NewDeviceVoltageSample")?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(afterData) && afterData.Contains("/"))
+                {
+                    var parts = afterData.Split('/');
+                    if (parts.Length == 2)
+                    {
+                        double.TryParse(parts[0], out afterDevice);
+                        double.TryParse(parts[1], out afterActual);
+                    }
+                }
+
+                // 解析精度和测试结果
+                string accuracyStr = node.GetValue("CalibrationAccuracy")?.ToString() ?? "";
+                if (accuracyStr.EndsWith("%"))
+                    accuracyStr = accuracyStr.TrimEnd('%');
+                double.TryParse(accuracyStr, out accuracy);
+
+                testResult = node.GetValue("CalibrationResult")?.ToString() ?? "不合格";
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"解析校准数据失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 检查设备编号是否存在校准记录
+        /// </summary>
+        private async Task<bool> CheckDeviceNumberExists(string deviceNumber)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    await conn.OpenAsync();
+
+                    string sql = "SELECT COUNT(*) FROM CalibrationMaster WHERE DeviceNumber = @DeviceNumber";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                        long count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+                        return count > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"检查设备编号失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取默认导出路径
+        /// </summary>
+        private string GetDefaultExportPath(string deviceNumber)
+        {
+            string basePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                         "CalibrationData");
+
+            if (!Directory.Exists(basePath))
+                Directory.CreateDirectory(basePath);
+
+            string fileName = $"校准数据_{deviceNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+            return Path.Combine(basePath, fileName);
+        }
 
         #endregion
 

@@ -796,10 +796,12 @@ namespace ChargeDebug.Service
                     }
 
                     // 为每个通道分配独立缓冲区
-                    uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
-                    IntPtr buffer = Marshal.AllocHGlobal((int)framesToRead * structSize);
+                    
+                    IntPtr buffer = Marshal.AllocHGlobal(BATCH_SIZE * structSize);
                     try
                     {
+                        uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
+
                         uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
 
                         if (actualRead > 0)
@@ -838,7 +840,7 @@ namespace ChargeDebug.Service
                     }
                 }
 
-                Thread.Sleep(1);
+                //Thread.Sleep(1);
             }
         }
 
