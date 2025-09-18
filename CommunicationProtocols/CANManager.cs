@@ -818,20 +818,30 @@ namespace ChargeDebug.Service
                             _lastReceiveTime[key] = DateTime.Now;
 
                             // 立即通知数据处理（实时解析）
-                            if (_dataHandlers.TryGetValue(key, out var handler) && handler != null)
+                            Task.Run(() =>
                             {
-                                var frames = new List<ZCAN_Receive_Data>();
-                                while (queue.TryDequeue(out var frame))
+                                try
                                 {
-                                    frames.Add(frame);
-                                }
+                                    if (_dataHandlers.TryGetValue(key, out var handler) && handler != null)
+                                    {
+                                        var frames = new List<ZCAN_Receive_Data>();
+                                        while (queue.TryDequeue(out var frame))
+                                        {
+                                            frames.Add(frame);
+                                        }
 
-                                if (frames.Count > 0)
-                                {
-                                    // 在新线程中处理数据，避免阻塞接收循环
-                                    Task.Run(() => handler(frames));
+                                        if (frames.Count > 0)
+                                        {
+                                            // 在新线程中处理数据，避免阻塞接收循环
+                                            handler(frames);
+                                        }
+                                    }
                                 }
-                            }
+                                catch (Exception ex)
+                                {
+                                    LogService.Log($"数据处理异常（通道 {key}）: {ex.Message}");
+                                }
+                            });
                         }
                     }
                     finally
