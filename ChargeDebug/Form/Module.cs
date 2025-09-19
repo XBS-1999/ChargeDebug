@@ -9,6 +9,7 @@ using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
 using Log;
+using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -24,6 +25,8 @@ namespace ChargeDebug.Form
     {
         // ==================== 字段声明区域 ====================
         #region 字段声明
+
+        public static readonly Dictionary<string, StartupManager> StartupManagers = new Dictionary<string, StartupManager>();
 
         // 模块控制字段
         private bool _moduleSendingEnabled = true;
@@ -153,7 +156,9 @@ namespace ChargeDebug.Form
 
             // 初始化启动管理器
             _startupManager = new StartupManager(equipment, title);
-            
+            string channelPart = ExtractStandardDeviceName(title);
+            StartupManagers[channelPart] = _startupManager;
+
             // 初始化读取故障定时器（初始不启动）
             _readFaultTimer = new System.Threading.Timer(SendReadFaultCommand, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -382,15 +387,59 @@ namespace ChargeDebug.Form
                         data
                     );
             }
-
-            // 查询故障显示方法
-            DisplayNextFault(null);
         }
 
         #endregion
 
         // ==================== 信号处理区域 ====================
         #region 信号处理
+
+        /// <summary>
+        /// 从设备名称字符串中提取标准化的设备标识符
+        /// 例如："设备1-通道A1/DCn" → "设备1-DCn"
+        /// </summary>
+        /// <param name="deviceName">原始设备名称</param>
+        /// <returns>标准化的设备标识符</returns>
+        public static string ExtractStandardDeviceName(string deviceName)
+        {
+            if (string.IsNullOrEmpty(deviceName))
+                return deviceName;
+
+            try
+            {
+                // 查找"/DC"的位置
+                int dcIndex = deviceName.IndexOf("/DC");
+                if (dcIndex < 0)
+                {
+                    // 如果没有找到"/DC"，尝试查找"DC"（可能没有斜杠）
+                    dcIndex = deviceName.IndexOf("DC");
+                    if (dcIndex < 0)
+                    {
+                        // 如果连"DC"都找不到，返回原始名称
+                        return deviceName;
+                    }
+
+                    // 提取设备前缀和DC部分
+                    string devicePrefix = deviceName.Substring(0, deviceName.IndexOf('-') + 1);
+                    string dcPart = deviceName.Substring(dcIndex);
+                    return $"{devicePrefix}{dcPart}";
+                }
+
+                // 提取设备前缀（"设备1-"部分）
+                string prefix = deviceName.Substring(0, deviceName.IndexOf('-') + 1);
+
+                // 提取DC部分（"DCn"部分）
+                string dcPartWithSlash = deviceName.Substring(dcIndex + 1); // 去掉斜杠
+
+                return $"{prefix}{dcPartWithSlash}";
+            }
+            catch (Exception ex)
+            {
+                // 记录错误但返回原始名称，避免中断流程
+                LogService.Log($"提取标准化设备名称时出错: {ex.Message}");
+                return deviceName;
+            }
+        }
 
         /// <summary>
         /// 处理信号定义
@@ -575,6 +624,7 @@ namespace ChargeDebug.Form
                     break;
                 case "DC运行状态":
                     _dcRunStatus = Convert.ToUInt32(physicalValue);
+                    _startupManager.DCRunStatus(_dcRunStatus);
                     break;
                 case "AC运行模式":
                     _acRunMode = Convert.ToUInt32(physicalValue);
@@ -583,8 +633,6 @@ namespace ChargeDebug.Form
                     _dcRunMode = Convert.ToUInt32(physicalValue);
                     break;
             }
-
-            _startupManager.DCRunStatus = _dcRunStatus;
 
             // 检查状态变化并通知
             if (signalName == "DC运行状态" && oldDcRunStatus != _dcRunStatus)
@@ -1043,6 +1091,8 @@ namespace ChargeDebug.Form
                         _activeFaults[signalName] = name;
                         LogService.Log($"故障更新: {signalName} → {name}");
                     }
+
+                    DisplayNextFault(null);
                 }
             }
             else // 值为0表示故障清除
@@ -1269,6 +1319,11 @@ namespace ChargeDebug.Form
                 case 0x03: // 停机过程中
                     UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
                     break;
+                //case 0xFF:
+                //    // 查询故障显示方法
+                //    DisplayNextFault(null);
+                //    break;
+
                 default:
                     break;
             }
@@ -1958,6 +2013,12 @@ namespace ChargeDebug.Form
 
             try
             {
+                // 清理时从字典中移除
+                if (StartupManagers.ContainsKey(_equipment.DeviceName))
+                {
+                    StartupManagers.Remove(_equipment.DeviceName);
+                }
+
                 // 关闭参数设置窗体
                 if (_paramForm != null && !_paramForm.IsDisposed)
                 {

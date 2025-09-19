@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class StartConfiguration : XtraForm
@@ -30,6 +31,8 @@ namespace ChargeDebug.Form
 
         private ComboBoxEdit workingMode;
         private LabelControl labelWorkingMode;
+        private ComboBoxEdit directionammeter;
+        private LabelControl labelDirectionammeter;
 
         private SimpleButton btnOK;
         private SimpleButton btnCancel;
@@ -49,7 +52,7 @@ namespace ChargeDebug.Form
 
         public event EventHandler Applied;
 
-        public StartConfiguration(string channelKey, string text,bool flagbit)
+        public StartConfiguration(string channelKey, string text, bool flagbit)
         {
             _channelKey = channelKey;
             _flagbit = flagbit; // 保存flagbit参数
@@ -106,6 +109,13 @@ namespace ChargeDebug.Form
             workingMode.Properties.Items.AddRange(new[] { "搁置", "静置", "恒流充电", "恒流放电", "恒压充电", "恒压放电", "恒功率充电", "恒功率放电", "停机" });
             workingMode.SelectedIndexChanged += WorkingMode_SelectedIndexChanged;
 
+            labelDirectionammeter = new LabelControl { Text = "电流表方向:", Location = new Point(240, 162) };
+            labelDirectionammeter.Visible = !_flagbit;
+            directionammeter = new ComboBoxEdit { Location = new Point(310, 160), Width = 150 };
+            directionammeter.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            directionammeter.Visible = !_flagbit; // 根据flagbit设置可见性
+            directionammeter.Properties.Items.AddRange(new[] { "正方向", "反方向" });
+
             // 动态参数面板
             dynamicParametersPanel = new Panel
             {
@@ -120,7 +130,7 @@ namespace ChargeDebug.Form
             {
                 Text = "确定",
                 DialogResult = DialogResult.None,
-                Location = new Point(150, _flagbit ? 280 : 170), // 根据flagbit调整位置
+                Location = new Point(150, _flagbit ? 280 : 200), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnOK.Click += BtnOK_Click;
@@ -129,7 +139,7 @@ namespace ChargeDebug.Form
             {
                 Text = "应用",
                 DialogResult = DialogResult.None,
-                Location = new Point(300, _flagbit ? 280 : 170), // 根据flagbit调整位置
+                Location = new Point(300, _flagbit ? 280 : 200), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnApplication.Click += BtnApplication_Click;
@@ -138,7 +148,7 @@ namespace ChargeDebug.Form
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(450, _flagbit ? 280 : 170), // 根据flagbit调整位置
+                Location = new Point(450, _flagbit ? 280 : 200), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnCancel.Click += BtnCancel_Click;
@@ -146,7 +156,7 @@ namespace ChargeDebug.Form
             // 如果flagbit为false，调整窗体高度
             if (!_flagbit)
             {
-                this.Height = 250; // 减少窗体高度
+                this.Height = 280; // 减少窗体高度
             }
 
             // 添加所有控件到表单
@@ -159,6 +169,7 @@ namespace ChargeDebug.Form
                 labelOverPowerValue,overPowerValue,overPower,
                 labelUnderPowerValue,underPowerValue,underPower,
                 labelWorkingMode,workingMode,dynamicParametersPanel,
+                labelDirectionammeter, directionammeter,
                 btnOK, btnApplication, btnCancel
             });
         }
@@ -310,6 +321,7 @@ namespace ChargeDebug.Form
 
             // 保存工作模式
             configData.WorkingMode = workingMode.Text;
+            configData.Directionammeter = workingMode.Text;
 
             // 保存动态参数
             foreach (var control in dynamicControls)
@@ -613,6 +625,8 @@ namespace ChargeDebug.Form
         public string OverPower { get; set; }
         public string UnderPower { get; set; }
         public string WorkingMode { get; set; }
+        public string Directionammeter { get; set; }
+
         public Dictionary<string, string> DynamicParameters { get; set; } = new Dictionary<string, string>();
 
         // 添加时间戳字段

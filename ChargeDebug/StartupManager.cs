@@ -15,12 +15,11 @@ namespace ChargeDebug
     {
         private readonly EquipmentModel _equipment;
         private readonly string _title;
-        private uint dcRunStatus = 0;
+        private uint _dcRunStatus;
 
-        public uint DCRunStatus
+        public void DCRunStatus(uint dcRunStatus)
         {
-            get => dcRunStatus;
-            set => dcRunStatus = value;
+            _dcRunStatus = dcRunStatus;
         }
 
         public StartupManager(EquipmentModel equipment, string title)
@@ -144,10 +143,11 @@ namespace ChargeDebug
                 }
 
                 //return true;
-                LogService.Log("等待设备启动:15S");
-                await Task.Delay(15000);
+                LogService.Log("等待设备启动:20S");
+                await Task.Delay(20000);
+                //return true;
                 //监控运行状态是否变化
-                if (dcRunStatus == 0x02) //启动过程中
+                if (_dcRunStatus == 0x02) //启动过程中
                 {
                     return true;
                 }
@@ -169,7 +169,8 @@ namespace ChargeDebug
         {
             try
             {
-                if (dcRunStatus == 0x02)
+                if (_dcRunStatus == 0x02)
+                //if (true)
                 {
                     //步骤1: 发送控制参数32YCC
                     bool controlparameters = await SendControlParams32YCC(currentValue, voltageValue);
@@ -196,7 +197,6 @@ namespace ChargeDebug
             {
                 throw new Exception($"设备设置参数: {ex.Message}");
             }
-
         }
 
         /// <summary>

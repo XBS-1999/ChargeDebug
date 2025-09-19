@@ -46,6 +46,7 @@ namespace ChargeDebug.Form
         private List<ModbusSignal> voltageSourceProtocols = new List<ModbusSignal>();
         private List<ModbusSignal> voltmeterProtocols = new List<ModbusSignal>();
         private List<SignalInfo> treeSignalProtocols = new List<SignalInfo>();
+        private ConfigurationData _protectionParameters;
 
         // 进度条控件
         private ProgressBarControl progressBar;
@@ -1574,6 +1575,14 @@ namespace ChargeDebug.Form
                     return false;
                 }
 
+                // 查找对应的启动管理器
+                var startupManager = FindStartupManager(currentSourceName);
+                if (startupManager == null)
+                {
+                    LogService.Log($"找不到设备 {currentSourceName} 的启动管理器");
+                    return false;
+                }
+
                 // 2. 从设备列表中查找设备信息
                 currentSource = equipmentList.FirstOrDefault(e => e.DeviceName == currentSourceName.Split("-")[0]);
                 ammeter = equipmentList.FirstOrDefault(e => e.DeviceName == ammeterName);
@@ -1585,9 +1594,6 @@ namespace ChargeDebug.Form
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.InitializeDevice, "开始加载协议:");
-
-                // 初始化启动管理器
-                _startupManager = new StartupManager(currentSource, currentSourceName);
 
                 // 3. 加载校准设备指令协议
                 //var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
@@ -1743,26 +1749,6 @@ namespace ChargeDebug.Form
             }
         }
 
-        /// <summary>
-        /// 启动电流源设备
-        /// </summary>
-        private async Task<bool> StartCurrentSourceDevice(string ammeterName)
-        {
-            try
-            {
-                // 使用Module实例启动电流源设备
-                // 这里需要调用Module的启动方法
-
-                // 示例：设置启动参数并启动
-                return false;
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"启动电流源设备失败: {ex.Message}");
-                return false;
-            }
-        }
-
         public async Task<bool> StartDeviceAsync(EquipmentModel equipment, string _title)
         {
             try
@@ -1773,7 +1759,7 @@ namespace ChargeDebug.Form
                     if (configForm.ShowDialog() == DialogResult.OK)
                     {
                         // 获取用户设置的配置数据StartCurrent
-                        ConfigurationData _protectionParameters = configForm.Configuration;
+                        _protectionParameters = configForm.Configuration;
 
                         bool success = await _startupManager.StartCurrent(_protectionParameters);
                         if (!success)
@@ -2277,6 +2263,11 @@ namespace ChargeDebug.Form
                     // 解析符号
                     bool isPositive = readBuffer[4] == 0x2B;
 
+                    if (_protectionParameters.Directionammeter == "反方向")
+                    {
+                        isPositive = !isPositive;
+                    }
+
                     // 解析数值部分（索引5到12共8个字节，包括小数点）
                     string valueStr = "";
                     for (int i = 5; i <= 12; i++)
@@ -2459,7 +2450,7 @@ namespace ChargeDebug.Form
 
                             // 更新进度
                             int progress = (int)((double)globalPointIndex / totalPoints * 100);
-                            UpdateProgress(ProgressStage.HandlePoint,
+                            UpdateProgress(ProgressStage.BeforeCalibration,
                                           $"处理校准点 {globalPointIndex}/{totalPoints}", progress);
                         }
 
@@ -2547,7 +2538,7 @@ namespace ChargeDebug.Form
 
                             // 更新进度
                             int progress = (int)((double)globalPointIndex / totalPoints * 100);
-                            UpdateProgress(ProgressStage.HandlePoint,
+                            UpdateProgress(ProgressStage.BeforeCalibration,
                                           $"验证校准点 {globalPointIndex}/{totalPoints}",
                                           progress);
                         }
@@ -2949,6 +2940,15 @@ namespace ChargeDebug.Form
         #endregion
 
         #region 辅助方法实现
+
+        private StartupManager FindStartupManager(string deviceName)
+        {
+            if (Module.StartupManagers.TryGetValue(deviceName, out var manager))
+            {
+                return manager;
+            }
+            return null;
+        }
 
         /// <summary>
         /// 初始化电流源设备

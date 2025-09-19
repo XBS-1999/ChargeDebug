@@ -809,7 +809,7 @@ namespace ChargeDebug.Form
                         }
                     }
 
-                    //CANManager.Instance.ClearQueue(channelKey);
+                    CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         device.DeviceIndex,
                         device.CanIndex,
@@ -952,7 +952,7 @@ namespace ChargeDebug.Form
                 try
                 {
                     // 发送命令
-                    CANManager.Instance.ClearQueue(channelKey);
+                    //CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         device.DeviceIndex,
                         device.CanIndex,
