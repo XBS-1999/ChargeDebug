@@ -150,7 +150,7 @@ namespace ChargeDebug.Service
         public void Init()
         {
             //LogService("CAN管理器初始化开始");
-            //_isRunning = true;
+            _isRunning = true;
 
             _reconnectTimer?.Dispose();
             // 初始化重连定时器 (取消注释)
@@ -175,7 +175,7 @@ namespace ChargeDebug.Service
                         if (_equipmentInfo.TryGetValue(channelKey, out var equipment))
                         {
                             // 使用统一的重连方法
-                            _isRunning = false;
+                            //_isRunning = false;
                             RegisterChannel(equipment, true);
                         }
                     }
@@ -187,7 +187,7 @@ namespace ChargeDebug.Service
                         if (_equipmentInfo.TryGetValue(channelKey, out var equipment))
                         {
                             // 使用统一的重连方法
-                            _isRunning = false;
+                            //_isRunning = false;
                             RegisterChannel(equipment, true);
                         }
                     }
