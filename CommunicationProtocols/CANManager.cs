@@ -807,11 +807,17 @@ namespace ChargeDebug.Service
                         if (actualRead > 0)
                         {
                             var queue = _receiveQueues.GetOrAdd(key, _ => new ConcurrentQueue<ZCAN_Receive_Data>());
+                            var batch = new ZCAN_Receive_Data[actualRead];
 
                             for (int i = 0; i < actualRead; i++)
                             {
-                                var frame = Marshal.PtrToStructure<ZCAN_Receive_Data>(
+                                batch[i] = Marshal.PtrToStructure<ZCAN_Receive_Data>(
                                     IntPtr.Add(buffer, i * structSize));
+                            }
+
+                            // 单线程入队避免交叉
+                            foreach (var frame in batch)
+                            {
                                 queue.Enqueue(frame);
                             }
 
@@ -912,8 +918,6 @@ namespace ChargeDebug.Service
             }
             return new ZCAN_Receive_Data(); // 返回空帧
         }
-
-
 
         public async Task<Dictionary<uint, List<ZCAN_Receive_Data>>> ReceiveMultipleFramesAsync(
             string channelKey,
