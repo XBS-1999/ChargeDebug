@@ -111,7 +111,7 @@ namespace ChargeDebug.Form
 
             labelDirectionammeter = new LabelControl { Text = "电流表方向:", Location = new Point(240, 162) };
             labelDirectionammeter.Visible = !_flagbit;
-            directionammeter = new ComboBoxEdit { Location = new Point(310, 160), Width = 150 };
+            directionammeter = new ComboBoxEdit { Location = new Point(330, 160), Width = 100 };
             directionammeter.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             directionammeter.Visible = !_flagbit; // 根据flagbit设置可见性
             directionammeter.Properties.Items.AddRange(new[] { "正方向", "反方向" });
@@ -130,7 +130,7 @@ namespace ChargeDebug.Form
             {
                 Text = "确定",
                 DialogResult = DialogResult.None,
-                Location = new Point(150, _flagbit ? 280 : 200), // 根据flagbit调整位置
+                Location = new Point(150, _flagbit ? 280 : 210), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnOK.Click += BtnOK_Click;
@@ -139,7 +139,7 @@ namespace ChargeDebug.Form
             {
                 Text = "应用",
                 DialogResult = DialogResult.None,
-                Location = new Point(300, _flagbit ? 280 : 200), // 根据flagbit调整位置
+                Location = new Point(300, _flagbit ? 280 : 210), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnApplication.Click += BtnApplication_Click;
@@ -148,7 +148,7 @@ namespace ChargeDebug.Form
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(450, _flagbit ? 280 : 200), // 根据flagbit调整位置
+                Location = new Point(450, _flagbit ? 280 : 210), // 根据flagbit调整位置
                 Size = new Size(80, 30)
             };
             btnCancel.Click += BtnCancel_Click;
@@ -156,7 +156,7 @@ namespace ChargeDebug.Form
             // 如果flagbit为false，调整窗体高度
             if (!_flagbit)
             {
-                this.Height = 280; // 减少窗体高度
+                this.Height = 290; // 减少窗体高度
             }
 
             // 添加所有控件到表单
@@ -298,6 +298,16 @@ namespace ChargeDebug.Form
             else
             {
                 workingMode.SelectedIndex = 0;
+            }
+
+            // 设置工作模式
+            if (!string.IsNullOrEmpty(configData.Directionammeter))
+            {
+                directionammeter.Text = configData.Directionammeter;
+            }
+            else
+            {
+                directionammeter.SelectedIndex = 0;
             }
         }
 

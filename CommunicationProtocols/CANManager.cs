@@ -787,21 +787,14 @@ namespace ChargeDebug.Service
                     string key = device.Key;
                     var channelHandle = device.Value.channelHandle;
 
-                    // 检查接收帧数
-                    uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
-                    if (pendingFrames == 0)
-                    {
-                        Thread.Sleep(1); // 没有数据时短暂休眠
-                        continue;
-                    }
-
                     // 为每个通道分配独立缓冲区
-                    
                     IntPtr buffer = Marshal.AllocHGlobal(BATCH_SIZE * structSize);
                     try
                     {
-                        uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
+                        uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
+                        if (pendingFrames == 0) continue;
 
+                        uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
                         uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
 
                         if (actualRead > 0)

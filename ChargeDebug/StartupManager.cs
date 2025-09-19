@@ -145,7 +145,7 @@ namespace ChargeDebug
                 //return true;
                 LogService.Log("等待设备启动:20S");
                 await Task.Delay(20000);
-                //return true;
+                LogService.Log($"状态:{_dcRunStatus}");
                 //监控运行状态是否变化
                 if (_dcRunStatus == 0x02) //启动过程中
                 {

@@ -30,6 +30,7 @@ namespace ChargeDebug.Form
         private string sqladdress = "";
         private TreeList treeList;
         private List<EquipmentModel> equipmentList;
+        private StartupManager startupManager;
 
         // 组合框控件
         private ComboBoxEdit cbVoltageSource;
@@ -58,7 +59,6 @@ namespace ChargeDebug.Form
 
         // 校准状态标志
         private bool _isCalibrating = false;
-        private StartupManager _startupManager;
 
         #endregion
 
@@ -1576,7 +1576,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 查找对应的启动管理器
-                var startupManager = FindStartupManager(currentSourceName);
+                startupManager = FindStartupManager(currentSourceName);
                 if (startupManager == null)
                 {
                     LogService.Log($"找不到设备 {currentSourceName} 的启动管理器");
@@ -1713,7 +1713,7 @@ namespace ChargeDebug.Form
             {
                 // 停止电流源设备
                 LogService.Log("关闭电流源输出...");
-                await _startupManager.SetParameters(0x00, 0.0, 0.0);
+                await startupManager.SetParameters(0x00, 0.0, 0.0);
 
                 if (_calibrationCancellationRequested)
                 {
@@ -1761,7 +1761,7 @@ namespace ChargeDebug.Form
                         // 获取用户设置的配置数据StartCurrent
                         _protectionParameters = configForm.Configuration;
 
-                        bool success = await _startupManager.StartCurrent(_protectionParameters);
+                        bool success = await startupManager.StartCurrent(_protectionParameters);
                         if (!success)
                         {
                             LogService.Log("设备启动失败!");
@@ -1902,21 +1902,26 @@ namespace ChargeDebug.Form
 
                     if (scaleFactorSignal != null && zeroFactorSignal != null)
                     {
-                        var (scale, zero) = await ReadCalibrationFactors(
+                        int num = 0;
+                        while (num < 3)
+                        {
+                            var (scale, zero) = await ReadCalibrationFactors(
                                             firstPoint.DeviceName,
                                             scaleFactorSignal,
                                             zeroFactorSignal);
 
-                        if (scale == 0.0 && zero == 0.0)
-                        {
-                            LogService.Log($"读取原有校准系数失败");
-                            return false;
-                        }
-                        else
-                        {
-                            originalScaleFactor = scale;
-                            originalZeroFactor = zero;
-                            LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
+                            if (scale == 0.0 && zero == 0.0)
+                            {
+                                LogService.Log($"读取原有校准系数失败");
+                                num++;
+                            }
+                            else
+                            {
+                                originalScaleFactor = scale;
+                                originalZeroFactor = zero;
+                                LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
+                                break;
+                            }
                         }
                     }
 
@@ -1952,7 +1957,7 @@ namespace ChargeDebug.Form
                                     double stepVoltage = Math.Max(currentVoltage - 20, point.Voltage);
 
                                     LogService.Log($"设置电流 {stepVoltage}A");
-                                    bool setcurrent = await _startupManager.SetParameters(0x23, stepVoltage, 0.0);
+                                    bool setcurrent = await startupManager.SetParameters(0x23, stepVoltage, 0.0);
 
                                     if (!setcurrent)
                                     {
@@ -2000,7 +2005,7 @@ namespace ChargeDebug.Form
                             double stepVoltage = Math.Min(currentVoltage + 20, 0);
 
                             LogService.Log($"设置电流 {stepVoltage}A");
-                            bool setcurrent = await _startupManager.SetParameters(0x23, stepVoltage, 0.0);
+                            bool setcurrent = await startupManager.SetParameters(0x23, stepVoltage, 0.0);
 
                             if (!setcurrent)
                             {
@@ -2028,7 +2033,7 @@ namespace ChargeDebug.Form
 
                                     LogService.Log($"设置电流 {stepVoltage}A");
 
-                                    bool setcurrent = await _startupManager.SetParameters(0x03, stepVoltage, 0.0);
+                                    bool setcurrent = await startupManager.SetParameters(0x03, stepVoltage, 0.0);
 
                                     if (!setcurrent)
                                     {
@@ -2078,7 +2083,7 @@ namespace ChargeDebug.Form
 
                             LogService.Log($"设置电流 {stepVoltage}A");
 
-                            bool setcurrent = await _startupManager.SetParameters(0x03, stepVoltage, 0.0);
+                            bool setcurrent = await startupManager.SetParameters(0x03, stepVoltage, 0.0);
 
                             if (!setcurrent)
                             {
@@ -2092,7 +2097,7 @@ namespace ChargeDebug.Form
 
                         LogService.Log("关闭电流源输出...");
 
-                        await _startupManager.SetParameters(0x00, 0.0, 0.0);
+                        await startupManager.SetParameters(0x00, 0.0, 0.0);
                     }
                     else
                     {
@@ -2404,7 +2409,7 @@ namespace ChargeDebug.Form
 
                                     LogService.Log($"设置电流 {stepVoltage}A");
 
-                                    bool setcurrent = await _startupManager.SetParameters(0x23, stepVoltage, 0.0);
+                                    bool setcurrent = await startupManager.SetParameters(0x23, stepVoltage, 0.0);
 
                                     if (!setcurrent)
                                     {
@@ -2464,7 +2469,7 @@ namespace ChargeDebug.Form
 
                             LogService.Log($"设置电流 {stepVoltage}A");
 
-                            bool setcurrent = await _startupManager.SetParameters(0x23, stepVoltage, 0.0);
+                            bool setcurrent = await startupManager.SetParameters(0x23, stepVoltage, 0.0);
 
                             if (!setcurrent)
                             {
@@ -2492,7 +2497,7 @@ namespace ChargeDebug.Form
 
                                     LogService.Log($"设置电流 {stepVoltage}A");
 
-                                    bool setcurrent = await _startupManager.SetParameters(0x03, stepVoltage, 0.0);
+                                    bool setcurrent = await startupManager.SetParameters(0x03, stepVoltage, 0.0);
 
                                     if (!setcurrent)
                                     {
@@ -2553,7 +2558,7 @@ namespace ChargeDebug.Form
 
                             LogService.Log($"设置电流 {stepVoltage}A");
 
-                            bool setcurrent = await _startupManager.SetParameters(0x03, stepVoltage, 0.0);
+                            bool setcurrent = await startupManager.SetParameters(0x03, stepVoltage, 0.0);
 
                             if (!setcurrent)
                             {
