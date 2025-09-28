@@ -1,23 +1,16 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
-using DevExpress.XtraBars;
 using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
-using DevExpress.XtraRichEdit.Model;
-using Ivi.Visa;
-using Ivi.Visa.ConflictManager;
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.ServiceModel.Channels;
 using System.Text;
-using System.Threading.Channels;
 using TcpCommunicationLib;
-using static ChargeDebug.Service.CANManager;
 
+#pragma warning disable
 namespace TcpAssistant
 {
     public partial class MainForm : XtraForm
@@ -29,6 +22,7 @@ namespace TcpAssistant
         private ComboBoxEdit cbProtocolType;
         private TextEdit txtIPAddress;
         private TextEdit txtPort;
+        private ComboBoxEdit cbBaudRate; // 新增波特率输入框
         private SimpleButton btnOpenAndClose;
 
         private ComboBoxEdit cbFirmwareModel;
@@ -113,6 +107,7 @@ namespace TcpAssistant
             cbProtocolType = new ComboBoxEdit();
             txtIPAddress = new TextEdit();
             txtPort = new TextEdit();
+            cbBaudRate = new ComboBoxEdit(); // 修改：改为下拉框
             btnOpenAndClose = new SimpleButton();
 
             cbFirmwareModel = new ComboBoxEdit();
@@ -122,9 +117,13 @@ namespace TcpAssistant
             btnUpgrade = new SimpleButton();
 
             // 设置默认值
-            ConfigureComboBox(cbProtocolType, "TCP Server", "TCP Client", "UDP", "CAN");
+            ConfigureComboBox(cbProtocolType, "TCP Server", "TCP Client", "UDP", "CANETTCP", "USBCANFD_200U");
             txtIPAddress.Text = "192.168.1.8";
             txtPort.Text = "4001";
+
+            // 修改：配置波特率下拉框
+            ConfigureComboBox(cbBaudRate, "125K", "250K", "500K", "800K", "1M"); // 常见的CAN波特率
+            cbBaudRate.SelectedIndex = 2; // 默认选择500K
 
             ConfigureComboBox(cbFirmwareModel, "CPU1", "CPU2", "CPU3", "ARM1", "ARM2", "FPGA1", "FPGA2");
             ConfigureComboBox(cbSystemModell, "AC1", "AC2", "DC1", "DC2", "DC3", "测功机", "AI板卡", "AO板卡", "DI板卡", "DO板卡");
@@ -145,7 +144,7 @@ namespace TcpAssistant
             btnUpgrade.Appearance.BackColor = Color.LightGreen;
 
             // 添加控件到布局 - 每个项之间保持20px间隔
-            LayoutControlItem deviceItem = leftLayout.AddItem("协议类型:", cbProtocolType);
+            LayoutControlItem deviceItem = leftLayout.AddItem("设备类型:", cbProtocolType);
             deviceItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
             // +++ 新增IP地址和端口布局项 +++
@@ -154,6 +153,11 @@ namespace TcpAssistant
 
             LayoutControlItem portItem = leftLayout.AddItem("设备端口:", txtPort);
             portItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
+
+            // +++ 新增波特率布局项 +++
+            LayoutControlItem baudRateItem = leftLayout.AddItem("波特率:", cbBaudRate); // 修改：使用cbBaudRate
+            baudRateItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
+            baudRateItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never; // 初始隐藏
 
             leftLayout.AddItem("", btnOpenAndClose).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 20);
 
@@ -183,6 +187,55 @@ namespace TcpAssistant
             LayoutControlItem progressItem = leftLayout.AddItem("", progressBar);
             progressItem.Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 20); // 上边距20px
             progressItem.TextVisible = false;  // 隐藏标签文本
+
+            // 初始更新控件可见性
+            UpdateControlVisibility();
+        }
+
+        private void UpdateControlVisibility()
+        {
+            string protocol = cbProtocolType.SelectedItem?.ToString() ?? "";
+
+            // 控制IP地址和端口输入框的可见性
+            bool showNetworkControls = protocol == "TCP Server" || protocol == "TCP Client" ||
+                                     protocol == "UDP" || protocol == "CANETTCP";
+            bool showBaudRate = protocol == "USBCANFD_200U";
+
+            // 获取布局项
+            var ipItem = GetLayoutItemForControl(txtIPAddress);
+            var portItem = GetLayoutItemForControl(txtPort);
+            var baudRateItem = GetLayoutItemForControl(cbBaudRate);
+
+            if (ipItem != null)
+                ipItem.Visibility = showNetworkControls ?
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Always :
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
+
+            if (portItem != null)
+                portItem.Visibility = showNetworkControls ?
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Always :
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
+
+            if (baudRateItem != null)
+                baudRateItem.Visibility = showBaudRate ?
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Always :
+                    DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
+        }
+
+        private LayoutControlItem GetLayoutItemForControl(Control control)
+        {
+            var layoutControl = control.Parent as LayoutControl;
+            if (layoutControl != null)
+            {
+                foreach (BaseLayoutItem item in layoutControl.Items)
+                {
+                    if (item is LayoutControlItem layoutItem && layoutItem.Control == control)
+                    {
+                        return layoutItem;
+                    }
+                }
+            }
+            return null;
         }
 
         private async void StartUpgrade()
@@ -211,7 +264,7 @@ namespace TcpAssistant
                 string protocol = cbProtocolType.SelectedItem?.ToString() ?? "";
 
                 // 根据协议类型选择不同的升级流程
-                if (protocol == "CAN")
+                if (protocol == "CANETTCP")
                 {
                     await StartCANUpgrade(firmwareModel, systemModel, filePath);
                 }
@@ -330,7 +383,7 @@ namespace TcpAssistant
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
-                    int times = 15;
+                    int times = 20;
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -493,6 +546,7 @@ namespace TcpAssistant
                                          packetIndex * 100 / (totalBlocks * packetsNeeded);
 
                     // 添加少量延迟防止CAN总线过载
+                    //Thread.Sleep(times);
                     await Task.Delay(times);
                 }
 
@@ -847,7 +901,7 @@ namespace TcpAssistant
         {
             string protocol = cbProtocolType.SelectedItem?.ToString();
 
-            if (protocol == "CAN")
+            if (protocol == "CANETTCP")
             {
                 return firmwareModel switch
                 {
@@ -1023,7 +1077,7 @@ namespace TcpAssistant
         {
             string protocol = cbProtocolType.SelectedItem?.ToString();
 
-            if (protocol == "CAN")
+            if (protocol == "CANETTCP" || protocol == "USBCANFD_200U")
             {
                 // CAN连接处理
                 if (IsCANConnected())
@@ -1056,20 +1110,25 @@ namespace TcpAssistant
             {
                 int deviceIndex = 0;
                 int channelIndex = 0;
+                string protocol = cbProtocolType.SelectedItem?.ToString();
+                string baudRate = cbBaudRate.SelectedItem?.ToString(); // 修改：从下拉框获取选中值
+
                 // 创建设备模型
                 EquipmentModel equipment = new EquipmentModel
                 {
                     DeviceIndex = deviceIndex,
                     CanIndex = channelIndex,
-                    DeviceIP = txtIPAddress.Text, // CAN设备不需要IP，但接口要求
-                    DevicePort = txtPort.Text // CAN设备不需要端口，但接口要求
+                    CanType = cbProtocolType.Text,
+                    DeviceIP = txtIPAddress.Text,
+                    DevicePort = txtPort.Text,
+                    BaudRate = baudRate // 设置波特率
                 };
 
                 // 注册CAN通道
-                if(CANManager.Instance.RegisterChannels(equipment))
+                if (CANManager.Instance.RegisterChannels(equipment))
                 {
                     // 注册数据处理器
-                    //string channelKey = CANManager.GetChannelKey(deviceIndex, channelIndex);
+                    //string channelKey = CANManager.GetChanOnLoadnelKey(deviceIndex, channelIndex);
                     //CANManager.Instance.RegisterDataHandler(deviceIndex, channelIndex, HandleCANData);
                     btnOpenAndClose.Text = "关闭";
                     AppendInfo($"✅ CAN设备 {deviceIndex} 通道 {channelIndex} 连接成功");
@@ -1500,22 +1559,33 @@ namespace TcpAssistant
         {
             base.OnLoad(e);
 
-            AppendInfo($"协议类型: {cbProtocolType.SelectedItem?.ToString()}");
+            AppendInfo($"设备类型: {cbProtocolType.SelectedItem?.ToString()}");
 
-            AppendInfo($"设备IP地址: {txtIPAddress.Text}");
-
-            AppendInfo($"设备端口号: {txtPort.Text}");
+            string protocol = cbProtocolType.SelectedItem?.ToString();
+            if (protocol == "USBCANFD_200U")
+            {
+                AppendInfo($"波特率: {cbBaudRate.SelectedItem?.ToString()}"); // 修改：使用下拉框的值
+            }
+            else
+            {
+                AppendInfo($"设备IP地址: {txtIPAddress.Text}");
+                AppendInfo($"设备端口号: {txtPort.Text}");
+            }
 
             AppendInfo($"固件型号: {cbFirmwareModel.SelectedItem?.ToString()}");
-
             AppendInfo($"系统型号: {cbSystemModell.SelectedItem?.ToString()}");
 
             cbProtocolType.SelectedIndexChanged += CbProtocolType_SelectedIndexChanged;
             cbFirmwareModel.SelectedIndexChanged += CbFirmwareModel_SelectedIndexChanged;
             cbSystemModell.SelectedIndexChanged += CbSystemModell_SelectedIndexChanged;
-            // ===== 新增IP和端口变化事件处理 =====
-            txtIPAddress.Properties.EditValueChanged += TxtIPAddress_TextChanged;
-            txtPort.Properties.EditValueChanged += TxtPort_TextChanged;
+
+            // 修改：波特率变化事件改为下拉框的选择变化事件
+            cbBaudRate.SelectedIndexChanged += CbBaudRate_SelectedIndexChanged;
+        }
+
+        private void CbBaudRate_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            AppendInfo($"波特率已更新为: {cbBaudRate.SelectedItem?.ToString()}");
         }
 
         // ===== 新增IP地址变化事件 =====
@@ -1532,10 +1602,22 @@ namespace TcpAssistant
 
         private void CbProtocolType_SelectedIndexChanged(object? sender, EventArgs e)
         {
-            if (cbProtocolType.SelectedItem == null) return;
+            UpdateControlVisibility();
 
-            // 获取当前选中的设备
-            AppendInfo($"协议类型已更新为: {cbProtocolType.SelectedItem?.ToString()}");
+            string protocol = cbProtocolType.SelectedItem?.ToString();
+            AppendInfo($"设备类型已更新为: {protocol}");
+
+            // 根据协议类型显示相应的连接信息
+            if (protocol == "USBCANFD_200U")
+            {
+                AppendInfo($"当前波特率: {cbBaudRate.SelectedItem?.ToString()}"); // 修改：使用下拉框的值
+            }
+            else if (protocol == "CANETTCP" || protocol == "TCP Server" ||
+                     protocol == "TCP Client" || protocol == "UDP")
+            {
+                AppendInfo($"设备IP地址: {txtIPAddress.Text}");
+                AppendInfo($"设备端口号: {txtPort.Text}");
+            }
         }
 
         private void CbFirmwareModel_SelectedIndexChanged(object? sender, EventArgs e)

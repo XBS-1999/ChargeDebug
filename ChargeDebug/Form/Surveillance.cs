@@ -5,6 +5,7 @@ using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
 using System.Data.SQLite;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class Surveillance : XtraUserControl
@@ -18,7 +19,7 @@ namespace ChargeDebug.Form
 
         private List<EquipmentModel> surequipmentList = new List<EquipmentModel>();
         // 添加设备定时器字典
-        private readonly Dictionary<int, System.Threading.Timer> _deviceTimers = 
+        private readonly Dictionary<int, System.Threading.Timer> _deviceTimers =
             new Dictionary<int, System.Threading.Timer>();
         //private static uint dcnumber = 0;        //总DC通道数
         //private static uint acnumber = 0;        //总AC通道数
@@ -32,11 +33,11 @@ namespace ChargeDebug.Form
 
         public Surveillance(string dbPath, List<EquipmentModel> equipmentList)
         {
-            
+
             dbcPath = dbPath;
             DeviceConfig(equipmentList);
             InitializeComponent();
-            
+
             //InitializeUI();
             // 修改Load事件处理
             this.Load += (s, e) => AddDynamicUserControls();
@@ -49,7 +50,7 @@ namespace ChargeDebug.Form
             layoutControl.Dock = DockStyle.Fill;
             layoutControl.AllowCustomization = false;
             this.Controls.Add(layoutControl);
-            
+
             //主组：垂直布局
             rootGroup = new LayoutControlGroup
             {
@@ -155,6 +156,7 @@ namespace ChargeDebug.Form
 
         private void AddDynamicUserControls()
         {
+
             //DeviceConfig();
             //重新布局
             InitializeUI();
@@ -172,7 +174,7 @@ namespace ChargeDebug.Form
                 MinSize = new Size(64, 700),
                 MaxSize = new Size(64, 700)
             };
-            
+
             //动态添加模块控件
             using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
             {
@@ -210,8 +212,8 @@ namespace ChargeDebug.Form
                     {
                         List<SignalInfo> channelSignals = new List<SignalInfo>();
 
-                        acnum ++;
-                        dcnum ++;
+                        acnum++;
+                        dcnum++;
 
                         // 处理DC通道信号（如果存在）
                         if (i < equipment.DCNumber)
@@ -238,7 +240,7 @@ namespace ChargeDebug.Form
                                 if (signal.CANID.Contains("AX"))
                                 {
                                     var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + (acnum-1));
+                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + (acnum - 1));
                                     channelSignals.Add(newSignal);
                                 }
                             }
@@ -252,7 +254,7 @@ namespace ChargeDebug.Form
                                 channelSignals.Add(CloneSignal(signal));
                             }
                         }
-                        
+
                         // 创建模块（同时包含AC和DC通道）
                         string title = $"{equipment.DeviceName}-通道";
                         title += i < equipment.ACNumber ? $"A{acnum}" : "";

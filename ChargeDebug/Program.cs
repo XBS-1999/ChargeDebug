@@ -47,10 +47,8 @@ namespace ChargeDebug
                 {
                     // 4. 设置DevExpress相关配置（在初始化之后）
                     DevExpress.XtraEditors.WindowsFormsSettings.DefaultFont =
-                        new Font("Tahoma", 12, FontStyle.Regular);
-                    DevExpress.XtraEditors.WindowsFormsSettings.DefaultMenuFont =
-                        new Font("Tahoma", 12, FontStyle.Regular);
-                    DevExpress.LookAndFeel.UserLookAndFeel.Default.SetSkinStyle("Office 2019 Colorful");
+                        new Font("Tahoma", 10, FontStyle.Regular);
+                    DevExpress.LookAndFeel.UserLookAndFeel.Default.SetSkinStyle("WXI");
 
                     // 5. 设置数据库路径
                     dbPath = AppDomain.CurrentDomain.SetupInformation.ApplicationBase + "ChargeDebug.db3";

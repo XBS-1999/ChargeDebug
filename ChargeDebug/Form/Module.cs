@@ -124,7 +124,12 @@ namespace ChargeDebug.Form
             set
             {
                 _isConnected = value;
-                UpdateConnectionStatusUI("", Color.White);
+
+                if (!_isConnected)
+                {
+                    UpdateConnectionStatusUI("已断开(重连中...)", Color.Red);
+                }
+                //UpdateConnectionStatusUI("", Color.White);
             }
         }
 
@@ -1077,7 +1082,8 @@ namespace ChargeDebug.Form
                     }
                     else
                     {
-                        name = faultDescription;
+                        //name = faultDescription;
+                        name = signalName.Remove(0, 3);
                     }
 
                     if (!_activeFaults.ContainsKey(signalName))
@@ -1091,8 +1097,6 @@ namespace ChargeDebug.Form
                         _activeFaults[signalName] = name;
                         LogService.Log($"故障更新: {signalName} → {name}");
                     }
-
-                    DisplayNextFault(null);
                 }
             }
             else // 值为0表示故障清除
@@ -1342,21 +1346,9 @@ namespace ChargeDebug.Form
                 // 再次检查，因为可能在调用过程中被销毁
                 if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
 
-                if (_isConnected)
-                {
-                    panelControl.Appearance.BackColor = color;
-                    panelControl.BorderStyle = BorderStyles.NoBorder;
-                    lblConnectionStatus.Text = text;
-                }
-                else
-                {
-                    panelControl.Appearance.BackColor = Color.Red;
-                    panelControl.BorderStyle = BorderStyles.NoBorder;
-                    lblConnectionStatus.Text = "已断开";
-
-                    // 添加重连指示器
-                    lblConnectionStatus.Text += " (重连中...)";
-                }
+                panelControl.Appearance.BackColor = color;
+                panelControl.BorderStyle = BorderStyles.NoBorder;
+                lblConnectionStatus.Text = text;
             }));
         }
 
@@ -2008,6 +2000,10 @@ namespace ChargeDebug.Form
         /// </summary>
         public new void Dispose()
         {
+            //GC.SuppressFinalize(this);
+            //GC.Collect();
+            //GC.WaitForPendingFinalizers();
+
             if (_disposed) return;
             _disposed = true;
 
@@ -2049,6 +2045,8 @@ namespace ChargeDebug.Form
 
                 // 注销连接状态事件
                 CANManager.Instance.OnConnectionStatusChanged -= HandleConnectionStatusChanged;
+
+                CANManager.Instance.Dispose();
 
                 LogService.Log($"模块 {_title} 已注销");
             }

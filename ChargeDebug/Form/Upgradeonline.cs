@@ -190,9 +190,8 @@ namespace ChargeDebug.Form
             string cpuType = cbCpu.SelectedItem.ToString();
             // 4. 获取固件文件路径
             string filePath = btnSelectFile.Text;
-            string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
-
-            if (!await SendAndVerifyCommand(device, channelKey, 0x0000AA01, 0x0000BB01,
+            
+            if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
                 new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
                 "进入Bootloader指令", "进入Bootloader"))
             {
@@ -588,7 +587,7 @@ namespace ChargeDebug.Form
                 string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
 
                 // 步骤1: 发送请求升级指令 (0x01)
-                if (!await SendAndVerifyCommand(device, channelKey, 0x0000AA01, 0x0000BB01,
+                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
                     new byte[] { 0x01, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
                     "请求升级指令", "请求升级"))
                 {
@@ -596,11 +595,11 @@ namespace ChargeDebug.Form
                 }
 
                 // 步骤2: 发送启动升级指令 (0x03)
-                if (!await SendAndVerifyCommand(device, channelKey, 0x0000AA01, 0x0000BB01,
+                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
                     new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
                     "启动升级指令", "启动升级"))
                 {
-                    if (!await SendAndVerifyCommand(device, channelKey, 0x0000AA01, 0x0000BB01,
+                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
                     new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
                     "启动升级指令", "启动升级"))
                     {
@@ -637,7 +636,7 @@ namespace ChargeDebug.Form
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
-                    int times = 15;
+                    int times = 20;
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -937,7 +936,6 @@ namespace ChargeDebug.Form
         // 辅助方法：发送命令并验证响应
         private async Task<bool> SendAndVerifyCommand(
             EquipmentModel device,
-            string channelKey,
             uint sendCanId,
             uint receiveCanId,
             byte[] data,
@@ -952,7 +950,8 @@ namespace ChargeDebug.Form
                 try
                 {
                     // 发送命令
-                    //CANManager.Instance.ClearQueue(channelKey);
+                    string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
+                    CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         device.DeviceIndex,
                         device.CanIndex,

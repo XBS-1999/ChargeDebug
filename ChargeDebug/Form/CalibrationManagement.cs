@@ -743,7 +743,7 @@ namespace ChargeDebug.Form
                             // 查询DbcFile表获取DbcFileID
                             long fileId = SQLite_Service.GetDbcFileId(conn, equipment.CommunicationProtocols);
 
-                            if (equipment.CanType == "CANET-2E-U")
+                            if (equipment.CanType == "ZCAN_CANETTCP")
                             {
                                 // 加载CAN协议信号
                                 //var canSignals = SQLite_Service.GetCanSignalsByDbc(conn, fileId);
@@ -928,7 +928,7 @@ namespace ChargeDebug.Form
                 // 根据设备通讯类型调用不同的启动方法
                 switch (equipment.CanType)
                 {
-                    case "CANET-2E-U":
+                    case "ZCAN_CANETTCP":
                         // 使用CAN启动设备
                         bool can = await StartDeviceAsync(equipment, title);
                         if (!can)
@@ -2737,7 +2737,7 @@ namespace ChargeDebug.Form
                         //result = await ReadModbusDeviceValue(equipment, signalInfo);
                         throw new Exception($"不支持的设备类型: {equipment.CanType}");
 
-                    case "CANET-2E-U":
+                    case "ZCAN_CANETTCP":
                         result = await ReadCanDeviceValue(equipment, signalInfo);
                         break;
 
@@ -3027,16 +3027,17 @@ namespace ChargeDebug.Form
                         count++;
                         // 获取信号信息 - 从第一个节点获取设备名称和信号名称
                         string channel = channelGroup.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        string signaltype = channelGroup.GetValue("SignalType")?.ToString() ?? "";
                         string signalName = channelGroup.GetValue("SignalName")?.ToString() ?? "";
                         string ratingVoltage = channelGroup.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
                         string scalefactor = channelGroup.GetValue("ScaleFactor")?.ToString() ?? "";
                         string zerofactor = channelGroup.GetValue("ZeroFactor")?.ToString() ?? "";
 
                         // 通道标题
-                        worksheet.Cell(currentRow, 1).Value = $"{channel}{signalName}";
+                        worksheet.Cell(currentRow, 1).Value = $"{channel}-{signalName}";
                         worksheet.Range(currentRow, 1, currentRow, 4).Merge(); // 合并通道标题
 
-                        worksheet.Cell(currentRow, 5).Value = "额定电压";
+                        worksheet.Cell(currentRow, 5).Value = "额定值";
                         worksheet.Cell(currentRow, 6).Value = "比例零点系数";
                         worksheet.Column(6).Width = 25;
 
@@ -3053,11 +3054,11 @@ namespace ChargeDebug.Form
                         worksheet.Cell(currentRow + 1, 6).Value = $"K:{scalefactor} B:{zerofactor}";
 
                         // 列标题
-                        worksheet.Cell(currentRow + 2, 1).Value = "设备采样电压";
-                        worksheet.Cell(currentRow + 2, 2).Value = "实际输入电压";
-                        worksheet.Cell(currentRow + 2, 3).Value = "设备采样电压";
-                        worksheet.Cell(currentRow + 2, 4).Value = "实际输入电压";
-                        worksheet.Cell(currentRow + 2, 5).Value = "电压精度";
+                        worksheet.Cell(currentRow + 2, 1).Value = "设备采样值";
+                        worksheet.Cell(currentRow + 2, 2).Value = "实际输入值";
+                        worksheet.Cell(currentRow + 2, 3).Value = "设备采样值";
+                        worksheet.Cell(currentRow + 2, 4).Value = "实际输入值";
+                        worksheet.Cell(currentRow + 2, 5).Value = "校准精度";
                         worksheet.Cell(currentRow + 2, 6).Value = "测试结果";
 
                         // 设置表头样式
@@ -3070,15 +3071,28 @@ namespace ChargeDebug.Form
 
                         foreach (TreeListNode node in channelGroup.Nodes)
                         {
-                            string beforeData = node.GetValue("DeviceVoltageSample")?.ToString() ?? "";
-                            string[] beforeParts = beforeData.Split('/');
-
-                            string afterData = node.GetValue("NewDeviceVoltageSample")?.ToString() ?? "";
-                            string[] afterParts = afterData.Split('/');
-
+                            string[] beforeParts;
+                            string[] afterParts;
                             string accuracy = node.GetValue("CalibrationAccuracy")?.ToString() ?? "";
                             string result = node.GetValue("CalibrationResult")?.ToString() ?? "";
 
+                            if (signaltype == "电压")
+                            {
+                                string beforeData = node.GetValue("DeviceVoltageSample")?.ToString() ?? "";
+                                beforeParts = beforeData.Split('/');
+
+                                string afterData = node.GetValue("NewDeviceVoltageSample")?.ToString() ?? "";
+                                afterParts = afterData.Split('/');
+                            }
+                            else
+                            {
+                                string beforeData = node.GetValue("DeviceCurrentSample")?.ToString() ?? "";
+                                beforeParts = beforeData.Split('/');
+
+                                string afterData = node.GetValue("NewDeviceCurrentSample")?.ToString() ?? "";
+                                afterParts = afterData.Split('/');
+                            }
+                            
                             if (beforeParts.Length == 2 && afterParts.Length == 2)
                             {
                                 worksheet.Cell(dataRow, 1).Value = beforeParts[0];
@@ -3232,7 +3246,7 @@ namespace ChargeDebug.Form
                         }
                         break;
 
-                    case "CANET-2E-U":
+                    case "ZCAN_CANETTCP":
                         // CAN设备关闭输出逻辑
                         // 实现CAN设备关闭输出的具体逻辑
                         LogService.Log($"CAN设备 {voltageSource.DeviceName} 输出已关闭");
@@ -3277,7 +3291,7 @@ namespace ChargeDebug.Form
                         LogService.Log($"{equipment.DeviceName} RS485连接已清理");
                         break;
 
-                    case "CANET-2E-U":
+                    case "ZCAN_CANETTCP":
                         // CAN设备断开连接
                         //string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
                         //CANManager.Instance.UnregisterChannel(channelKey);
@@ -5013,11 +5027,11 @@ namespace ChargeDebug.Form
                                     signalName,
                                     signalType,
                                     readTime.ToString(),
-                                    ratingValue.ToString("F2"),
+                                    ratingValue.ToString(""),
                                     calibrationPoints.ToString(),
-                                    precisionRange.ToString("F2") + "%",
-                                    scaleFactor.ToString("F6"),
-                                    zeroFactor.ToString("F6"),
+                                    precisionRange.ToString("") + "%",
+                                    scaleFactor.ToString(""),
+                                    zeroFactor.ToString(""),
                                     "", // 设备电压采样值
                                     "", // 实际电压测量值
                                     "", // 设备电流采样值
@@ -5083,11 +5097,11 @@ namespace ChargeDebug.Form
                                     {
                                         $"校准点 {pointIndex}", // 设备名称列显示校准点名称
                                         "", "", "", "", "", "", "", "",
-                                        isVoltage ? $"{beforeDeviceVoltage:F4}/{beforeActualVoltage:F4}" : "", // 校准前电压
-                                        isVoltage ? $"{afterDeviceVoltage:F4}/{afterActualVoltage:F4}" : "",   // 校准后电压
-                                        isCurrent ? $"{beforeDeviceCurrent:F4}/{beforeActualCurrent:F4}" : "", // 校准前电流
-                                        isCurrent ? $"{afterDeviceCurrent:F4}/{afterActualCurrent:F4}" : "",   // 校准后电流
-                                        $"{accuracy:F4}%",  // 校准精度
+                                        isVoltage ? $"{beforeDeviceVoltage}/{beforeActualVoltage}" : "", // 校准前电压
+                                        isVoltage ? $"{afterDeviceVoltage}/{afterActualVoltage}" : "",   // 校准后电压
+                                        isCurrent ? $"{beforeDeviceCurrent}/{beforeActualCurrent}" : "", // 校准前电流
+                                        isCurrent ? $"{afterDeviceCurrent}/{afterActualCurrent}" : "",   // 校准后电流
+                                        $"{accuracy}%",  // 校准精度
                                         testResult          // 校准结果
                                     });
 

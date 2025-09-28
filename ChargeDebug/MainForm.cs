@@ -34,6 +34,7 @@ namespace ChargeDebug
         private BarButtonItem logButton; // 新增日志按钮
         private BarButtonItem buttonItem8;
         private BarButtonItem buttonItem9;
+        private BarButtonItem skinButton; // 新增主题选择按钮
 
         public MainForm(string dbcPath, string userPermissions, string username)
         {
@@ -109,6 +110,7 @@ namespace ChargeDebug
         // 刷新设备配置
         public void RefreshDeviceConfig(bool a,bool b, bool c)
         {
+            //return;
             LogService.Log("数据已更新，重新加载！");
             ReadDeviceConfig();       // 重新读取配置
             // 更新Surveillance页面
@@ -217,6 +219,7 @@ namespace ChargeDebug
             // 创建功能组
             RibbonPageGroup group1 = new RibbonPageGroup("调试管理");
             group1.ShowCaptionButton = false;
+
             // 将功能组添加到主页签
             homePage1.Groups.AddRange(new[] { group1 });
 
@@ -466,6 +469,15 @@ namespace ChargeDebug
             CANManager.Instance.Dispose();
 
             base.OnClosing(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

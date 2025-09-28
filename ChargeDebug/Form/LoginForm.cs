@@ -4,6 +4,7 @@ using System.Data.SQLite;
 using System.Security.Cryptography;
 using System.Text;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class LoginForm : XtraForm
@@ -58,7 +59,7 @@ namespace ChargeDebug.Form
             txtUsername.Properties.NullValuePrompt = "请输入用户名";
             txtUsername.Properties.NullValuePromptShowForEmptyValue = true;
             txtUsername.Properties.Appearance.Font = new Font("Tahoma", 12F);
-            txtUsername.Location = new Point(180, 87);
+            txtUsername.Location = new Point(180, 85);
             txtUsername.Size = new Size(150, 30);
             txtUsername.Enter += (s, e) => txtUsername.BackColor = Color.AliceBlue;
             txtUsername.Leave += (s, e) => txtUsername.BackColor = Color.White;
@@ -76,7 +77,7 @@ namespace ChargeDebug.Form
             txtPassword.Properties.NullValuePrompt = "请输入密码";
             txtPassword.Properties.NullValuePromptShowForEmptyValue = true;
             txtPassword.Properties.Appearance.Font = new Font("Tahoma", 12F);
-            txtPassword.Location = new Point(180, 137);
+            txtPassword.Location = new Point(180, 135);
             txtPassword.Size = new Size(150, 30);
             txtPassword.Enter += (s, e) => txtPassword.BackColor = Color.AliceBlue;
             txtPassword.Leave += (s, e) => txtPassword.BackColor = Color.White;
@@ -156,6 +157,7 @@ namespace ChargeDebug.Form
                         {
                             if (reader.Read())
                             {
+
                                 string storedHash = reader["PassWord"].ToString();
                                 string inputHash = EncryptPassword(password);
 

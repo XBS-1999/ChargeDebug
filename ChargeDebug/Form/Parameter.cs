@@ -9,6 +9,7 @@ using Log;
 using System.Data.SQLite;
 using System.IO;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class Parameter : XtraUserControl
@@ -556,7 +557,7 @@ namespace ChargeDebug.Form
 
             // 创建水平分组容器
             LayoutControlGroup currentHorizontalGroup = null;
-            
+
             // 添加多个AddGroupControl
             for (int i = 0; i < reuseSignals.Count; i++)
             {
@@ -710,46 +711,46 @@ namespace ChargeDebug.Form
                     int count = signals.Count / 6 + 1;
                     item.MaxSize = new Size(270 * count, 134 * 2);
                     item.MinSize = new Size(270 * count, 134 * 2);
-                    int width = (item.MaxSize.Width - count * (textEdit.Size.Width + (16 * length + 6) + 25)) / 2;
+                    int width = (item.MaxSize.Width - count * (textEdit.Size.Width + (14 * length + 6) + 25)) / 2;
                     if ((i > 5) && (i <= 11))
                     {
                         int hight = (i - 5) * 33;
-                        width = width + 2 * (16 * length + 6) + textEdit.Size.Width + 30;
+                        width = width + 2 * (14 * length + 6) + textEdit.Size.Width + 30;
                         labelControl.Location = new Point(width - labelControl.Width, hight);
-                        textEdit.Location = new Point(width, labelControl.Location.Y - 3);
+                        textEdit.Location = new Point(width, labelControl.Location.Y - 5);
                         // 设置单位标签位置（在输入框右侧）
-                        unitLabel.Location = new Point(textEdit.Right + 3, labelControl.Location.Y);
+                        unitLabel.Location = new Point(textEdit.Right + 2, labelControl.Location.Y);
                     }
                     else if(i > 11)
                     {
                         int hight = (i - 11) * 33;
-                        width = width + 3 * (16 * length + 6) + textEdit.Size.Width + 50;
+                        width = width + 3 * (14 * length + 6) + textEdit.Size.Width + 50;
                         labelControl.Location = new Point(width - labelControl.Width, hight);
-                        textEdit.Location = new Point(width, labelControl.Location.Y - 3);
+                        textEdit.Location = new Point(width, labelControl.Location.Y - 5);
                         // 设置单位标签位置（在输入框右侧）
-                        unitLabel.Location = new Point(textEdit.Right + 3, labelControl.Location.Y);
+                        unitLabel.Location = new Point(textEdit.Right + 2, labelControl.Location.Y);
                     }
                     else
                     {
-                        width = width + (16 * length + 6);
+                        width = width + (14 * length + 6);
                         labelControl.Location = new Point(width - labelControl.Width, (i + 1) * 33);
-                        textEdit.Location = new Point(width, labelControl.Location.Y - 3);
+                        textEdit.Location = new Point(width, labelControl.Location.Y - 5);
                         // 设置单位标签位置（在输入框右侧）
-                        unitLabel.Location = new Point(textEdit.Right + 3, labelControl.Location.Y);
+                        unitLabel.Location = new Point(textEdit.Right + 2, labelControl.Location.Y);
                     }
                 }
                 else
                 {
-                    int width = (item.MaxSize.Width - textEdit.Size.Width - (16 * length + 6)) / 2;
-                    width = width + (16 * length + 6) - 12;
+                    int width = (item.MaxSize.Width - textEdit.Size.Width - (14 * length + 6)) / 2;
+                    width = width + (14 * length + 6) - 12;
                     // 设置标签位置
                     labelControl.Location = new Point(width - labelControl.Width, (i + 1) * 33);
                     
                     // 设置输入框位置（在标签右侧）
-                    textEdit.Location = new Point(width, labelControl.Location.Y - 3);
+                    textEdit.Location = new Point(width, labelControl.Location.Y - 5);
 
                     // 设置单位标签位置（在输入框右侧）
-                    unitLabel.Location = new Point(textEdit.Right + 3, labelControl.Location.Y);
+                    unitLabel.Location = new Point(textEdit.Right + 2, labelControl.Location.Y);
                 }
             }
 

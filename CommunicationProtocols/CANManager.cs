@@ -4,6 +4,7 @@ using System.Text;
 using System.Diagnostics;
 using DataModel;
 using Log;
+using System.IO;
 
 #pragma warning disable
 namespace ChargeDebug.Service
@@ -140,6 +141,7 @@ namespace ChargeDebug.Service
          * 确保整个应用程序只有一个CAN管理器实例
          */
         private static readonly Lazy<CANManager> _instance = new Lazy<CANManager>(() => new CANManager());
+
         public static CANManager Instance => _instance.Value;
 
         private CANManager()
@@ -203,7 +205,7 @@ namespace ChargeDebug.Service
         private bool CheckTimeout(string channelKey)
         {
             return _lastReceiveTime.TryGetValue(channelKey, out var lastTime) &&
-                   (DateTime.Now - lastTime).TotalSeconds > 1;
+                   (DateTime.Now - lastTime).TotalSeconds > 3;
         }
 
         // 更新连接状态
@@ -261,6 +263,7 @@ namespace ChargeDebug.Service
         // 信号定义字典 <CAN ID, 信号列表>
         private readonly ConcurrentDictionary<uint, List<SignalInfo>> _signalDefinitions =
             new ConcurrentDictionary<uint, List<SignalInfo>>();
+
         #endregion
 
         #region 公共方法
@@ -347,7 +350,7 @@ namespace ChargeDebug.Service
                     IntPtr deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
                     if (deviceHandle == IntPtr.Zero)
                     {
-                        LogService.Log($"{equipment.DeviceNumber}打开失败");
+                        LogService.Log($"{equipment.DeviceName}打开失败");
                         return;
                     }
 
@@ -374,7 +377,7 @@ namespace ChargeDebug.Service
                     IntPtr channelHandle = ZCAN_InitCAN(deviceHandle, (uint)channelIndex, ref config);
                     if (channelHandle == IntPtr.Zero)
                     {
-                        LogService.Log($"{equipment.DeviceNumber}初始化失败");
+                        LogService.Log($"{equipment.DeviceName}初始化失败");
                         ZCAN_CloseDevice(deviceHandle);
                         return;
                     }
@@ -391,7 +394,7 @@ namespace ChargeDebug.Service
                     if (!taskCompleted || !startCompleted || startResult != Define.STATUS_OK)
                     {
                         ZCAN_CloseDevice(deviceHandle);
-                        LogService.Log($"{equipment.DeviceNumber}启动失败,已关闭");
+                        LogService.Log($"{equipment.DeviceName}启动失败,已关闭");
                         return;
                     }
 
@@ -403,12 +406,12 @@ namespace ChargeDebug.Service
                     _receiveQueues.GetOrAdd(key, new ConcurrentQueue<ZCAN_Receive_Data>());
 
                     //logger.Info($"通道{(isReconnect ? "重连" : "启动")}成功: {key}");
-                    LogService.Log($"{equipment.DeviceNumber}{(isReconnect ? "重连" : "启动")}成功: {key}");
+                    LogService.Log($"{equipment.DeviceName}{(isReconnect ? "重连" : "启动")}成功: {key}");
                 }
                 catch (Exception ex)
                 {
                     UpdateConnectionStatus(key, false);
-                    LogService.Log($"{(isReconnect ? "重连" : "注册")}{equipment.DeviceNumber}失败: {ex.Message}");
+                    LogService.Log($"{(isReconnect ? "重连" : "注册")}{equipment.DeviceName}失败: {ex.Message}");
                     throw new ApplicationException($"{ex.Message}");
                 }
 
@@ -433,13 +436,28 @@ namespace ChargeDebug.Service
                     //UpdateConnectionStatus(key, false);
 
                     // 打开设备
-                    IntPtr deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
+                    IntPtr deviceHandle = IntPtr.Zero;
+                    if (equipment.CanType == "CANETTCP")
+                    {
+                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
+                    }
+                    else if (equipment.CanType == "USBCANFD_200U")
+                    {
+                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_USBCANFD_200U, (uint)deviceIndex, 0);
+                    }
+                    else
+                    {
+                        deviceHandle = IntPtr.Zero;
+                    }
+
                     if (deviceHandle == IntPtr.Zero)
                     {
                         LogService.Log($"{equipment.DeviceNumber}打开失败");
                         return false;
                     }
 
+                    //ZCAN_SetValue(deviceHandle, $"{channelIndex}/baud_rate_custom", Encoding.ASCII.GetBytes(equipment.BaudRate));
+                    
                     // 设置网络参数
                     ZCAN_SetValue(deviceHandle, $"{channelIndex}/work_mode", Encoding.ASCII.GetBytes("0"));
                     ZCAN_SetValue(deviceHandle, $"{channelIndex}/ip", Encoding.ASCII.GetBytes(equipment.DeviceIP));
@@ -486,7 +504,7 @@ namespace ChargeDebug.Service
                     _lastReceiveTime[key] = DateTime.Now;
 
                     _receiveQueues.GetOrAdd(key, new ConcurrentQueue<ZCAN_Receive_Data>());
-                    //EnsureReceiveThreadRunning();  // +++ 确保接收线程运行 +++
+                    EnsureReceiveThreadRunning();  // +++ 确保接收线程运行 +++
 
                     return true;
                     //logger.Info($"通道{(isReconnect ? "重连" : "启动")}成功: {key}");
@@ -498,9 +516,6 @@ namespace ChargeDebug.Service
                     //LogService.Log($"{(isReconnect ? "重连" : "注册")}{equipment.DeviceNumber}失败: {ex.Message}");
                     throw new ApplicationException($"{ex.Message}");
                 }
-
-                
-                
             }
         }
 
@@ -776,6 +791,9 @@ namespace ChargeDebug.Service
         // 修改接收线程逻辑 - 使用批量处理提高效率
         private void ReceiveLoop()
         {
+            int cleanupCounter = 0;
+            const int CLEANUP_INTERVAL = 1000; // 每1000次循环清理一次
+
             const int BATCH_SIZE = 10000;
             int structSize = Marshal.SizeOf(typeof(ZCAN_Receive_Data));
 
@@ -792,7 +810,11 @@ namespace ChargeDebug.Service
                     try
                     {
                         uint pendingFrames = ZCAN_GetReceiveNum(channelHandle, 0);
-                        if (pendingFrames == 0) continue;
+                        if (pendingFrames == 0)
+                        {
+                            Thread.Sleep(1);
+                            continue;
+                        }
 
                         uint framesToRead = Math.Min(pendingFrames, BATCH_SIZE);
                         uint actualRead = ZCAN_Receive(channelHandle, buffer, framesToRead, 0);
@@ -800,47 +822,40 @@ namespace ChargeDebug.Service
                         if (actualRead > 0)
                         {
                             var queue = _receiveQueues.GetOrAdd(key, _ => new ConcurrentQueue<ZCAN_Receive_Data>());
-                            var batch = new ZCAN_Receive_Data[actualRead];
+                            var framesForHandler = new List<ZCAN_Receive_Data>();
 
                             for (int i = 0; i < actualRead; i++)
                             {
-                                batch[i] = Marshal.PtrToStructure<ZCAN_Receive_Data>(
-                                    IntPtr.Add(buffer, i * structSize));
-                            }
+                                var frame = Marshal.PtrToStructure<ZCAN_Receive_Data>(
+                                            IntPtr.Add(buffer, i * structSize));
 
-                            // 单线程入队避免交叉
-                            foreach (var frame in batch)
-                            {
+                                // 所有帧都放入队列（供ReceiveFrameAsync使用）
                                 queue.Enqueue(frame);
+
+                                // 只有注册了信号定义的帧才交给处理器
+                                if (_signalDefinitions.ContainsKey(frame.can_id & 0x1FFFFFFF))
+                                {
+                                    framesForHandler.Add(frame);
+                                }
                             }
 
                             _lastReceiveTime[key] = DateTime.Now;
 
-                            // 立即通知数据处理（实时解析）
-                            Task.Run(() =>
+                            // 只处理有信号定义的帧，不清空队列
+                            if (framesForHandler.Count > 0 && _dataHandlers.TryGetValue(key, out var handler))
                             {
-                                try
+                                Task.Run(() =>
                                 {
-                                    if (_dataHandlers.TryGetValue(key, out var handler) && handler != null)
+                                    try
                                     {
-                                        var frames = new List<ZCAN_Receive_Data>();
-                                        while (queue.TryDequeue(out var frame))
-                                        {
-                                            frames.Add(frame);
-                                        }
-
-                                        if (frames.Count > 0)
-                                        {
-                                            // 在新线程中处理数据，避免阻塞接收循环
-                                            handler(frames);
-                                        }
+                                        handler(framesForHandler);
                                     }
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogService.Log($"数据处理异常（通道 {key}）: {ex.Message}");
-                                }
-                            });
+                                    catch (Exception ex)
+                                    {
+                                        LogService.Log($"数据处理异常（通道 {key}）: {ex.Message}");
+                                    }
+                                });
+                            }
                         }
                     }
                     finally
@@ -849,7 +864,12 @@ namespace ChargeDebug.Service
                     }
                 }
 
-                //Thread.Sleep(1);
+                cleanupCounter++;
+                if (cleanupCounter >= CLEANUP_INTERVAL)
+                {
+                    CleanupQueues();
+                    cleanupCounter = 0;
+                }
             }
         }
 
@@ -879,7 +899,7 @@ namespace ChargeDebug.Service
                             }
 
                             if ((receivedId == 0xBB01) || (receivedId == 0xBB02) ||
-                               (receivedId == 0xBB03))
+                                (receivedId == 0xBB03))
                             {
                                 return frame;
                             }
@@ -978,7 +998,7 @@ namespace ChargeDebug.Service
                     // 高效清空队列的三种方法（选择一种实现）
 
                     // 方法1：直接替换为新队列（最推荐）
-                    _receiveQueues[channelKey] = new ConcurrentQueue<ZCAN_Receive_Data>();
+                    //_receiveQueues[channelKey] = new ConcurrentQueue<ZCAN_Receive_Data>();
 
                     // 方法2：循环出队直到清空（低效，但确保内存释放）
                     // while (queue.TryDequeue(out _)) { }
@@ -993,7 +1013,7 @@ namespace ChargeDebug.Service
 
                     // 记录清空操作
                     //logger.Info($"通道 {channelKey} 队列已清空");
-                    LogService.Log($"已清空 {channelKey} 接收队列");
+                    //LogService.Log($"已清空 {channelKey} 接收队列");
                 }
                 else
                 {
@@ -1004,6 +1024,21 @@ namespace ChargeDebug.Service
             {
                 //logger.Error($"清空队列时出错: {ex.Message}");
                 LogService.Log($"清空队列错误: {ex.Message}");
+            }
+        }
+
+        private void CleanupQueues()
+        {
+            foreach (var kvp in _receiveQueues)
+            {
+                var queue = kvp.Value;
+                const int MAX_QUEUE_SIZE = 1000;
+
+                // 如果队列过大，清理旧数据
+                while (queue.Count > MAX_QUEUE_SIZE)
+                {
+                    queue.TryDequeue(out _);
+                }
             }
         }
         #endregion
