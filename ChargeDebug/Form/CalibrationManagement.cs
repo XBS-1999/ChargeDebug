@@ -353,14 +353,17 @@ namespace ChargeDebug.Form
                 string deviceNumber = inputForm.DeviceNumber;
 
                 // 1. 获取当前勾选的信号名称列表
-                var selectedSignalNames = treeList.Nodes
+                var selectedDeviceSignals = treeList.Nodes
                     .Cast<TreeListNode>()
                     .Where(node => node.Checked)
-                    .Select(node => node.GetValue("SignalName")?.ToString())
-                    .Where(signalName => !string.IsNullOrEmpty(signalName))
+                    .Select(node => (
+                        DeviceName: node.GetValue("DeviceName")?.ToString() ?? "",
+                        SignalName: node.GetValue("SignalName")?.ToString() ?? ""
+                    ))
+                    .Where(x => !string.IsNullOrEmpty(x.DeviceName) && !string.IsNullOrEmpty(x.SignalName))
                     .ToList();
 
-                if (selectedSignalNames.Count == 0)
+                if (selectedDeviceSignals.Count == 0)
                 {
                     XtraMessageBox.Show("请先勾选至少一个信号进行校准!");
                     // 恢复所有信号显示
@@ -369,7 +372,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 2. 检查设备编号下特定信号名称的数据是否存在
-                bool signalDataExists = await CheckSignalDataExistsByName(deviceNumber, selectedSignalNames);
+                bool signalDataExists = await CheckDeviceSignalDataExists(deviceNumber, selectedDeviceSignals);
                 if (signalDataExists)
                 {
                     // 提示是否覆盖特定信号的数据
@@ -384,7 +387,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 覆盖时先删除特定信号的原有校准记录
-                    bool deleteSuccess = await DeleteSignalCalibrationRecordsByName(deviceNumber, selectedSignalNames);
+                    bool deleteSuccess = await DeleteDeviceSignalCalibrationRecords(deviceNumber, selectedDeviceSignals);
                     if (!deleteSuccess)
                     {
                         XtraMessageBox.Show("删除原有校准记录失败，操作已取消!");
@@ -518,14 +521,17 @@ namespace ChargeDebug.Form
                 string deviceNumber = inputForm.DeviceNumber;
 
                 // 1. 获取当前勾选的信号名称列表
-                var selectedSignalNames = treeList.Nodes
+                var selectedDeviceSignals = treeList.Nodes
                     .Cast<TreeListNode>()
                     .Where(node => node.Checked)
-                    .Select(node => node.GetValue("SignalName")?.ToString())
-                    .Where(signalName => !string.IsNullOrEmpty(signalName))
+                    .Select(node => (
+                        DeviceName: node.GetValue("DeviceName")?.ToString() ?? "",
+                        SignalName: node.GetValue("SignalName")?.ToString() ?? ""
+                    ))
+                    .Where(x => !string.IsNullOrEmpty(x.DeviceName) && !string.IsNullOrEmpty(x.SignalName))
                     .ToList();
 
-                if (selectedSignalNames.Count == 0)
+                if (selectedDeviceSignals.Count == 0)
                 {
                     XtraMessageBox.Show("请先勾选至少一个信号进行校准!");
                     // 恢复所有信号显示
@@ -534,7 +540,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 2. 检查设备编号下特定信号名称的数据是否存在
-                bool signalDataExists = await CheckSignalDataExistsByName(deviceNumber, selectedSignalNames);
+                bool signalDataExists = await CheckDeviceSignalDataExists(deviceNumber, selectedDeviceSignals);
                 if (signalDataExists)
                 {
                     // 提示是否覆盖特定信号的数据
@@ -549,7 +555,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 覆盖时先删除特定信号的原有校准记录
-                    bool deleteSuccess = await DeleteSignalCalibrationRecordsByName(deviceNumber, selectedSignalNames);
+                    bool deleteSuccess = await DeleteDeviceSignalCalibrationRecords(deviceNumber, selectedDeviceSignals);
                     if (!deleteSuccess)
                     {
                         XtraMessageBox.Show("删除原有校准记录失败，操作已取消!");
@@ -855,8 +861,9 @@ namespace ChargeDebug.Form
                                                 signalInfo.CANID = signalInfo.CANID?.Replace("2X", "2" + (dcnum - 1));
                                             }
 
+                                            signalInfo.SignalName = $"{deviceName}-{channel}-{signalInfo.SignalName}";
                                             signalInfos.Add(signalInfo);
-                                            break;
+                                            break; 
                                         }
                                     }
 
@@ -880,6 +887,7 @@ namespace ChargeDebug.Form
                                                 debugsignalInfo1.CANID = debugsignalInfo1.CANID?.Replace("2X", "2" + (dcnum - 1));
                                             }
 
+                                            debugsignalInfo1.SignalName = $"{deviceName}-{channel}-{debugsignalInfo1.SignalName}";
                                             signalInfos.Add(debugsignalInfo1);
 
                                             if (debugsignalInfo2 != null)
@@ -896,6 +904,7 @@ namespace ChargeDebug.Form
                                                     debugsignalInfo2.CANID = debugsignalInfo2.CANID?.Replace("2X", "2" + (dcnum - 1));
                                                 }
 
+                                                debugsignalInfo2.SignalName = $"{deviceName}-{channel}-{debugsignalInfo2.SignalName}";
                                                 signalInfos.Add(debugsignalInfo2);
                                                 break;
                                             }
@@ -1290,7 +1299,7 @@ namespace ChargeDebug.Form
 
                     // 查找对应的信号信息
                     var signalInfo = treeSignals.FirstOrDefault(s =>
-                        s.SystemName.Equals(signalName, StringComparison.OrdinalIgnoreCase));
+                        s.SignalName.Equals($"{deviceName}-{signalName}", StringComparison.OrdinalIgnoreCase));
 
                     if (signalInfo == null)
                         continue;
@@ -1349,7 +1358,7 @@ namespace ChargeDebug.Form
                     }
 
                     // 添加到字典
-                    string key = $"{deviceName}_{signalName}";
+                    string key = $"{deviceName}-{signalName}";
                     calibrationPoints[key] = points;
                 }
 
@@ -1869,7 +1878,7 @@ namespace ChargeDebug.Form
                 LogService.Log("开始遍历所有校准点进行校准...");
                 // 计算总点数
                 int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
-                int globalPointIndex = 0; // 全局点数索引
+                int globalPointIndex = 0; // 全局点数索引（仅用于进度计算）
 
                 foreach (var signalKey in calibrationPoints.Keys)
                 {
@@ -1883,6 +1892,9 @@ namespace ChargeDebug.Form
 
                     LogService.Log($"开始校准信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个校准点");
 
+                    // 为当前信号重置校准点索引（从1开始）
+                    int signalPointIndex = 0;
+
                     // 为每个信号准备数据收集
                     var measuredValues = new List<double>();
                     var actualValues = new List<double>();
@@ -1890,7 +1902,7 @@ namespace ChargeDebug.Form
                     SignalInfo scaleFactorSignal = null;
                     SignalInfo zeroFactorSignal = null;
 
-                    if (debugSignals.TryGetValue(firstPoint.SignalName, out var scaleSignals) && scaleSignals.Count > 0)
+                    if (debugSignals.TryGetValue($"{firstPoint.DeviceName}-{firstPoint.SignalName}", out var scaleSignals) && scaleSignals.Count > 0)
                     {
                         scaleFactorSignal = scaleSignals[0];
                         zeroFactorSignal = scaleSignals[1];
@@ -1947,7 +1959,8 @@ namespace ChargeDebug.Form
                         foreach (var point in negativePoints)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             try
                             {
@@ -1966,7 +1979,7 @@ namespace ChargeDebug.Form
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(1000, cancellationToken);
+                                    await Task.Delay(2000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -1983,7 +1996,7 @@ namespace ChargeDebug.Form
 
                                 // 为当前校准点创建子节点并更新值
                                 UpdateTreeNodeValue(firstPoint.DeviceName, firstPoint.SignalName,
-                                    currentvalue, point.Voltage, globalPointIndex, "电流");
+                                    currentvalue, point.Voltage, signalPointIndex, "电流");
                             }
                             catch (Exception ex)
                             {
@@ -2014,7 +2027,7 @@ namespace ChargeDebug.Form
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(1000, cancellationToken); // 短暂等待
+                            await Task.Delay(2000, cancellationToken);
                         }
 
                         // 处理正电流部分：从0到额定值，步进20A
@@ -2022,7 +2035,8 @@ namespace ChargeDebug.Form
                         foreach (var point in positivePoints)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             try
                             {
@@ -2042,7 +2056,7 @@ namespace ChargeDebug.Form
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(1000, cancellationToken);
+                                    await Task.Delay(2000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2059,7 +2073,7 @@ namespace ChargeDebug.Form
 
                                 // 为当前校准点创建子节点并更新值
                                 UpdateTreeNodeValue(firstPoint.DeviceName, firstPoint.SignalName,
-                                    currentvalue, point.Voltage, globalPointIndex, "电流");
+                                    currentvalue, point.Voltage, signalPointIndex, "电流");
                             }
                             catch (Exception ex)
                             {
@@ -2092,18 +2106,21 @@ namespace ChargeDebug.Form
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(1000, cancellationToken); // 短暂等待
+                            await Task.Delay(2000, cancellationToken); // 短暂等待
                         }
 
                         LogService.Log("关闭电流源输出...");
 
                         await startupManager.SetParameters(0x00, 0.0, 0.0);
+
+                        await Task.Delay(3000, cancellationToken);
                     }
                     else
                     {
                         foreach (var point in points)
                         {
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
 
@@ -2139,7 +2156,7 @@ namespace ChargeDebug.Form
 
                             // 为当前校准点创建子节点并更新值
                             UpdateTreeNodeValue(firstPoint.DeviceName, firstPoint.SignalName,
-                                actualVoltage, deviceVoltage, globalPointIndex, "电压");
+                                actualVoltage, deviceVoltage, signalPointIndex, "电压");
 
                             // 更新进度 - 使用全局点数计算进度
                             int progress = (int)((double)globalPointIndex / totalPoints * 100);
@@ -2361,7 +2378,7 @@ namespace ChargeDebug.Form
                 LogService.Log("开始校准后验证...");
 
                 int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
-                int globalPointIndex = 0;
+                int globalPointIndex = 0; // 全局点数索引（仅用于进度计算）
 
                 foreach (var signalKey in calibrationPoints.Keys)
                 {
@@ -2374,6 +2391,9 @@ namespace ChargeDebug.Form
                         continue;
 
                     LogService.Log($"开始验证信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个校准点");
+
+                    // 为当前信号重置校准点索引（从1开始）
+                    int signalPointIndex = 0;
 
                     // 获取额定电压和精度范围
                     var (ratingVoltage, precisionRange) = GetRatingVoltageAndPrecision(
@@ -2398,7 +2418,8 @@ namespace ChargeDebug.Form
                         foreach (var point in negativePoints)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             try
                             {
@@ -2418,7 +2439,7 @@ namespace ChargeDebug.Form
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(1000, cancellationToken);
+                                    await Task.Delay(2000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2442,7 +2463,7 @@ namespace ChargeDebug.Form
                                 UpdateTreeNodePostCalibrationValues(
                                     firstPoint.DeviceName,
                                     firstPoint.SignalName,
-                                    globalPointIndex,
+                                    signalPointIndex,
                                     point.Voltage,
                                     currentvalue,
                                     accuracyPercentage,
@@ -2478,7 +2499,7 @@ namespace ChargeDebug.Form
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(1000, cancellationToken); // 短暂等待
+                            await Task.Delay(2000, cancellationToken); // 短暂等待
                         }
 
                         // 处理正电流部分：从0到额定值，步进20A
@@ -2486,7 +2507,8 @@ namespace ChargeDebug.Form
                         foreach (var point in positivePoints)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             try
                             {
@@ -2506,7 +2528,7 @@ namespace ChargeDebug.Form
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(1000, cancellationToken);
+                                    await Task.Delay(2000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2530,7 +2552,7 @@ namespace ChargeDebug.Form
                                 UpdateTreeNodePostCalibrationValues(
                                     firstPoint.DeviceName,
                                     firstPoint.SignalName,
-                                    globalPointIndex,
+                                    signalPointIndex,
                                     point.Voltage,
                                     currentvalue,
                                     accuracyPercentage,
@@ -2567,14 +2589,15 @@ namespace ChargeDebug.Form
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(1000, cancellationToken); // 短暂等待
+                            await Task.Delay(2000, cancellationToken); // 短暂等待
                         }
                     }
                     else
                     {
                         foreach (var point in points)
                         {
-                            globalPointIndex++;
+                            globalPointIndex++; // 全局索引递增（用于进度计算）
+                            signalPointIndex++; // 信号局部索引递增（用于显示）
 
                             LogService.Log($"设置校准点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
 
@@ -2617,7 +2640,7 @@ namespace ChargeDebug.Form
                             UpdateTreeNodePostCalibrationValues(
                                 firstPoint.DeviceName,
                                 firstPoint.SignalName,
-                                globalPointIndex,
+                                signalPointIndex,
                                 deviceVoltage,
                                 actualVoltage,
                                 accuracyPercentage,
@@ -2770,11 +2793,10 @@ namespace ChargeDebug.Form
             {
                 // 记录开始时间
                 //DateTime startTime = DateTime.Now;
-
-                await Task.Delay(600);//延时600ms
-
                 // 构建通道键
                 string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
+                CANManager.Instance.ClearQueue(channelKey);
+                await Task.Delay(600);//延时600ms
 
                 // 从SignalInfo中获取CAN ID
                 uint canId = uint.Parse(signalInfo.CANID.Replace("0x", ""),
@@ -4869,7 +4891,7 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 检查设备编号下特定信号名称的校准记录是否存在
+        /// 检查设备编号下特定信号名称的数据是否存在（增加设备名称及通道号条件）
         /// </summary>
         private async Task<bool> CheckSignalDataExistsByName(string deviceNumber, List<string> signalNames)
         {
@@ -4906,9 +4928,9 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 检查设备编号下特定信号的校准记录是否存在
+        /// 检查设备编号下特定设备名称和信号名称的数据是否存在（新增方法）
         /// </summary>
-        private async Task<bool> CheckSignalDataExists(string deviceNumber, List<long> signalIds)
+        private async Task<bool> CheckDeviceSignalDataExists(string deviceNumber, List<(string DeviceName, string SignalName)> deviceSignals)
         {
             try
             {
@@ -4916,20 +4938,44 @@ namespace ChargeDebug.Form
                 {
                     await conn.OpenAsync();
 
-                    // 构建信号ID的IN条件
-                    string signalIdList = string.Join(",", signalIds);
+                    // 构建条件列表
+                    var conditions = new List<string>();
+                    var parameters = new Dictionary<string, object>
+                    {
+                        ["@DeviceNumber"] = deviceNumber
+                    };
 
-                    string sql = @"
-                            SELECT COUNT(*) 
-                            FROM CalibrationPointDetails cpd
-                            JOIN CalibrationSignalInfo csi ON cpd.InfoID = csi.InfoID
-                            JOIN CalibrationMaster cm ON csi.MasterID = cm.MasterID
-                            WHERE cm.DeviceNumber = @DeviceNumber 
-                            AND csi.InfoID IN (" + signalIdList + ")";
+                    for (int i = 0; i < deviceSignals.Count; i++)
+                    {
+                        string deviceNameParam = $"@DeviceName{i}";
+                        string signalNameParam = $"@SignalName{i}";
+
+                        conditions.Add($"(csi.DeviceName = {deviceNameParam} AND csi.SignalName = {signalNameParam})");
+
+                        parameters[deviceNameParam] = deviceSignals[i].DeviceName;
+                        parameters[signalNameParam] = deviceSignals[i].SignalName;
+                    }
+
+                    if (conditions.Count == 0)
+                        return false;
+
+                    string whereClause = string.Join(" OR ", conditions);
+
+                    string sql = $@"
+                    SELECT COUNT(*) 
+                    FROM CalibrationPointDetails cpd
+                    JOIN CalibrationSignalInfo csi ON cpd.InfoID = csi.InfoID
+                    JOIN CalibrationMaster cm ON csi.MasterID = cm.MasterID
+                    WHERE cm.DeviceNumber = @DeviceNumber 
+                    AND ({whereClause})";
 
                     using (var cmd = new SQLiteCommand(sql, conn))
                     {
-                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                        foreach (var param in parameters)
+                        {
+                            cmd.Parameters.AddWithValue(param.Key, param.Value);
+                        }
+
                         long count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
                         return count > 0;
                     }
@@ -4937,7 +4983,7 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                LogService.Log($"检查信号数据失败: {ex.Message}");
+                LogService.Log($"检查设备信号数据失败: {ex.Message}");
                 return false;
             }
         }
@@ -5194,6 +5240,101 @@ namespace ChargeDebug.Form
                         {
                             transaction.Rollback();
                             LogService.Log($"删除设备编号 {deviceNumber} 下指定信号的校准记录失败: {ex.Message}");
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"删除校准记录时发生错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 删除设备编号下特定设备名称和信号名称的校准记录（新增方法）
+        /// </summary>
+        private async Task<bool> DeleteDeviceSignalCalibrationRecords(string deviceNumber, List<(string DeviceName, string SignalName)> deviceSignals)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    await conn.OpenAsync();
+
+                    // 开始事务
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            // 构建条件列表
+                            var conditions = new List<string>();
+                            var parameters = new Dictionary<string, object>
+                            {
+                                ["@DeviceNumber"] = deviceNumber
+                            };
+
+                            for (int i = 0; i < deviceSignals.Count; i++)
+                            {
+                                string deviceNameParam = $"@DeviceName{i}";
+                                string signalNameParam = $"@SignalName{i}";
+
+                                conditions.Add($"(csi.DeviceName = {deviceNameParam} AND csi.SignalName = {signalNameParam})");
+
+                                parameters[deviceNameParam] = deviceSignals[i].DeviceName;
+                                parameters[signalNameParam] = deviceSignals[i].SignalName;
+                            }
+
+                            if (conditions.Count == 0)
+                                return false;
+
+                            string whereClause = string.Join(" OR ", conditions);
+
+                            // 1. 删除校准点详情
+                            string deleteDetailsSql = $@"
+                                DELETE FROM CalibrationPointDetails 
+                                WHERE InfoID IN (
+                                SELECT csi.InfoID 
+                                FROM CalibrationSignalInfo csi
+                                JOIN CalibrationMaster cm ON csi.MasterID = cm.MasterID
+                                WHERE cm.DeviceNumber = @DeviceNumber 
+                                AND ({whereClause}))";
+
+                            using (var cmd = new SQLiteCommand(deleteDetailsSql, conn, transaction))
+                            {
+                                foreach (var param in parameters)
+                                {
+                                    cmd.Parameters.AddWithValue(param.Key, param.Value);
+                                }
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            // 2. 删除信号信息
+                            string deleteSignalInfoSql = $@"
+                                DELETE FROM CalibrationSignalInfo 
+                                WHERE MasterID IN (
+                                SELECT MasterID FROM CalibrationMaster 
+                                WHERE DeviceNumber = @DeviceNumber)
+                                AND ({whereClause})";
+
+                            using (var cmd = new SQLiteCommand(deleteSignalInfoSql, conn, transaction))
+                            {
+                                foreach (var param in parameters)
+                                {
+                                    cmd.Parameters.AddWithValue(param.Key, param.Value);
+                                }
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            transaction.Commit();
+                            LogService.Log($"已删除设备编号 {deviceNumber} 下指定设备和信号的校准记录");
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            LogService.Log($"删除设备编号 {deviceNumber} 下指定设备和信号的校准记录失败: {ex.Message}");
                             return false;
                         }
                     }

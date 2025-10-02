@@ -1899,91 +1899,270 @@ namespace ChargeDebug.Form
 
             public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
             {
-                treeList.BeginUnboundLoad();
-
                 try
                 {
+                    treeList.BeginUnboundLoad();
+                    treeList.ClearNodes();
+
                     using (var workbook = new XLWorkbook(fileName))
                     {
-                        var worksheet = workbook.Worksheet(1);
-                        var rows = worksheet.RowsUsed().Skip(1); // 跳过标题行
+                        var ws = workbook.Worksheet(1); // 第一个工作表
+                        var range = ws.RangeUsed();
+                        if (range == null) return;
 
+                        // 创建字典跟踪当前报文节点
                         TreeListNode currentMessageNode = null;
+                        Dictionary<string, TreeListNode> signalNodeMap = new Dictionary<string, TreeListNode>();
 
-                        foreach (var row in rows)
+                        // 从第2行开始（跳过表头）
+                        for (int row = 2; row <= range.RowCount(); row++)
                         {
-                            // 检查是否是消息行（有CAN ID）
-                            var canIdCell = row.Cell(1);
-                            if (!canIdCell.IsEmpty() && canIdCell.Value.ToString() != "")
+                            // 读取关键列值
+                            string canId = ws.Cell(row, 1).GetString().Trim();
+                            string frameType = ws.Cell(row, 2).GetString().Trim();
+                            string messageName = ws.Cell(row, 3).GetString().Trim();
+                            string dataLength = ws.Cell(row, 4).GetString().Trim();
+                            string signalName = ws.Cell(row, 5).GetString().Trim();
+
+                            // 如果是报文行
+                            if (!string.IsNullOrWhiteSpace(canId))
                             {
-                                // 创建新消息节点
+                                // 创建新报文节点
                                 currentMessageNode = treeList.AppendNode(new object[]
                                 {
-                            row.Cell(1).Value.ToString(),
-                            row.Cell(2).Value.ToString(),
-                            row.Cell(3).Value.ToString(),
-                            Convert.ToInt32(row.Cell(4).Value),
-                            "", "", "", "", "", "", "", "", "", ""
+                                    canId,
+                                    frameType,
+                                    messageName,
+                                    dataLength,
+                                    "", "", "", "", "", "", "", "", "", ""
                                 }, null);
+
+                                // 设置初始排序值
+                                currentMessageNode.SetValue("Orders", row - 1);
                             }
-                            else if (currentMessageNode != null)
+                            else if (!string.IsNullOrWhiteSpace(signalName) && currentMessageNode != null)
                             {
                                 // 创建信号节点
-                                treeList.AppendNode(new object[]
+                                var signalNode = treeList.AppendNode(new object[]
                                 {
                                     "", "", "", "",
-                                    row.Cell(5).Value.ToString(),
-                                    row.Cell(6).Value.ToString(),
-                                    row.Cell(7).Value.ToString(),
-                                    row.Cell(8).Value.ToString(),
-                                    Convert.ToInt32(row.Cell(9).Value),
-                                    Convert.ToInt32(row.Cell(10).Value),
-                                    row.Cell(11).Value.ToString(),
-                                    row.Cell(12).Value.ToString(),
-                                    row.Cell(13).Value.ToString(),
-                                    row.Cell(14).Value.ToString(),
-                                    row.Cell(15).Value.ToString()
+                                    signalName,
+                                    ws.Cell(row, 6).GetString().Trim(), // 是否复用信号
+                                    ws.Cell(row, 7).GetString().Trim(), // 系统变量
+                                    ws.Cell(row, 8).GetString().Trim(), // 单位
+                                    TryParseInt(ws.Cell(row, 9).GetString()), // 起始位
+                                    TryParseInt(ws.Cell(row, 10).GetString()), // 长度
+                                    ws.Cell(row, 11).GetString().Trim(), // 字节顺序
+                                    ws.Cell(row, 12).GetString().Trim(), // 符号
+                                    TryParseDecimal(ws.Cell(row, 13).GetString()), // 系数
+                                    TryParseDecimal(ws.Cell(row, 14).GetString()), // 偏移
+                                    ws.Cell(row, 15).GetString().Trim() // 范围
                                 }, currentMessageNode);
+
+                                // 设置初始排序值
+                                signalNode.SetValue("Orders", row - 1);
+
+                                // 处理复用信号
+                                string reuseSignals = ws.Cell(row, 6).GetString().Trim();
+                                string reuseDetails = ws.Cell(row, 16).GetString().Trim(); // 新增复用信号详情列
+
+                                if (reuseSignals == "是")
+                                {
+                                    signalNode.SetValue("是否复用信号", "是");
+                                    signalNode.SetValue("信号名称", "已配置");
+
+                                    // 解析复用信号并缓存（使用临时ID）
+                                    long tempSignalId = -(row + 1000); // 生成临时唯一ID
+                                    var parsedSignals = ParseReuseSignals(reuseDetails);
+                                    reuseSignalsCache[tempSignalId] = parsedSignals;
+
+                                    signalNode.Tag = tempSignalId;
+                                    signalNodeMap[signalName] = signalNode;
+                                }
                             }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"导入Excel失败: {ex.Message}");
                 }
                 finally
                 {
                     treeList.EndUnboundLoad();
                 }
             }
-            
+
+            /// <summary>
+            /// 处理Excel中的复用信号数据
+            /// </summary>
+            private List<ReuseSignal> ParseReuseSignals(string input)
+            {
+                var signals = new List<ReuseSignal>();
+
+                if (string.IsNullOrWhiteSpace(input))
+                    return signals;
+
+                // 格式：描述1=值1;描述2=值2
+                var entries = input.Split('\n');
+                foreach (var entry in entries)
+                {
+                    var parts = entry.Split('=');
+                    if (parts.Length == 2)
+                    {
+                        signals.Add(new ReuseSignal
+                        {
+                            Description = parts[0].Trim(),
+                            Value = parts[1].Trim()
+                        });
+                    }
+                }
+
+                return signals;
+            }
+
+            /// <summary>
+            /// 从文本解析复用信号
+            /// </summary>
+            private List<ReuseSignal> ParseReuseSignalsFromText(string text)
+            {
+                var signals = new List<ReuseSignal>();
+
+                if (string.IsNullOrWhiteSpace(text))
+                    return signals;
+
+                try
+                {
+                    // 支持多种分隔符：换行、分号、逗号
+                    var lines = text.Split(new[] { '\n', '\r', ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+                    foreach (var line in lines)
+                    {
+                        var trimmedLine = line.Trim();
+                        if (string.IsNullOrEmpty(trimmedLine))
+                            continue;
+
+                        // 解析格式：描述=值
+                        var parts = trimmedLine.Split('=');
+                        if (parts.Length >= 2)
+                        {
+                            signals.Add(new ReuseSignal
+                            {
+                                Description = parts[0].Trim(),
+                                Value = parts[1].Trim()
+                            });
+                        }
+                        else if (parts.Length == 1)
+                        {
+                            // 如果没有等号，使用默认格式
+                            signals.Add(new ReuseSignal
+                            {
+                                Description = trimmedLine,
+                                Value = signals.Count.ToString()
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"解析复用信号文本失败: {ex.Message}");
+                }
+
+                return signals;
+            }
+
+            /// <summary>
+            /// 安全转换整数
+            /// </summary>
+            private int TryParseInt(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return 0;
+
+                // 处理十六进制格式
+                if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(value.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int result))
+                        return result;
+                }
+
+                // 处理十进制格式
+                if (int.TryParse(value, out int decimalResult))
+                    return decimalResult;
+
+                return 0;
+            }
+
+            /// <summary>
+            /// 安全转换小数
+            /// </summary>
+            private decimal TryParseDecimal(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return 1.0m;
+
+                // 处理科学计数法和常规小数
+                if (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal result))
+                    return result;
+
+                return 1.0m;
+            }
+
             public void ExportExcel(TreeList treeList, string fileName, string dbcPath) 
             {
                 using (var workbook = new XLWorkbook())
                 {
-                    var worksheet = workbook.Worksheets.Add("CAN协议");
+                    var ws = workbook.Worksheets.Add("CAN协议");
 
-                    // 添加标题行
-                    worksheet.Cell(1, 1).Value = "CAN ID";
-                    worksheet.Cell(1, 2).Value = "帧类型";
-                    worksheet.Cell(1, 3).Value = "消息名称";
-                    worksheet.Cell(1, 4).Value = "数据长度";
-                    worksheet.Cell(1, 5).Value = "信号名称";
-                    worksheet.Cell(1, 6).Value = "是否复用信号";
-                    worksheet.Cell(1, 7).Value = "关联系统变量名称";
-                    worksheet.Cell(1, 8).Value = "单位";
-                    worksheet.Cell(1, 9).Value = "起始位";
-                    worksheet.Cell(1, 10).Value = "长度";
-                    worksheet.Cell(1, 11).Value = "字节顺序";
-                    worksheet.Cell(1, 12).Value = "符号";
-                    worksheet.Cell(1, 13).Value = "系数";
-                    worksheet.Cell(1, 14).Value = "偏移";
-                    worksheet.Cell(1, 15).Value = "范围";
+                    // 设置全局样式
+                    var style = workbook.Style;
+                    style.Font.SetFontName("等线");
+                    style.Font.SetFontSize(12);
+                    style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                    style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
 
+                    // 表头样式
+                    var headerStyle = workbook.Style;
+                    headerStyle.Font.Bold = true;
+                    headerStyle.Fill.BackgroundColor = XLColor.FromHtml("#F4F4F4");
+                    headerStyle.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                    // 写入表头
+                    for (int i = 0; i < treeList.Columns.Count; i++)
+                    {
+                        ws.Cell(1, i + 1).Value = treeList.Columns[i].Caption;
+                    }
+
+                    // 递归写入数据
                     int rowIndex = 2;
-
-                    // 递归写入所有节点
                     foreach (TreeListNode node in treeList.Nodes)
                     {
-                        WriteNodeToExcel(worksheet, node, ref rowIndex, dbcPath);
+                        WriteNodeToExcel(treeList, ws, node, ref rowIndex, dbcPath);
                     }
+
+                    // 格式优化
+                    //ws.RangeUsed().Style = style;
+                    ws.Columns("A").Width = 12;
+                    ws.Columns("B").Width = 10;
+                    ws.Columns("C").Width = 25;
+                    ws.Columns("D").Width = 10;
+                    ws.Columns("E").Width = 25;
+                    ws.Columns("F").Width = 15;
+                    ws.Columns("G").Width = 25;
+                    ws.Columns("H").Width = 10;
+                    ws.Columns("I").Width = 10;
+                    ws.Columns("J").Width = 10;
+                    ws.Columns("K").Width = 10;
+                    ws.Columns("L").Width = 10;
+                    ws.Columns("M").Width = 10;
+                    ws.Columns("N").Width = 10;
+                    ws.Columns("O").Width = 20;
+
+                    // 添加复用信号详情列头
+                    ws.Cell(1, 16).Value = "复用信号详情";
+                    ws.Column(16).Width = 40;
+
+                    ws.RangeUsed().Style.Border.InsideBorder = XLBorderStyleValues.Thin;
 
                     workbook.SaveAs(fileName);
                 }
@@ -2200,37 +2379,75 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) 
+            public void WriteNodeToExcel(TreeList treeList, IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) 
             {
-                if (node.Level == 0) // 消息节点
+                // 写入当前节点所有列的数据
+                for (int i = 0; i < treeList.Columns.Count; i++)
                 {
-                    ws.Cell(rowIndex, 1).Value = node.GetValue("CAN ID")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 2).Value = node.GetValue("帧类型")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 3).Value = node.GetValue("消息名称")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 4).Value = node.GetValue("数据长度")?.ToString() ?? "";
-                    rowIndex++;
+                    var cell = ws.Cell(rowIndex, i + 1);
+                    var value = node.GetValue(treeList.Columns[i]);
+
+                    if (decimal.TryParse(value?.ToString(), out decimal num))
+                    {
+                        cell.Value = num;
+                    }
+                    else
+                    {
+                        cell.Value = value?.ToString()?.Trim();
+                    }
                 }
-                else // 信号节点
+
+                // 检查是否为复用信号
+                bool isMultiplexSignal = false;
+                List<ReuseSignal> reuseSignals = null;
+
+                if (node.ParentNode != null) // 信号节点
                 {
-                    ws.Cell(rowIndex, 5).Value = node.GetValue("信号名称")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 6).Value = node.GetValue("是否复用信号")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 7).Value = node.GetValue("关联系统变量名称")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 8).Value = node.GetValue("单位")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 9).Value = node.GetValue("起始位")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 10).Value = node.GetValue("长度")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 11).Value = node.GetValue("字节顺序")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 12).Value = node.GetValue("符号")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 13).Value = node.GetValue("系数")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 14).Value = node.GetValue("偏移")?.ToString() ?? "";
-                    ws.Cell(rowIndex, 15).Value = node.GetValue("范围")?.ToString() ?? "";
-                    rowIndex++;
+                    string multiplexValue = node.GetValue("是否复用信号")?.ToString();
+                    if (multiplexValue == "是")
+                    {
+                        isMultiplexSignal = true;
+                        long signalId = Convert.ToInt64(node.Tag);
+
+                        // 从数据库加载复用信号
+                        using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                        {
+                            conn.Open();
+                            reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, signalId);
+                        }
+                    }
                 }
+
+                // 如果是复用信号且有复用信号数据
+                if (isMultiplexSignal && reuseSignals != null && reuseSignals.Count > 0)
+                {
+                    if (reuseSignals == null || reuseSignals.Count == 0)
+                    {
+                        ws.Cell(rowIndex, 16).Value = "无复用信号配置";
+                    }
+                    else
+                    {
+                        var sb = new StringBuilder();
+                        foreach (var signal in reuseSignals)
+                        {
+                            sb.AppendLine($"{signal.Description} = {signal.Value}");
+                        }
+                        ws.Cell(rowIndex, 16).Value = sb.ToString().TrimEnd();
+                    }
+                }
+
+                rowIndex++; // 移动到下一行
 
                 // 递归处理子节点
                 foreach (TreeListNode childNode in node.Nodes)
                 {
-                    WriteNodeToExcel(ws, childNode, ref rowIndex, dbcPath);
+                    WriteNodeToExcel(treeList, ws, childNode, ref rowIndex, dbcPath);
                 }
+            }
+
+            public void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath)
+            {
+                throw new NotImplementedException();
             }
         }
 

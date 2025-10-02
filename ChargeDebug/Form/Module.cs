@@ -44,10 +44,10 @@ namespace ChargeDebug.Form
         private uint _dcreadFaultCanId;
 
         // 设备状态字段
-        private uint _acRunStatus = 0;
-        private uint _dcRunStatus = 0;
-        private uint _acRunMode = 0;
-        private uint _dcRunMode = 0;
+        private uint _acRunStatus;
+        private uint _dcRunStatus;
+        private uint _acRunMode;
+        private uint _dcRunMode;
         //private uint currentStatus;
 
         // 时间管理字段
@@ -1244,6 +1244,55 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 获取下一个要显示的故障
+        /// </summary>
+        private string GetNextFaultToDisplay()
+        {
+            lock (_faultQueueLock)
+            {
+                // 如果没有活跃故障，清空队列并返回空
+                if (_activeFaults.Count == 0)
+                {
+                    if (_faultDisplayQueue.Count > 0)
+                    {
+                        _faultDisplayQueue.Clear();
+                    }
+                    _isFaultDisplayActive = false;
+                    return string.Empty;
+                }
+
+                // 如果队列为空但仍有活跃故障，重建队列
+                if (_faultDisplayQueue.Count == 0)
+                {
+                    RebuildFaultDisplayQueue();
+                }
+
+                // 确保队列中有数据
+                if (_faultDisplayQueue.Count > 0)
+                {
+                    string nextFault = _faultDisplayQueue.Dequeue();
+
+                    // 检查故障是否仍然活跃
+                    if (_activeFaults.ContainsValue(nextFault))
+                    {
+                        // 放回队列尾部实现循环
+                        _faultDisplayQueue.Enqueue(nextFault);
+                        _isFaultDisplayActive = true;
+                        return nextFault;
+                    }
+                    else
+                    {
+                        // 如果故障已清除，跳过本次显示
+                        LogService.Log($"跳过已清除的故障: {nextFault}");
+                        return GetNextFaultToDisplay(); // 递归获取下一个
+                    }
+                }
+
+                return string.Empty;
+            }
+        }
+
         #endregion
 
         // ==================== 用户界面更新区域 ====================
@@ -1267,9 +1316,21 @@ namespace ChargeDebug.Form
 
             try
             {
-                // 创建信号值的快照
+                // 1. 更新时间显示
+                UpdateTimeDisplay();
+
+                // 2. 获取故障显示内容
+                string faultDisplay = string.Empty;
+                bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF);
+                if (isFaultMode)
+                {
+                    faultDisplay = GetNextFaultToDisplay();
+                }
+
+                // 3. 创建信号值的快照
                 var snapshot = _signalValues.ToArray();
 
+                // 4. 更新表格数据和状态显示
                 foreach (var kv in snapshot)
                 {
                     string signalName = kv.Key;
@@ -1285,11 +1346,27 @@ namespace ChargeDebug.Form
                         dataItem.Value = displayValue;
                     }
 
-                    // 检查设备状态
-                    //currentStatus = _startupManager.CheckDeviceStatus(_acRunStatus, _dcRunStatus);
-
                     // 更新状态标签
                     UpdateStatusLabels(signalName, displayValue);
+                }
+
+                // 5. 更新状态显示（整合故障显示）
+                if (!string.IsNullOrEmpty(faultDisplay))
+                {
+                    UpdateConnectionStatusUI(faultDisplay, Color.Red);
+                }
+                else if (isFaultMode && _activeFaults.Count > 0)
+                {
+                    // 有活跃故障但没有获取到显示内容，立即重试一次
+                    faultDisplay = GetNextFaultToDisplay();
+                    if (!string.IsNullOrEmpty(faultDisplay))
+                    {
+                        UpdateConnectionStatusUI(faultDisplay, Color.Red);
+                    }
+                }
+                else
+                {
+                    // 正常状态显示
                     UpdateStatusDisplay(_dcRunStatus);
                 }
             }
@@ -1329,6 +1406,7 @@ namespace ChargeDebug.Form
                 //    break;
 
                 default:
+                    //UpdateConnectionStatusUI("未知状态", Color.Gray);
                     break;
             }
         }
@@ -1341,15 +1419,26 @@ namespace ChargeDebug.Form
             // 添加销毁状态检查
             if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
 
-            this.BeginInvoke((Action)(() =>
+            try
             {
-                // 再次检查，因为可能在调用过程中被销毁
-                if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
+                // 切换到UI线程
+                if (this.InvokeRequired)
+                {
+                    this.BeginInvoke(new Action(UpdateUIFromCache));
+                    return;
+                }
 
                 panelControl.Appearance.BackColor = color;
                 panelControl.BorderStyle = BorderStyles.NoBorder;
                 lblConnectionStatus.Text = text;
-            }));
+
+                // 根据需要调整字体大小
+                AdjustFontSizeToFitLabel();
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"更新连接状态UI错误: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1361,10 +1450,10 @@ namespace ChargeDebug.Form
 
             try
             {
-                // 切换到UI线程更新
+                // 切换到UI线程
                 if (this.InvokeRequired)
                 {
-                    this.BeginInvoke(new Action(UpdateTimeDisplay));
+                    this.BeginInvoke(new Action(UpdateUIFromCache));
                     return;
                 }
 

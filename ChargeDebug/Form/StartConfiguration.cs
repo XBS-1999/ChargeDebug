@@ -300,7 +300,7 @@ namespace ChargeDebug.Form
                 workingMode.SelectedIndex = 0;
             }
 
-            // 设置工作模式
+            // 设置电流表方向
             if (!string.IsNullOrEmpty(configData.Directionammeter))
             {
                 directionammeter.Text = configData.Directionammeter;
@@ -331,7 +331,7 @@ namespace ChargeDebug.Form
 
             // 保存工作模式
             configData.WorkingMode = workingMode.Text;
-            configData.Directionammeter = workingMode.Text;
+            configData.Directionammeter = directionammeter.Text;
 
             // 保存动态参数
             foreach (var control in dynamicControls)

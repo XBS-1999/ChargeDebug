@@ -998,7 +998,7 @@ namespace ChargeDebug.Service
                     // 高效清空队列的三种方法（选择一种实现）
 
                     // 方法1：直接替换为新队列（最推荐）
-                    //_receiveQueues[channelKey] = new ConcurrentQueue<ZCAN_Receive_Data>();
+                    _receiveQueues[channelKey] = new ConcurrentQueue<ZCAN_Receive_Data>();
 
                     // 方法2：循环出队直到清空（低效，但确保内存释放）
                     // while (queue.TryDequeue(out _)) { }
