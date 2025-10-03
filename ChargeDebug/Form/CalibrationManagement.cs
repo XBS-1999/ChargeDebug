@@ -28,6 +28,7 @@ namespace ChargeDebug.Form
         #region 字段声明
 
         private string sqladdress = "";
+        private string deviceNumber = "";
         private TreeList treeList;
         private List<EquipmentModel> equipmentList;
         private StartupManager startupManager;
@@ -350,7 +351,7 @@ namespace ChargeDebug.Form
                     return;
                 }
                     
-                string deviceNumber = inputForm.DeviceNumber;
+                deviceNumber = inputForm.DeviceNumber;
 
                 // 1. 获取当前勾选的信号名称列表
                 var selectedDeviceSignals = treeList.Nodes
@@ -649,6 +650,65 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 导入数据按钮点击事件
+        /// </summary>
+        private void BtnImportData_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 创建打开文件对话框
+                using (OpenFileDialog openFileDialog = new OpenFileDialog())
+                {
+                    openFileDialog.Filter = "Excel 文件|*.xlsx|Excel 97-2003 文件|*.xls";
+                    openFileDialog.Title = "导入校准数据";
+
+                    if (openFileDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        // 解析Excel数据
+                        var importData = ParseExcelDataFromFile(openFileDialog.FileName);
+
+                        if (importData.Count == 0)
+                        {
+                            XtraMessageBox.Show("Excel文件中没有找到有效的校准数据!");
+                            return;
+                        }
+
+                        // 弹出设备编号输入对话框
+                        using (var inputForm = new DeviceNumberInputForm())
+                        {
+                            if (inputForm.ShowDialog() == DialogResult.OK)
+                            {
+                                deviceNumber = inputForm.DeviceNumber;
+
+                                // 检查信号是否存在并确认替换
+                                if (CheckAndConfirmSignalReplacement(importData, deviceNumber))
+                                {
+                                    // 执行导入操作
+                                    bool importSuccess = SaveImportDataToDatabase(importData, deviceNumber);
+
+                                    if (importSuccess)
+                                    {
+                                        XtraMessageBox.Show("数据导入成功!");
+                                        // 刷新显示导入的数据
+                                        QueryAndDisplayCalibrationData(deviceNumber);
+                                    }
+                                    else
+                                    {
+                                        XtraMessageBox.Show("数据导入失败!");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"数据导入失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 导出数据按钮点击事件
         /// </summary>
         private void BtnExportData_Click(object? sender, EventArgs e)
@@ -660,7 +720,7 @@ namespace ChargeDebug.Form
                 {
                     saveFileDialog.Filter = "Excel 文件|*.xlsx|CSV 文件|*.csv";
                     saveFileDialog.Title = "导出校准数据";
-                    saveFileDialog.FileName = $"校准数据_{DateTime.Now:yyyyMMdd_HHmmss}";
+                    saveFileDialog.FileName = $"{deviceNumber}_校准数据_{DateTime.Now:yyyyMMdd_HHmmss}";
 
                     if (saveFileDialog.ShowDialog() == DialogResult.OK)
                     {
@@ -696,7 +756,7 @@ namespace ChargeDebug.Form
                 {
                     if (inputForm.ShowDialog() == DialogResult.OK)
                     {
-                        string deviceNumber = inputForm.DeviceNumber;
+                        deviceNumber = inputForm.DeviceNumber;
 
                         // 查询并显示数据
                         QueryAndDisplayCalibrationData(deviceNumber);
@@ -3012,6 +3072,222 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 从Excel文件解析数据
+        /// </summary>
+        private List<SignalImportData> ParseExcelDataFromFile(string filePath)
+        {
+            try
+            {
+                using (var workbook = new XLWorkbook(filePath))
+                {
+                    // 获取第一个工作表
+                    var worksheet = workbook.Worksheet(1);
+                    return ParseExcelData(worksheet);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"解析Excel文件失败: {ex.Message}");
+                return new List<SignalImportData>();
+            }
+        }
+
+        /// <summary>
+        /// 解析Excel数据
+        /// </summary>
+        private List<SignalImportData> ParseExcelData(IXLWorksheet worksheet)
+        {
+            var importData = new List<SignalImportData>();
+
+            int currentRow = 2;
+            while (currentRow <= worksheet.RowsUsed().Count())
+            {
+                // 查找通道标题行 (包含"-"的行)
+                var channelCell = worksheet.Cell(currentRow, 1);
+                string channelValue = channelCell.Value.ToString();
+
+                if (channelValue.Contains("-"))
+                {
+                    var signalData = new SignalImportData();
+
+                    string[] parts = channelValue.Split('-');
+                    if (parts.Length >= 2)
+                    {
+                        signalData.DeviceName = parts[0]; // 完整设备名称
+                        signalData.SignalName = parts[1]; // 信号名称
+
+                        // 判断信号类型（根据信号名称或设备名称）
+                        if (signalData.SignalName.Contains("电压") || channelValue.Contains("电压"))
+                        {
+                            signalData.SignalType = "电压";
+                        }
+                        else if (signalData.SignalName.Contains("电流") || channelValue.Contains("电流"))
+                        {
+                            signalData.SignalType = "电流";
+                        }
+                    }
+                    else
+                    {
+                        signalData.DeviceName = channelValue;
+                        signalData.SignalName = channelValue;
+                    }
+
+                    // 解析额定值 (第2行第5列)
+                    var ratingCell = worksheet.Cell(currentRow + 1, 5);
+                    if (double.TryParse(ratingCell.Value.ToString(), out double rating))
+                    {
+                        signalData.RatingValue = rating;
+                    }
+
+                    // 解析比例系数和零点系数 (第2行第6列，格式: "K:1.0 B:0.0")
+                    var factorsCell = worksheet.Cell(currentRow + 1, 6);
+                    string factors = factorsCell.Value.ToString();
+                    signalData.ScaleFactor = ParseFactor(factors, "K:");
+                    signalData.ZeroFactor = ParseFactor(factors, "B:");
+
+                    // 解析校准点数据 (从第4行开始)
+                    signalData.CalibrationPoints = new List<CalibrationPointImportData>();
+                    int dataRow = currentRow + 3;
+
+                    //总行数
+                    int totallines = worksheet.RangeUsed().LastRow().RowNumber();
+
+                    while (dataRow <= totallines)
+                    {
+                        var point = ParseCalibrationPoint(worksheet, dataRow);
+                        if (point != null)
+                        {
+                            signalData.CalibrationPoints.Add(point);
+                            dataRow++;
+                        }
+                        else
+                        {
+                            break; // 遇到空行，结束当前信号
+                        }
+                    }
+
+                    if (signalData.CalibrationPoints.Count != 0)
+                    {
+                        importData.Add(signalData);
+                    }
+
+                    // 移动到下一个信号块
+                    currentRow = dataRow + 1; // 跳过空行
+                }
+                else
+                {
+                    currentRow++;
+                }
+            }
+
+            return importData;
+        }
+
+        /// <summary>
+        /// 解析比例系数或零点系数
+        /// </summary>
+        private double ParseFactor(string factors, string prefix)
+        {
+            try
+            {
+                int startIndex = factors.IndexOf(prefix);
+                if (startIndex >= 0)
+                {
+                    startIndex += prefix.Length;
+                    int endIndex = factors.IndexOf(' ', startIndex);
+                    if (endIndex == -1) endIndex = factors.Length;
+
+                    string factorStr = factors.Substring(startIndex, endIndex - startIndex);
+                    if (double.TryParse(factorStr, out double factor))
+                    {
+                        return factor;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"解析系数失败: {ex.Message}");
+            }
+
+            return 0.0;
+        }
+
+        /// <summary>
+        /// 解析校准点数据
+        /// </summary>
+        private CalibrationPointImportData ParseCalibrationPoint(IXLWorksheet worksheet, int row)
+        {
+            try
+            {
+                // 检查是否为空行
+                var firstCell = worksheet.Cell(row, 1);
+                if (string.IsNullOrEmpty(firstCell.Value.ToString()))
+                    return null;
+
+                var point = new CalibrationPointImportData();
+
+                // 解析校准前数据
+                point.BeforeDeviceValue = ParseValueFromCell(worksheet.Cell(row, 1));
+                point.BeforeActualValue = ParseValueFromCell(worksheet.Cell(row, 2));
+
+                // 解析校准后数据
+                point.AfterDeviceValue = ParseValueFromCell(worksheet.Cell(row, 3));
+                point.AfterActualValue = ParseValueFromCell(worksheet.Cell(row, 4));
+
+                // 解析精度
+                var accuracyCell = worksheet.Cell(row, 5);
+                string accuracyStr = accuracyCell.Value.ToString().Replace("%", "");
+                if (double.TryParse(accuracyStr, out double accuracy))
+                {
+                    point.Accuracy = accuracy;
+                }
+
+                // 解析测试结果
+                point.TestResult = worksheet.Cell(row, 6).Value.ToString();
+
+                return point;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"解析校准点数据失败 (行 {row}): {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 从单元格解析数值 (处理"采样值/测量值"格式)
+        /// </summary>
+        private double ParseValueFromCell(IXLCell cell)
+        {
+            try
+            {
+                string value = cell.Value.ToString();
+
+                // 如果是"采样值/测量值"格式，取采样值
+                if (value.Contains("/"))
+                {
+                    string[] parts = value.Split('/');
+                    if (parts.Length >= 1 && double.TryParse(parts[0], out double result))
+                    {
+                        return result;
+                    }
+                }
+
+                // 直接解析数值
+                if (double.TryParse(value, out double directResult))
+                {
+                    return directResult;
+                }
+
+                return 0.0;
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        /// <summary>
         /// 导出数据到Excel文件
         /// </summary>
         /// <param name="filePath">文件路径</param>
@@ -3048,7 +3324,16 @@ namespace ChargeDebug.Form
                     {
                         count++;
                         // 获取信号信息 - 从第一个节点获取设备名称和信号名称
-                        string channel = channelGroup.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        string channel = "";
+                        if (channelGroup.GetValue("DeviceName").ToString().Contains("-"))
+                        {
+                            channel = channelGroup.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        }
+                        else
+                        {
+                            channel = channelGroup.GetValue("DeviceName")?.ToString() ?? "";
+                        }
+                        
                         string signaltype = channelGroup.GetValue("SignalType")?.ToString() ?? "";
                         string signalName = channelGroup.GetValue("SignalName")?.ToString() ?? "";
                         string ratingVoltage = channelGroup.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
@@ -4100,7 +4385,7 @@ namespace ChargeDebug.Form
             cbVoltageSource = new ComboBoxEdit
             {
                 Size = new Size(160, 30),
-                Location = new Point(lblVoltageSource.Right + 10, 12),
+                Location = new Point(lblVoltageSource.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
 
@@ -4125,7 +4410,7 @@ namespace ChargeDebug.Form
             cbVoltmeter = new ComboBoxEdit
             {
                 Size = new Size(160, 30),
-                Location = new Point(lblVoltmeter.Right + 10, 12),
+                Location = new Point(lblVoltmeter.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
 
@@ -4149,7 +4434,7 @@ namespace ChargeDebug.Form
             cbAmmeter = new ComboBoxEdit
             {
                 Size = new Size(160, 30),
-                Location = new Point(lblAmmeter.Right + 10, 12),
+                Location = new Point(lblAmmeter.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
 
@@ -4217,11 +4502,20 @@ namespace ChargeDebug.Form
             btnStopCalibration.Click += BtnStopCalibration_Click;
             buttonPanel.Controls.Add(btnStopCalibration);
 
+            SimpleButton btnImportData = new SimpleButton
+            {
+                Text = "导入数据",
+                Size = new Size(80, 30),
+                Location = new Point(btnStopCalibration.Right + 10, 10)
+            };
+            btnImportData.Click += BtnImportData_Click;
+            buttonPanel.Controls.Add(btnImportData);
+
             SimpleButton btnExportData = new SimpleButton
             {
                 Text = "导出数据",
                 Size = new Size(80, 30),
-                Location = new Point(btnStopCalibration.Right + 10, 10)
+                Location = new Point(btnImportData.Right + 10, 10)
             };
             btnExportData.Click += BtnExportData_Click;
             buttonPanel.Controls.Add(btnExportData);
@@ -4603,6 +4897,433 @@ namespace ChargeDebug.Form
         #region 操作数据库方法
 
         /// <summary>
+        /// 检查信号是否存在并确认替换
+        /// </summary>
+        private bool CheckAndConfirmSignalReplacement(List<SignalImportData> importData, string deviceNumber)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    conn.Open();
+
+                    // 获取主记录ID
+                    long? masterId = GetMasterIdByDeviceNumber(conn, deviceNumber);
+                    if (masterId == null)
+                    {
+                        // 没有主记录，直接返回true（全部新建）
+                        return true;
+                    }
+
+                    // 检查每个导入信号在数据库中是否存在
+                    var existingSignals = new List<string>();
+                    var newSignals = new List<string>();
+
+                    foreach (var signalData in importData)
+                    {
+                        string deviceName = signalData.DeviceName;
+                        string signalName = signalData.SignalName;
+
+                        if (CheckSignalExists(conn, masterId.Value, deviceName, signalName))
+                        {
+                            existingSignals.Add($"{deviceName} - {signalName}");
+                        }
+                        else
+                        {
+                            newSignals.Add($"{deviceName} - {signalName}");
+                        }
+                    }
+
+                    // 如果没有存在的信号，直接返回true
+                    if (existingSignals.Count == 0)
+                    {
+                        return true;
+                    }
+
+                    // 显示替换确认对话框
+                    return ShowReplacementConfirmationDialog(existingSignals, newSignals);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"检查信号存在性失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 根据设备编号获取主记录ID
+        /// </summary>
+        private long? GetMasterIdByDeviceNumber(SQLiteConnection conn, string deviceNumber)
+        {
+            string sql = "SELECT MasterID FROM CalibrationMaster WHERE DeviceNumber = @DeviceNumber";
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt64(result) : (long?)null;
+            }
+        }
+
+        /// <summary>
+        /// 检查信号是否存在
+        /// </summary>
+        private bool CheckSignalExists(SQLiteConnection conn, long masterId, string deviceName, string signalName)
+        {
+            string sql = @"
+            SELECT COUNT(*) FROM CalibrationSignalInfo 
+            WHERE MasterID = @MasterID AND DeviceName = @DeviceName AND SignalName = @SignalName";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@MasterID", masterId);
+                cmd.Parameters.AddWithValue("@DeviceName", deviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signalName);
+
+                long count = Convert.ToInt64(cmd.ExecuteScalar());
+                return count > 0;
+            }
+        }
+
+        /// <summary>
+        /// 显示替换确认对话框
+        /// </summary>
+        private bool ShowReplacementConfirmationDialog(List<string> existingSignals, List<string> newSignals)
+        {
+            // 构建确认消息
+            var message = new System.Text.StringBuilder();
+            message.AppendLine("以下信号在数据库中已存在，是否替换？");
+            message.AppendLine();
+
+            if (existingSignals.Count > 0)
+            {
+                message.AppendLine("将替换的信号：");
+                foreach (var signal in existingSignals)
+                {
+                    message.AppendLine($"  • {signal}");
+                }
+                message.AppendLine();
+            }
+
+            if (newSignals.Count > 0)
+            {
+                message.AppendLine("将新增的信号：");
+                foreach (var signal in newSignals)
+                {
+                    message.AppendLine($"  • {signal}");
+                }
+                message.AppendLine();
+            }
+
+            message.AppendLine("点击'是'替换存在的信号并新增不存在的信号，点击'否'取消导入。");
+
+            DialogResult result = XtraMessageBox.Show(
+                message.ToString(),
+                "确认信号替换",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+
+            return result == DialogResult.Yes;
+        }
+
+        /// <summary>
+        /// 保存导入数据到数据库
+        /// </summary>
+        private bool SaveImportDataToDatabase(List<SignalImportData> importData, string deviceNumber)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    conn.Open();
+
+                    // 开始事务
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            long masterId = GetOrCreateMasterRecord(conn, transaction, deviceNumber);
+
+                            foreach (var signalData in importData)
+                            {
+                                // 检查信号是否存在
+                                bool signalExists = CheckSignalExists(conn, masterId, signalData.DeviceName, signalData.SignalName);
+
+                                if (signalExists)
+                                {
+                                    // 更新存在的信号
+                                    UpdateExistingSignal(conn, transaction, masterId, signalData);
+                                }
+                                else
+                                {
+                                    // 插入新信号
+                                    InsertNewSignal(conn, transaction, masterId, signalData);
+                                }
+                            }
+
+                            transaction.Commit();
+                            LogService.Log($"成功导入 {importData.Count} 个信号到设备 {deviceNumber}");
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            LogService.Log($"保存导入数据失败: {ex.Message}");
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"保存导入数据失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 更新已存在的信号
+        /// </summary>
+        private void UpdateExistingSignal(SQLiteConnection conn, SQLiteTransaction transaction, long masterId, SignalImportData signalData)
+        {
+            // 1. 获取信号信息ID
+            long infoId = GetSignalInfoId(conn, transaction, masterId, signalData.DeviceName, signalData.SignalName);
+
+            if (infoId == -1) return;
+
+            // 2. 更新信号信息
+            UpdateSignalInfo(conn, transaction, infoId, signalData);
+
+            // 3. 删除原有校准点
+            DeleteCalibrationPoints(conn, transaction, infoId);
+
+            // 4. 插入新校准点
+            InsertCalibrationPoints(conn, transaction, infoId, signalData.CalibrationPoints, signalData.SignalType);
+        }
+
+        /// <summary>
+        /// 获取信号信息ID
+        /// </summary>
+        private long GetSignalInfoId(SQLiteConnection conn, SQLiteTransaction transaction, long masterId, string deviceName, string signalName)
+        {
+            string sql = @"
+            SELECT InfoID FROM CalibrationSignalInfo 
+            WHERE MasterID = @MasterID AND DeviceName = @DeviceName AND SignalName = @SignalName";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@MasterID", masterId);
+                cmd.Parameters.AddWithValue("@DeviceName", deviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signalName);
+
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt64(result) : -1;
+            }
+        }
+
+        /// <summary>
+        /// 更新信号信息
+        /// </summary>
+        private void UpdateSignalInfo(SQLiteConnection conn, SQLiteTransaction transaction, long infoId, SignalImportData signalData)
+        {
+            string sql = @"
+                UPDATE CalibrationSignalInfo 
+                SET ReadTime = @ReadTime, 
+                RatingValue = @RatingValue, 
+                CalibrationPoints = @CalibrationPoints, 
+                PrecisionRange = @PrecisionRange, 
+                ScaleFactor = @ScaleFactor, 
+                ZeroFactor = @ZeroFactor,
+                SignalType = @SignalType
+                WHERE InfoID = @InfoID";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@InfoID", infoId);
+                cmd.Parameters.AddWithValue("@ReadTime", signalData.ReadTime);
+                cmd.Parameters.AddWithValue("@RatingValue", signalData.RatingValue);
+                cmd.Parameters.AddWithValue("@CalibrationPoints", signalData.CalibrationPoints?.Count ?? 0);
+                cmd.Parameters.AddWithValue("@PrecisionRange", signalData.PrecisionRange);
+                cmd.Parameters.AddWithValue("@ScaleFactor", signalData.ScaleFactor);
+                cmd.Parameters.AddWithValue("@ZeroFactor", signalData.ZeroFactor);
+                cmd.Parameters.AddWithValue("@SignalType", signalData.SignalType);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 插入新信号
+        /// </summary>
+        private void InsertNewSignal(SQLiteConnection conn, SQLiteTransaction transaction, long masterId, SignalImportData signalData)
+        {
+            // 1. 插入信号信息
+            long infoId = InsertSignalInfo(conn, transaction, masterId, signalData);
+
+            // 2. 插入校准点
+            InsertCalibrationPoints(conn, transaction, infoId, signalData.CalibrationPoints, signalData.SignalType);
+        }
+
+        /// <summary>
+        /// 插入信号信息
+        /// </summary>
+        private long InsertSignalInfo(SQLiteConnection conn, SQLiteTransaction transaction, long masterId, SignalImportData signalData)
+        {
+            string sql = @"
+            INSERT INTO CalibrationSignalInfo 
+            (MasterID, DeviceName, SignalName, SignalType, ReadTime, RatingValue, CalibrationPoints, PrecisionRange, ScaleFactor, ZeroFactor)
+            VALUES (@MasterID, @DeviceName, @SignalName, @SignalType, @ReadTime, @RatingValue, @CalibrationPoints, @PrecisionRange, @ScaleFactor, @ZeroFactor);
+            SELECT last_insert_rowid();";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@MasterID", masterId);
+                cmd.Parameters.AddWithValue("@DeviceName", signalData.DeviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signalData.SignalName);
+                cmd.Parameters.AddWithValue("@SignalType", signalData.SignalType);
+                cmd.Parameters.AddWithValue("@ReadTime", signalData.ReadTime);
+                cmd.Parameters.AddWithValue("@RatingValue", signalData.RatingValue);
+                cmd.Parameters.AddWithValue("@CalibrationPoints", signalData.CalibrationPoints?.Count ?? 0);
+                cmd.Parameters.AddWithValue("@PrecisionRange", signalData.PrecisionRange);
+                cmd.Parameters.AddWithValue("@ScaleFactor", signalData.ScaleFactor);
+                cmd.Parameters.AddWithValue("@ZeroFactor", signalData.ZeroFactor);
+
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+        }
+
+        /// <summary>
+        /// 获取或创建主记录
+        /// </summary>
+        private long GetOrCreateMasterRecord(SQLiteConnection conn, SQLiteTransaction transaction, string deviceNumber)
+        {
+            // 检查是否已存在
+            string checkSql = "SELECT MasterID FROM CalibrationMaster WHERE DeviceNumber = @DeviceNumber";
+            using (var cmd = new SQLiteCommand(checkSql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                var result = cmd.ExecuteScalar();
+
+                if (result != null)
+                {
+                    return Convert.ToInt64(result);
+                }
+            }
+
+            // 创建新记录
+            string insertSql = @"
+            INSERT INTO CalibrationMaster (DeviceNumber, CalibrationDate, Operator, Comments)
+            VALUES (@DeviceNumber, @CalibrationDate, @Operator, @Comments);
+            SELECT last_insert_rowid();";
+
+            using (var cmd = new SQLiteCommand(insertSql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                cmd.Parameters.AddWithValue("@CalibrationDate", DateTime.Now);
+                cmd.Parameters.AddWithValue("@Operator", "导入");
+                cmd.Parameters.AddWithValue("@Comments", "从Excel导入");
+
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+        }
+
+        /// <summary>
+        /// 插入或更新信号信息 (使用REPLACE实现upsert功能):cite[4]
+        /// </summary>
+        private long InsertOrReplaceSignalInfo(SQLiteConnection conn, SQLiteTransaction transaction, long masterId, SignalImportData signalData)
+        {
+            string sql = @"
+            INSERT OR REPLACE INTO CalibrationSignalInfo 
+            (InfoID, MasterID, DeviceName, SignalName, SignalType, ReadTime, RatingValue, CalibrationPoints, PrecisionRange, ScaleFactor, ZeroFactor)
+            VALUES (
+                COALESCE((SELECT InfoID FROM CalibrationSignalInfo WHERE MasterID = @MasterID AND DeviceName = @DeviceName), NULL),
+                @MasterID, @DeviceName, @SignalName, @SignalType, @ReadTime, @RatingValue, @CalibrationPoints, @PrecisionRange, @ScaleFactor, @ZeroFactor
+            );
+            SELECT last_insert_rowid();";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@MasterID", masterId);
+                cmd.Parameters.AddWithValue("@DeviceName", signalData.DeviceName);
+                cmd.Parameters.AddWithValue("@SignalName", signalData.SignalName); 
+                cmd.Parameters.AddWithValue("@SignalType", "电压"); // 根据实际情况判断
+                cmd.Parameters.AddWithValue("@ReadTime", 1000);
+                cmd.Parameters.AddWithValue("@RatingValue", signalData.RatingValue);
+                cmd.Parameters.AddWithValue("@CalibrationPoints", signalData.CalibrationPoints?.Count ?? 0);
+                cmd.Parameters.AddWithValue("@PrecisionRange", 1.0);
+                cmd.Parameters.AddWithValue("@ScaleFactor", signalData.ScaleFactor);
+                cmd.Parameters.AddWithValue("@ZeroFactor", signalData.ZeroFactor);
+
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+        }
+
+        /// <summary>
+        /// 删除现有校准点数据
+        /// </summary>
+        private void DeleteCalibrationPoints(SQLiteConnection conn, SQLiteTransaction transaction, long infoId)
+        {
+            string sql = "DELETE FROM CalibrationPointDetails WHERE InfoID = @InfoID";
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@InfoID", infoId);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 插入校准点数据
+        /// </summary>
+        private void InsertCalibrationPoints(SQLiteConnection conn, SQLiteTransaction transaction, long infoId, List<CalibrationPointImportData> points, string signalType)
+        {
+            if (points == null) return;
+
+            string sql = @"
+            INSERT INTO CalibrationPointDetails 
+            (InfoID, PointIndex, BeforeDeviceVoltage, BeforeActualVoltage, AfterDeviceVoltage, AfterActualVoltage, BeforeDeviceCurrent, BeforeActualCurrent, AfterDeviceCurrent, AfterActualCurrent, Accuracy, TestResult)
+            VALUES (@InfoID, @PointIndex, @BeforeDeviceVoltage, @BeforeActualVoltage, @AfterDeviceVoltage, @AfterActualVoltage, @BeforeDeviceCurrent, @BeforeActualCurrent, @AfterDeviceCurrent, @AfterActualCurrent, @Accuracy, @TestResult)";
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                var point = points[i];
+                using (var cmd = new SQLiteCommand(sql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@InfoID", infoId);
+                    cmd.Parameters.AddWithValue("@PointIndex", i + 1);
+
+                    if (signalType == "电压")
+                    {
+                        cmd.Parameters.AddWithValue("@BeforeDeviceVoltage", point.BeforeDeviceValue);
+                        cmd.Parameters.AddWithValue("@BeforeActualVoltage", point.BeforeActualValue);
+                        cmd.Parameters.AddWithValue("@AfterDeviceVoltage", point.AfterDeviceValue);
+                        cmd.Parameters.AddWithValue("@AfterActualVoltage", point.AfterActualValue);
+                        cmd.Parameters.AddWithValue("@BeforeDeviceCurrent", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@BeforeActualCurrent", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@AfterDeviceCurrent", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@AfterActualCurrent", DBNull.Value);
+                    }
+                    else
+                    {
+                        cmd.Parameters.AddWithValue("@BeforeDeviceVoltage", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@BeforeActualVoltage", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@AfterDeviceVoltage", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@AfterActualVoltage", DBNull.Value);
+                        cmd.Parameters.AddWithValue("@BeforeDeviceCurrent", point.BeforeDeviceValue);
+                        cmd.Parameters.AddWithValue("@BeforeActualCurrent", point.BeforeActualValue);
+                        cmd.Parameters.AddWithValue("@AfterDeviceCurrent", point.AfterDeviceValue);
+                        cmd.Parameters.AddWithValue("@AfterActualCurrent", point.AfterActualValue);
+                    }
+                    
+                    cmd.Parameters.AddWithValue("@Accuracy", point.Accuracy);
+                    cmd.Parameters.AddWithValue("@TestResult", point.TestResult);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
         /// 保存校准数据到数据库（按照三张表的结构）
         /// </summary>
         private async Task<bool> SaveCalibrationDataToDatabase(string deviceNumber, string operatorName = "")
@@ -4860,70 +5581,6 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 LogService.Log($"解析校准数据失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 检查设备编号是否存在校准记录
-        /// </summary>
-        private async Task<bool> CheckDeviceNumberExists(string deviceNumber)
-        {
-            try
-            {
-                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
-                {
-                    await conn.OpenAsync();
-
-                    string sql = "SELECT COUNT(*) FROM CalibrationMaster WHERE DeviceNumber = @DeviceNumber";
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
-                        long count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
-                        return count > 0;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"检查设备编号失败: {ex.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 检查设备编号下特定信号名称的数据是否存在（增加设备名称及通道号条件）
-        /// </summary>
-        private async Task<bool> CheckSignalDataExistsByName(string deviceNumber, List<string> signalNames)
-        {
-            try
-            {
-                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
-                {
-                    await conn.OpenAsync();
-
-                    // 构建信号名称的IN条件
-                    string signalNameList = string.Join(",", signalNames.Select(name => $"'{name.Replace("'", "''")}'"));
-
-                    string sql = @"
-                    SELECT COUNT(*) 
-                    FROM CalibrationPointDetails cpd
-                    JOIN CalibrationSignalInfo csi ON cpd.InfoID = csi.InfoID
-                    JOIN CalibrationMaster cm ON csi.MasterID = cm.MasterID
-                    WHERE cm.DeviceNumber = @DeviceNumber 
-                    AND csi.SignalName IN (" + signalNameList + ")";
-
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
-                        long count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
-                        return count > 0;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"检查信号数据失败: {ex.Message}");
-                return false;
             }
         }
 
@@ -5449,6 +6106,39 @@ namespace ChargeDebug.Form
         }
 
         private LabelControl progressLabel;
+
+        #endregion
+
+        #region 导入数据模型
+
+        /// <summary>
+        /// 信号导入数据
+        /// </summary>
+        public class SignalImportData
+        {
+            public string DeviceName { get; set; } = string.Empty;
+            public string SignalName { get; set; } = string.Empty;
+            public string SignalType { get; set; } = "电压";
+            public int ReadTime { get; set; } = 1000;
+            public double RatingValue { get; set; }
+            public double PrecisionRange { get; set; } = 1.0;
+            public double ScaleFactor { get; set; } = 1.0;
+            public double ZeroFactor { get; set; }
+            public List<CalibrationPointImportData> CalibrationPoints { get; set; } = new List<CalibrationPointImportData>();
+        }
+
+        /// <summary>
+        /// 校准点导入数据
+        /// </summary>
+        public class CalibrationPointImportData
+        {
+            public double BeforeDeviceValue { get; set; }
+            public double BeforeActualValue { get; set; }
+            public double AfterDeviceValue { get; set; }
+            public double AfterActualValue { get; set; }
+            public double Accuracy { get; set; }
+            public string TestResult { get; set; } = "不合格";
+        }
 
         #endregion
     }
