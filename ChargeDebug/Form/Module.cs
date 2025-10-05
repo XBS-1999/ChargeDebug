@@ -13,6 +13,7 @@ using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using static ChargeDebug.Form.ACStartConfiguration;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -97,6 +98,10 @@ namespace ChargeDebug.Form
         private const string CURRENT_SIGNAL = "蓄电池电流";
         private const string POWER_SIGNAL = "蓄电池功率";
 
+        // 通道类型标识
+        private bool _hasACChannel = false;
+        private bool _hasDCChannel = false;
+
         public ConfigurationData ProtectionParameters { get; set; }
 
         public event Action<string> FaultDetected; // 专门用于故障通知的事件
@@ -148,6 +153,10 @@ namespace ChargeDebug.Form
         {
             _equipment = equipment;
             _title = title;
+
+            // 根据模块标识判断通道类型
+            DetectChannelTypes(title, signals);
+
             InitializeComponent();
             InitializeUI();
             ProcessSignals(signals);
@@ -203,13 +212,34 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 检测模块包含的通道类型
+        /// </summary>
+        private void DetectChannelTypes(string title, List<SignalInfo> signals)
+        {
+            // 根据模块标题判断通道类型
+            _hasACChannel = title.Contains("AC") || signals.Any(s =>
+                s.SystemName.Contains("AC") && (s.SystemName.Contains("运行状态") || s.SystemName.Contains("运行模式")));
+
+            _hasDCChannel = title.Contains("DC") || signals.Any(s =>
+                s.SystemName.Contains("DC") && (s.SystemName.Contains("运行状态") || s.SystemName.Contains("运行模式")));
+
+            // 如果无法从标题判断，尝试从信号列表中判断
+            if (!_hasACChannel && !_hasDCChannel)
+            {
+                _hasACChannel = signals.Any(s => s.SystemName == "AC运行状态" || s.SystemName == "AC运行模式");
+                _hasDCChannel = signals.Any(s => s.SystemName == "DC运行状态" || s.SystemName == "DC运行模式");
+            }
+
+            LogService.Log($"模块 '{title}' 通道检测: AC={_hasACChannel}, DC={_hasDCChannel}");
+        }
+
+        /// <summary>
         /// 初始化上下文菜单
         /// </summary>
         private void InitializeContextMenu()
         {
             contextMenu = new ContextMenuStrip();
             var dataselection = new ToolStripMenuItem("数据选择");
-            var poweron = new ToolStripMenuItem("启动测试");
             var parameterset = new ToolStripMenuItem("参数设置");
             var shutDown = new ToolStripMenuItem("停止测试");
             var clearfault = new ToolStripMenuItem("清除故障");
@@ -217,14 +247,37 @@ namespace ChargeDebug.Form
             var gavoltage = new ToolStripMenuItem("电压高档");
 
             dataselection.Click += ShowSignalSelector;
-            poweron.Click += PoweronAsync;
             parameterset.Click += ParameterSet;
             shutDown.Click += ShutDown;
             clearfault.Click += Clearfault;
             lowvoltage.Click += Wvoltage;
             gavoltage.Click += Gavoltage;
 
-            contextMenu.Items.AddRange(new[] { dataselection, poweron, parameterset, shutDown, clearfault });
+            contextMenu.Items.AddRange(new[] { dataselection, parameterset, shutDown, clearfault });
+
+            // 根据通道类型动态创建启动菜单项
+            // 如果包含AC通道，添加AC启动选项
+            if (_hasACChannel)
+            {
+                var acPowerOn = new ToolStripMenuItem("AC侧控制");
+                acPowerOn.Click += ACPoweronAsync;
+                contextMenu.Items.Insert(1, acPowerOn); // 插入到第二个位置
+            }
+
+            if (_hasDCChannel)
+            {
+                var dcPowerOn = new ToolStripMenuItem("启动测试");
+                dcPowerOn.Click += PoweronAsync;
+                if (_hasACChannel)
+                {
+                    contextMenu.Items.Insert(2, dcPowerOn); // 插入到第三个位置
+                }
+                else
+                {
+                    contextMenu.Items.Insert(1, dcPowerOn); // 插入到第二个位置
+                }
+            }
+
             gridControl.ContextMenuStrip = contextMenu;
         }
 
@@ -973,16 +1026,27 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 检测设备状态是否改变
         /// </summary>
-        private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout)
+        private async Task<bool> CheckDeviceStatusChange(TimeSpan timeout, string channel)
         {
             DateTime startTime = DateTime.Now;
 
             while (DateTime.Now - startTime < timeout)
             {
-                // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
-                if (_dcRunStatus == 0x01 || _dcRunStatus == 0x02)
+                if (channel == "AC")
                 {
-                    return true; // 状态已改变
+                    // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
+                    if (_acRunStatus == 0x01 || _acRunStatus == 0x02)
+                    {
+                        return true; // 状态已改变
+                    }
+                }
+                else
+                {
+                    // 检查状态是否变为 0x01 (启动过程中) 或 0x02 (运行)
+                    if (_dcRunStatus == 0x01 || _dcRunStatus == 0x02)
+                    {
+                        return true; // 状态已改变
+                    }
                 }
 
                 // 等待一段时间再检查
@@ -996,48 +1060,75 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 检查运行模式
         /// </summary>
-        private Task<bool> CheckRunMode(string workingMode)
+        private Task<bool> CheckRunMode(string workingMode, string channel)
         {
             uint mode = 0;
-            switch (workingMode)
+            if (channel == "AC")
             {
-                case "恒流充电":
-                    mode = 0x03;
-                    break;
-                case "恒流放电":
-                    mode = 0x23;
-                    break;
-                case "恒压充电":
-                    mode = 0x02;
-                    break;
-                case "恒压放电":
-                    mode = 0x22;
-                    break;
-                case "恒功率充电":
-                    mode = 0x01;
-                    break;
-                case "恒功率放电":
-                    mode = 0x21;
-                    break;
-                case "搁置":
-                    mode = 0x05;
-                    break;
-                case "静置":
-                    mode = 0x06;
-                    break;
-                case "停机":
-                    mode = 0x00;
-                    break;
-            }
+                switch (workingMode)
+                {
+                    case "恒定并网直流恒压运行":
+                        mode = 0x01;
+                        break;
 
-            if (mode == _dcRunMode)
-            {
-                return Task.FromResult(true);
+                    case "停机":
+                        mode = 0x00;
+                        break;
+                }
+
+                if (mode == _acRunMode)
+                {
+                    return Task.FromResult(true);
+                }
+                else
+                {
+                    return Task.FromResult(false);
+                }
             }
             else
             {
-                return Task.FromResult(false);
+                switch (workingMode)
+                {
+                    case "恒流充电":
+                        mode = 0x03;
+                        break;
+                    case "恒流放电":
+                        mode = 0x23;
+                        break;
+                    case "恒压充电":
+                        mode = 0x02;
+                        break;
+                    case "恒压放电":
+                        mode = 0x22;
+                        break;
+                    case "恒功率充电":
+                        mode = 0x01;
+                        break;
+                    case "恒功率放电":
+                        mode = 0x21;
+                        break;
+                    case "搁置":
+                        mode = 0x05;
+                        break;
+                    case "静置":
+                        mode = 0x06;
+                        break;
+                    case "停机":
+                        mode = 0x00;
+                        break;
+                }
+
+                if (mode == _dcRunMode)
+                {
+                    return Task.FromResult(true);
+                }
+                else
+                {
+                    return Task.FromResult(false);
+                }
             }
+            
+            
         }
 
         /// <summary>
@@ -1576,7 +1667,7 @@ namespace ChargeDebug.Form
                 if (_dcRunStatus == 0x00 || _dcRunStatus == 0x03)
                 {
                     // 显示启动配置对话框
-                    using (var configForm = new StartConfiguration(_title, "启动配置",true))
+                    using (var configForm = new StartConfiguration(_title, "DC启动配置",true))
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
@@ -1600,10 +1691,10 @@ namespace ChargeDebug.Form
                                 _stopCommandSent = true;
 
                                 // 检测设备状态变化
-                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3));
+                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3), "DC");
 
                                 // 检测设备运行工步码是否一致
-                                bool runmode = await CheckRunMode(configForm.Configuration.WorkingMode);
+                                bool runmode = await CheckRunMode(configForm.Configuration.WorkingMode, "DC");
 
                                 if ((!statusChanged) || (!runmode))
                                 {
@@ -1654,6 +1745,111 @@ namespace ChargeDebug.Form
             {
                 LogService.Log($"设备启动失败:{ex.Message}");
                 XtraMessageBox.Show($"设备启动失败:{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 异步启动AC设备
+        /// </summary>
+        private async void ACPoweronAsync(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 检查设备状态,待机、停机过程情况下才能启动
+                if (_acRunStatus == 0x00 || _acRunStatus == 0x03)
+                {
+                    // 显示AC启动配置对话框
+                    using (var configForm = new ACStartConfiguration(_title, "AC启动配置"))
+                    {
+                        if (configForm.ShowDialog() == DialogResult.OK)
+                        {
+                            var acConfig = configForm.ACConfiguration;
+
+                            // 记录AC启动配置
+                            LogService.Log($"AC启动配置 - 启动方式: {acConfig.StartMode}, 运行模式: {acConfig.RunMode}, 电池电压: {acConfig.BatteryVoltage}V");
+
+                            // 这里可以添加AC设备启动的具体逻辑
+                            bool success = await _startupManager.ACStartDeviceAsync(acConfig);
+
+                            if (success)
+                            {
+                                // 检测设备状态变化
+                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3),"AC");
+
+                                // 检测设备运行工步码是否一致
+                                bool runmode = await CheckRunMode(acConfig.RunMode, "AC");
+
+                                if (!statusChanged || !runmode)
+                                {
+                                    // 发送停机指令
+                                    bool stopSuccess = await _startupManager.ACStopDeviceAsync();
+                                    if (!stopSuccess)
+                                    {
+                                        XtraMessageBox.Show("停机指令发送失败");
+                                        return;
+                                    }
+
+                                    // 状态没有变化，启动失败
+                                    LogService.Log($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    XtraMessageBox.Show($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    return;
+                                }
+
+                                LogService.Log("AC通道控制成功");
+                                XtraMessageBox.Show("AC通道控制成功");
+
+                                // 设置AC运行时间
+                                //_totalTimeData.Value = "00:00:00";
+                                //_startTime = DateTime.Now;
+                            }
+                            else
+                            {
+                                LogService.Log("AC通道控制失败!");
+                                XtraMessageBox.Show("AC通道控制失败!");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    LogService.Log("AC通道状态异常，禁止控制!");
+                    XtraMessageBox.Show("AC通道状态异常，禁止控制");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"AC通道控制失败:{ex.Message}");
+                XtraMessageBox.Show($"AC通道控制失败:{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 启动AC设备的内部方法
+        /// </summary>
+        private async Task<bool> StartACDeviceAsync(ACConfigurationData aCConfigurationData)
+        {
+            try
+            {
+                // 示例：构造AC启动数据帧
+                byte[] acStartData = new byte[8];
+
+                CANManager.Instance.SendCommand(
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        _acreadFaultCanId, // 使用实际的AC控制CAN ID
+                        acStartData
+                );
+
+                // 等待设备响应
+                await Task.Delay(100);
+                    return true;
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"启动AC设备时出错: {ex.Message}");
+                return false;
             }
         }
 
@@ -1746,7 +1942,7 @@ namespace ChargeDebug.Form
                         await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode(newParams.WorkingMode);
+                        bool runmode = await CheckRunMode(newParams.WorkingMode, "DC");
 
                         if (runmode)
                         {
@@ -1824,7 +2020,7 @@ namespace ChargeDebug.Form
                         await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode("停机");
+                        bool runmode = await CheckRunMode("停机", "DC");
 
                         if (runmode)
                         {

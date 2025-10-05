@@ -72,38 +72,38 @@ namespace ChargeDebug.Form
             this.MinimizeBox = false;
 
             labelOverVoltageValue = new LabelControl { Text = "蓄电池过压保护值:", Location = new Point(60, 22) };
-            overVoltageValue = new TextEdit { Location = new Point(200, 20), Width = 80 };
+            overVoltageValue = new TextEdit { Location = new Point(200, 17), Width = 80 };
             overVoltageValue.Validated += PositiveParameter_Validated;
             LabelControl overVoltage = new LabelControl { Text = "V", Location = new Point(290, 22) };
 
             labelUnderVoltageValue = new LabelControl { Text = "蓄电池欠压保护值:", Location = new Point(380, 22) };
-            underVoltageValue = new TextEdit { Location = new Point(520, 20), Width = 80 };
+            underVoltageValue = new TextEdit { Location = new Point(520, 17), Width = 80 };
             underVoltageValue.Validated += PositiveParameter_Validated;
             LabelControl underVoltage = new LabelControl { Text = "V", Location = new Point(610, 22) };
 
             labelOverCurrentValue = new LabelControl { Text = "蓄电池充电过流保护值:", Location = new Point(30, 62) };
-            overCurrentValue = new TextEdit { Location = new Point(200, 60), Width = 80 };
+            overCurrentValue = new TextEdit { Location = new Point(200, 57), Width = 80 };
             overCurrentValue.Validated += PositiveParameter_Validated;
             LabelControl overCurrent = new LabelControl { Text = "A", Location = new Point(290, 62) };
 
             labelUnderCurrentValue = new LabelControl { Text = "蓄电池放电过流保护值:", Location = new Point(350, 62) };
-            underCurrentValue = new TextEdit { Location = new Point(520, 60), Width = 80 };
+            underCurrentValue = new TextEdit { Location = new Point(520, 57), Width = 80 };
             underCurrentValue.Validated += NegativeParameter_Validated;
             LabelControl underCurrent = new LabelControl { Text = "A", Location = new Point(610, 62) };
 
             labelOverPowerValue = new LabelControl { Text = "蓄电池充电过功率保护值:", Location = new Point(15, 102) };
-            overPowerValue = new TextEdit { Location = new Point(200, 100), Width = 80 };
+            overPowerValue = new TextEdit { Location = new Point(200, 97), Width = 80 };
             overPowerValue.Validated += PositiveParameter_Validated;
             LabelControl overPower = new LabelControl { Text = "KW", Location = new Point(290, 102) };
 
             labelUnderPowerValue = new LabelControl { Text = "蓄电池放电过功率保护值:", Location = new Point(335, 102) };
-            underPowerValue = new TextEdit { Location = new Point(520, 100), Width = 80 };
+            underPowerValue = new TextEdit { Location = new Point(520, 97), Width = 80 };
             underPowerValue.Validated += NegativeParameter_Validated;
             LabelControl underPower = new LabelControl { Text = "KW", Location = new Point(610, 102) };
 
             labelWorkingMode = new LabelControl { Text = "工步模式:", Location = new Point(240, 162) };
             labelWorkingMode.Visible = _flagbit;
-            workingMode = new ComboBoxEdit { Location = new Point(310, 160), Width = 150 };
+            workingMode = new ComboBoxEdit { Location = new Point(310, 157), Width = 150 };
             workingMode.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             workingMode.Visible = _flagbit; // 根据flagbit设置可见性
             workingMode.Properties.Items.AddRange(new[] { "搁置", "静置", "恒流充电", "恒流放电", "恒压充电", "恒压放电", "恒功率充电", "恒功率放电", "停机" });
@@ -111,7 +111,7 @@ namespace ChargeDebug.Form
 
             labelDirectionammeter = new LabelControl { Text = "电流表方向:", Location = new Point(240, 162) };
             labelDirectionammeter.Visible = !_flagbit;
-            directionammeter = new ComboBoxEdit { Location = new Point(330, 160), Width = 100 };
+            directionammeter = new ComboBoxEdit { Location = new Point(330, 157), Width = 100 };
             directionammeter.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             directionammeter.Visible = !_flagbit; // 根据flagbit设置可见性
             directionammeter.Properties.Items.AddRange(new[] { "正方向", "反方向" });

@@ -4,6 +4,7 @@ using Log;
 using ChargeDebug.Form;
 using System.Globalization;
 using System.Threading;
+using static ChargeDebug.Form.ACStartConfiguration;
 
 #pragma warning disable
 namespace ChargeDebug
@@ -102,6 +103,195 @@ namespace ChargeDebug
             catch (Exception ex)
             {
                 throw new Exception($"设备启动失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 启动AC通道
+        /// </summary>
+        public async Task<bool> ACStartDeviceAsync(ACConfigurationData configData)
+        {
+            try
+            {
+                // 步骤1: 发送AC侧控制指令1AXCC
+                bool protectparameters = await SendProtectionParams1AXCC(configData);
+                if (!protectparameters)
+                {
+                    return false;
+                }
+
+                // 步骤2: 发送保护参数2AXCC
+                if (configData.StartMode == "指令控制启动")
+                {
+                    bool protectparameters1 = await SendProtectionParams2AXCC(configData);
+                    if (!protectparameters1)
+                    {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设备控制失败: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> SendProtectionParams2AXCC(ACConfigurationData configData)
+        {
+            try
+            {
+                // 通道号 (从标题中提取，如"通道1" -> 1)
+                uint channelNum = Convert.ToUInt32(_title.Substring(_title.Length - 1, 1));
+                //发送CANID
+                uint sendCanId = 0x2A0CC + (channelNum - 1) * 0x100;
+                //接收CANID
+                uint receiveCanId = 0x2CCA0 + (channelNum - 1) * 0x01;
+
+                // 构造保护参数数据
+                byte[] data = new byte[8];
+                data[3] = 0x00;
+                data[4] = 0x00;
+                data[5] = 0x00;
+                data[6] = 0x00;
+                data[7] = 0x00;
+
+                switch (configData.RunMode)
+                {
+                    case "停机":
+                        data[0] = 0x00;
+                        break;
+
+                    case "恒定并网直流恒压运行":
+                        data[0] = 0x01;
+                        break;
+
+                    default:
+                        data[0] = 0x00;
+                        break;
+                }
+
+                short batteryVoltage = (short)(double.Parse(configData.BatteryVoltage, CultureInfo.InvariantCulture) * 10);
+                data[1] = (byte)(batteryVoltage & 0xFF);        // 低字节
+                data[2] = (byte)((batteryVoltage >> 8) & 0xFF); // 高字节
+
+                // 构造通道键
+                string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
+
+                int number = 0;
+                while (number < 3)
+                {
+                    CANManager.Instance.SendCommand
+                    (
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
+
+                    if (response.data != null)
+                    {
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        number++;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送AC侧控制指令失败: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> SendProtectionParams1AXCC(ACConfigurationData configData)
+        {
+            try
+            {
+                // 通道号 (从标题中提取，如"通道1" -> 1)
+                uint channelNum = Convert.ToUInt32(_title.Substring(_title.Length - 1, 1));
+                //发送CANID
+                uint sendCanId = 0x1A0CC + (channelNum - 1) * 0x100;
+                //接收CANID
+                uint receiveCanId = 0x1CCA0 + (channelNum - 1) * 0x01;
+
+                // 构造保护参数数据
+                byte[] data = new byte[8];
+                data[0] = 0x00;   
+                data[1] = 0x00;
+                data[2] = 0x00;
+                data[3] = 0x00;
+                data[5] = 0x00;
+                data[6] = 0x00;
+                data[7] = 0x00;
+
+                switch (configData.StartMode)
+                {
+                    case "自启动":
+                        data[4] = 0x00;
+                        break;
+
+                    case "指令控制启动":
+                        data[4] = 0x01;
+                        break;
+
+                    default:
+                        data[4] = 0x00;
+                        break;
+                }
+                // 构造通道键
+                string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
+
+                int number = 0;
+                while (number < 3)
+                {
+                    CANManager.Instance.SendCommand
+                    (
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
+
+                    if (response.data != null)
+                    {
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        number++;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送AC侧控制指令失败: {ex.Message}");
             }
         }
 
@@ -861,6 +1051,73 @@ namespace ChargeDebug
             catch (Exception ex)
             {
                 throw new Exception($"发送停机指令22YCC失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 发送停机指令2AXCC
+        /// </summary>
+        public async Task<bool> ACStopDeviceAsync()
+        {
+            try
+            {
+                // 通道号 (从标题中提取，如"通道1" -> 1)
+                uint channelNum = Convert.ToUInt32(_title.Substring(_title.Length - 1, 1));
+                //发送CANID
+                uint sendCanId = 0x2A0CC + (channelNum - 1) * 0x100;
+                //接收CANID
+                uint receiveCanId = 0x2CCA0 + (channelNum - 1) * 0x01;
+
+                // 构造数据
+                byte[] data = new byte[8];
+                data[0] = 0x00;
+                data[1] = 0x00;
+                data[2] = 0x00;
+                data[3] = 0x00;
+                data[4] = 0x00;
+                data[5] = 0x00;
+                data[6] = 0x00;
+                data[7] = 0x00;
+
+                // 构造通道键
+                string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
+
+                int number = 0;
+                while (number < 3)
+                {
+                    CANManager.Instance.SendCommand
+                    (
+                        _equipment.DeviceIndex,
+                        _equipment.CanIndex,
+                        sendCanId,
+                        data
+                    );
+
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
+
+                    if (response.data != null)
+                    {
+                        // 验证数据是否写入
+                        if (!data.SequenceEqual(response.data))
+                        {
+                            number++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        number++;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送停机指令2AXCC失败: {ex.Message}");
             }
         }
     }
