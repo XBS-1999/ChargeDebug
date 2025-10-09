@@ -4590,112 +4590,76 @@ namespace ChargeDebug.Form
             column.Width = 50;
 
             column = treeList.Columns.Add();
+            column.Caption = "校准信号";
+            column.FieldName = "CalibrationSignal";
+            column.VisibleIndex = 3;
+            column.Width = 80;
+
+            column = treeList.Columns.Add();
             column.Caption = "稳定读取时间(ms)";
             column.FieldName = "ReadTime";
-            column.VisibleIndex = 3;
+            column.VisibleIndex = 4;
             column.Width = 100;
 
             // 额定电压/电流
             column = treeList.Columns.Add();
             column.Caption = "额定电压/电流(V/A)";
             column.FieldName = "RatingVoltageCurrent";
-            column.VisibleIndex = 4;
+            column.VisibleIndex = 5;
             column.Width = 120;
 
             column = treeList.Columns.Add();
             column.Caption = "校准点个数";
             column.FieldName = "CalibrationNumber";
-            column.VisibleIndex = 5;
+            column.VisibleIndex = 6;
             column.Width = 60;
 
             column = treeList.Columns.Add();
             column.Caption = "精度范围";
             column.FieldName = "PrecisionRange";
-            column.VisibleIndex = 6;
+            column.VisibleIndex = 7;
             column.Width = 50;
 
             // 比例系数列
             column = treeList.Columns.Add();
             column.Caption = "比例系数";
             column.FieldName = "ScaleFactor";
-            column.VisibleIndex = 7;
+            column.VisibleIndex = 8;
             column.Width = 50;
 
             // 零点系数列
             column = treeList.Columns.Add();
             column.Caption = "零点系数"; 
             column.FieldName = "ZeroFactor";
-            column.VisibleIndex = 8;
+            column.VisibleIndex = 9;
             column.Width = 50;
 
-            // 校准前电压采样值列
+            // 校准前采样值列
             column = treeList.Columns.Add();
-            column.Caption = "校准前电压(采样值/测量值)";
-            column.FieldName = "DeviceVoltageSample";
-            column.VisibleIndex = 9;
-            column.Width = 180;
-
-            // 校准前电压测量值列
-            //column = treeList.Columns.Add();
-            //column.Caption = "校准前电压";
-            //column.FieldName = "ActualVoltageMeasurement";
-            //column.VisibleIndex = 10;
-            //column.Width = 120;
-
-            // 校准后电压采样值列
-            column = treeList.Columns.Add();
-            column.Caption = "校准后电压(采样值/测量值)";
-            column.FieldName = "NewDeviceVoltageSample";
+            column.Caption = "校准前(采样值/测量值)";
+            column.FieldName = "BeforeCalibration";
             column.VisibleIndex = 10;
             column.Width = 180;
 
-            // 校准后电压测量值列
-            //column = treeList.Columns.Add();
-            //column.Caption = "校准后电压测量值";
-            //column.FieldName = "NewActualVoltageMeasurement";
-            //column.VisibleIndex = 12;
-            //column.Width = 120;
-
-            // 校准前电流采样值列
+            // 校准后采样值列
             column = treeList.Columns.Add();
-            column.Caption = "校准前电流(采样值/测量值)";
-            column.FieldName = "DeviceCurrentSample";
+            column.Caption = "校准后(采样值/测量值)";
+            column.FieldName = "AfterCalibration";
             column.VisibleIndex = 11;
             column.Width = 180;
-
-            // 校准前电流测量值列
-            //column = treeList.Columns.Add();
-            //column.Caption = "校准前电流测量值";
-            //column.FieldName = "ActualCurrentMeasurement";
-            //column.VisibleIndex = 14;
-            //column.Width = 120;
-
-            // 校准后电流采样值列
-            column = treeList.Columns.Add();
-            column.Caption = "校准后电流(采样值/测量值)";
-            column.FieldName = "NewDeviceCurrentSample";
-            column.VisibleIndex = 12;
-            column.Width = 180;
-
-            // 校准后电流测量值列
-            //column = treeList.Columns.Add();
-            //column.Caption = "校准后电流测量值";
-            //column.FieldName = "NewActualCurrentMeasurement";
-            //column.VisibleIndex = 16;
-            //column.Width = 120;
 
             // 校准精度列
             column = treeList.Columns.Add();
             column.Caption = "校准精度";
             column.FieldName = "CalibrationAccuracy";
-            column.VisibleIndex = 13;
+            column.VisibleIndex = 12;
             column.Width = 50;
 
             // 校准结果列
             column = treeList.Columns.Add();
             column.Caption = "校准结果";
             column.FieldName = "CalibrationResult";
-            column.VisibleIndex = 14;
+            column.VisibleIndex = 13;
             column.Width = 50;
 
             // 设置所有列的内容和标题居中显示
