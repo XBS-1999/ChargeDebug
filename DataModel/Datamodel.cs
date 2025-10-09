@@ -121,8 +121,9 @@ namespace DataModel
         public string? DeviceName { get; set; }
         public string? SignalName { get; set; }
         public string? SignalType { get; set; }
+        public string? CalibrationSignal { get; set; }
         public int ReadTime { get; set; }
-        public int RatingVoltageCurrent { get; set; }
+        public string? RatingVoltageCurrent { get; set; }
         public int CalibrationNumber { get; set; }
         public int Orders { get; set; }
         public string? ScaleFactor { get; set; }

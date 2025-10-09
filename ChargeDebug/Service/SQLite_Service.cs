@@ -179,8 +179,9 @@ namespace ChargeDebug.Service
                             DeviceName = reader["DeviceName"].ToString(),
                             SignalName = reader["SignalName"].ToString(),
                             SignalType = reader["SignalType"].ToString(),
+                            CalibrationSignal = reader["CalibrationSignal"].ToString(),
                             ReadTime = Convert.ToInt32(reader["ReadTime"]),
-                            RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
+                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
                             CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
                             CalibrationAccuracy = reader["CalibrationAccuracy"].ToString(),
                             Orders = Convert.ToInt32(reader["Orders"]),
@@ -271,8 +272,9 @@ namespace ChargeDebug.Service
                             DeviceName = reader["DeviceName"].ToString(),
                             SignalName = reader["SignalName"].ToString(),
                             SignalType = reader["SignalType"].ToString(),
+                            CalibrationSignal = reader["CalibrationSignal"].ToString(),
                             ReadTime = Convert.ToInt32(reader["ReadTime"]),
-                            RatingVoltageCurrent = Convert.ToInt32(reader["RatingVoltageCurrent"]),
+                            RatingVoltageCurrent = reader["RatingVoltageCurrent"].ToString(),
                             CalibrationNumber = Convert.ToInt32(reader["CalibrationNumber"]),
                             CalibrationAccuracy = reader["CalibrationAccuracy"].ToString(),
                             Orders = Convert.ToInt32(reader["Orders"]) // 读取排序字段
@@ -324,6 +326,7 @@ namespace ChargeDebug.Service
                 SET DeviceName = @DeviceName,
                 SignalName = @SignalName,
                 SignalType = @SignalType,
+                CalibrationSignal = @CalibrationSignal,
                 ReadTime = @ReadTime,
                 RatingVoltageCurrent = @RatingVoltageCurrent,
                 CalibrationNumber = @CalibrationNumber,
@@ -335,7 +338,8 @@ namespace ChargeDebug.Service
             {
                 cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
                 cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
-                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType); 
+                cmd.Parameters.AddWithValue("@CalibrationSignal", signal.CalibrationSignal);
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
@@ -352,15 +356,16 @@ namespace ChargeDebug.Service
         {
             string insertSql = @"
             INSERT INTO CalibrationSignals 
-                (DeviceName, SignalName, SignalType, ReadTime, RatingVoltageCurrent, CalibrationNumber, CalibrationAccuracy, Orders )
+                (DeviceName, SignalName, SignalType, CalibrationSignal, ReadTime, RatingVoltageCurrent, CalibrationNumber, CalibrationAccuracy, Orders )
             VALUES 
-                (@DeviceName, @SignalName, @SignalType, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @CalibrationAccuracy, @Orders )";
+                (@DeviceName, @SignalName, @SignalType, @CalibrationSignal, @ReadTime, @RatingVoltageCurrent, @CalibrationNumber, @CalibrationAccuracy, @Orders )";
 
             using (var cmd = new SQLiteCommand(insertSql, conn))
             {
                 cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
                 cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
-                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType); 
+                cmd.Parameters.AddWithValue("@CalibrationSignal", signal.CalibrationSignal);
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
                 cmd.Parameters.AddWithValue("@CalibrationNumber", signal.CalibrationNumber);
@@ -945,8 +950,10 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 根据MessageID和SystemName查询特定信号的所有信息
         /// </summary>
-        public static SignalInfo GetSignalByMessageAndSignalName(SQLiteConnection conn, long messageId, string signalName)
+        public static List<SignalInfo> GetSignalByMessageAndSystemNameList(SQLiteConnection conn, long messageId, string systemName)
         {
+            List<SignalInfo> signals = new List<SignalInfo>();
+
             const string sql = @"SELECT 
                     s.SignalID, s.SignalName,
                     s.MultiplexSignals, s.SystemName,
@@ -954,21 +961,21 @@ namespace ChargeDebug.Service
                     s.Length, s.ByteOrder,
                     s.Signed, s.Factor,
                     s.Offset, s.MinMax,
-                    s.orders, m.CANID,m.MessageName 
+                    s.orders, m.CANID, m.MessageName 
                     FROM Signals s JOIN Messages m 
                     ON s.MessageID = m.MessageID
-                    WHERE s.MessageID = @msgId AND s.SignalName = @signalName";
+                    WHERE s.MessageID = @msgId AND s.SystemName = @systemName";
 
             using (var cmd = new SQLiteCommand(sql, conn))
             {
                 cmd.Parameters.AddWithValue("@msgId", messageId);
-                cmd.Parameters.AddWithValue("@signalName", signalName);
+                cmd.Parameters.AddWithValue("@systemName", systemName);
 
                 using (var reader = cmd.ExecuteReader())
                 {
-                    if (reader.Read())
+                    while (reader.Read())
                     {
-                        var signal = new SignalInfo
+                        signals.Add(new SignalInfo
                         {
                             SignalID = (long)reader["SignalID"],
                             SignalName = reader["SignalName"].ToString(),
@@ -985,15 +992,11 @@ namespace ChargeDebug.Service
                             Orders = Convert.ToInt32(reader["orders"]),
                             CANID = reader["CANID"].ToString(),
                             MessageName = reader["MessageName"].ToString()
-                        };
-                        // 加载复用信号配置
-                        signal.ReuseSignals = GetReuseSignalsBySignals(conn, signal.SignalID);
-                        return signal;
+                        });
                     }
                 }
             }
-
-            return null; // 如果没有找到匹配的信号，返回null
+            return signals;
         }
 
         /// <summary>

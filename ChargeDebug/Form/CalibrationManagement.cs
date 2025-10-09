@@ -15,6 +15,7 @@ using DevExpress.DataProcessing;
 using System.IO;
 using ClosedXML.Excel;
 using System.Data;
+using Ivi.Visa;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -48,6 +49,7 @@ namespace ChargeDebug.Form
         private List<ModbusSignal> voltageSourceProtocols = new List<ModbusSignal>();
         private List<ModbusSignal> voltmeterProtocols = new List<ModbusSignal>();
         private List<SignalInfo> treeSignalProtocols = new List<SignalInfo>();
+        Dictionary<string, List<SignalInfo>> debugProtocols = new Dictionary<string, List<SignalInfo>>();
         private ConfigurationData _protectionParameters;
 
         // 进度条控件
@@ -126,6 +128,7 @@ namespace ChargeDebug.Form
                             calibrationsignal.DeviceName,
                             calibrationsignal.SignalName,
                             calibrationsignal.SignalType,
+                            calibrationsignal.CalibrationSignal,
                             calibrationsignal.ReadTime,
                             calibrationsignal.RatingVoltageCurrent,
                             calibrationsignal.CalibrationNumber,
@@ -857,7 +860,7 @@ namespace ChargeDebug.Form
         /// 加载树形图信号协议
         /// </summary>
         /// <returns>信号信息列表</returns>
-        private async Task<List<SignalInfo>> LoadTreeSignalsProtocolAsync(string type)
+        private async Task<List<SignalInfo>> LoadTreeSignalsProtocolAsync(string type = null)
         {
             try
             {
@@ -881,95 +884,47 @@ namespace ChargeDebug.Form
                         string channel = node.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
                         string signalName = node.GetValue("SignalName")?.ToString() ?? "";
                         string signaltype = node.GetValue("SignalType")?.ToString() ?? "";
+                        string calibrationsignal = node.GetValue("CalibrationSignal")?.ToString() ?? "";
                         string readtime = node.GetValue("ReadTime")?.ToString() ?? "";
                         string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
                         string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString() ?? "";
-                        string debugsignal1 = signalName + "比例系数";
-                        string debugsignal2 = signalName + "零点系数";
 
-                        if (signaltype == type)
+                        if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName))
                         {
-                            if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName))
+                            // 根据设备名称获取协议名称
+                            string protocolName = SQLite_Service.GetProtocolNameByDeviceName(conn, deviceName);
+
+                            if (!string.IsNullOrEmpty(protocolName))
                             {
-                                // 根据设备名称获取协议名称
-                                string protocolName = SQLite_Service.GetProtocolNameByDeviceName(conn, deviceName);
+                                // 获取协议文件ID
+                                long fileId = SQLite_Service.GetDbcFileId(conn, protocolName);
 
-                                if (!string.IsNullOrEmpty(protocolName))
+                                // 获取所有相关的MessageID
+                                var messages = SQLite_Service.GetMessagesByDbc(conn, fileId);
+
+                                // 遍历所有MessageID，查找匹配的信号
+                                foreach (var message in messages)
                                 {
-                                    // 获取协议文件ID
-                                    long fileId = SQLite_Service.GetDbcFileId(conn, protocolName);
-
-                                    // 获取所有相关的MessageID
-                                    var messages = SQLite_Service.GetMessagesByDbc(conn, fileId);
-
-                                    // 遍历所有MessageID，查找匹配的信号
-                                    foreach (var message in messages)
+                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, message.MessageID, signalName);
+                                    
+                                    if (signalInfo != null)
                                     {
-                                        // 根据MessageID和信号名称查询信号信息
-                                        var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, message.MessageID, signalName);
-
-                                        if (signalInfo != null)
+                                        // 设置CANID
+                                        if (signalInfo.CANID.Contains("AX"))
                                         {
-                                            // 设置CANID
-                                            if (signalInfo.CANID.Contains("AX"))
-                                            {
-                                                int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                signalInfo.CANID = signalInfo.CANID?.Replace("AX", "A" + (acnum - 1));
-                                            }
-                                            else if (signalInfo.CANID.Contains("2X"))
-                                            {
-                                                int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                signalInfo.CANID = signalInfo.CANID?.Replace("2X", "2" + (dcnum - 1));
-                                            }
-
-                                            signalInfo.SignalName = $"{deviceName}-{channel}-{signalInfo.SignalName}";
-                                            signalInfos.Add(signalInfo);
-                                            break; 
+                                            int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                            signalInfo.CANID = signalInfo.CANID?.Replace("AX", "A" + (acnum - 1));
                                         }
-                                    }
-
-                                    foreach (var message in messages)
-                                    {
-                                        // 根据MessageID和信号名称查询信号信息
-                                        var debugsignalInfo1 = SQLite_Service.GetSignalByMessageAndSignalName(conn, message.MessageID, debugsignal1);
-                                        var debugsignalInfo2 = SQLite_Service.GetSignalByMessageAndSignalName(conn, message.MessageID, debugsignal2);
-
-                                        if (debugsignalInfo1 != null)
+                                        else if (signalInfo.CANID.Contains("2X"))
                                         {
-                                            // 设置CANID
-                                            if (debugsignalInfo1.CANID.Contains("AX"))
-                                            {
-                                                int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                debugsignalInfo1.CANID = debugsignalInfo1.CANID?.Replace("AX", "A" + (acnum - 1));
-                                            }
-                                            else if (debugsignalInfo1.CANID.Contains("2X"))
-                                            {
-                                                int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                debugsignalInfo1.CANID = debugsignalInfo1.CANID?.Replace("2X", "2" + (dcnum - 1));
-                                            }
-
-                                            debugsignalInfo1.SignalName = $"{deviceName}-{channel}-{debugsignalInfo1.SignalName}";
-                                            signalInfos.Add(debugsignalInfo1);
-
-                                            if (debugsignalInfo2 != null)
-                                            {
-                                                // 设置CANID
-                                                if (debugsignalInfo2.CANID.Contains("AX"))
-                                                {
-                                                    int acnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                    debugsignalInfo2.CANID = debugsignalInfo2.CANID?.Replace("AX", "A" + (acnum - 1));
-                                                }
-                                                else if (debugsignalInfo2.CANID.Contains("2X"))
-                                                {
-                                                    int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
-                                                    debugsignalInfo2.CANID = debugsignalInfo2.CANID?.Replace("2X", "2" + (dcnum - 1));
-                                                }
-
-                                                debugsignalInfo2.SignalName = $"{deviceName}-{channel}-{debugsignalInfo2.SignalName}";
-                                                signalInfos.Add(debugsignalInfo2);
-                                                break;
-                                            }
+                                            int dcnum = Convert.ToInt32(channel.Substring(2, channel.Length - 2));
+                                            signalInfo.CANID = signalInfo.CANID?.Replace("2X", "2" + (dcnum - 1));
                                         }
+
+                                        signalInfo.SignalName = $"{deviceName}-{channel}-{signalInfo.SignalName}";
+
+                                        signalInfos.Add(signalInfo);
+                                        break;
                                     }
                                 }
                             }
@@ -982,6 +937,75 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 LogService.Log($"加载树形图信号协议失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 加载调试协议信号
+        /// </summary>
+        /// <returns>按信号名称分组的信号信息字典</returns>
+        private async Task<Dictionary<string, List<SignalInfo>>> LoadDebugProtocolsAsync()
+        {
+            try
+            {
+                // 获取所有树节点
+                var messageNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+                string connectionString = $"Data Source={sqladdress};Version=3;";
+                Dictionary<string, List<SignalInfo>> allSignalInfos = new Dictionary<string, List<SignalInfo>>();
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    foreach (var node in messageNodes)
+                    {
+                        // 只处理被勾选的节点
+                        if (!node.Checked)
+                            continue;
+
+                        // 获取设备名称和信号名称
+                        string deviceName = node.GetValue("DeviceName")?.ToString().Split('-')[0] ?? "";
+                        string channel = node.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
+                        string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                        string signalType = node.GetValue("SignalType")?.ToString() ?? "";
+                        string calibrationSignal = node.GetValue("CalibrationSignal")?.ToString() ?? "";
+                        string readTime = node.GetValue("ReadTime")?.ToString() ?? "";
+                        string ratingVoltageCurrent = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                        string calibrationNumber = node.GetValue("CalibrationNumber")?.ToString() ?? "";
+
+                        if (!string.IsNullOrEmpty(deviceName))
+                        {
+                            // 根据设备名称获取协议名称
+                            string protocolName = SQLite_Service.GetProtocolNameByDeviceName(conn, deviceName);
+
+                            if (!string.IsNullOrEmpty(protocolName))
+                            {
+                                // 获取协议文件ID
+                                long fileId = SQLite_Service.GetDbcFileId(conn, protocolName);
+
+                                // 获取所有相关的MessageID
+                                var messages = SQLite_Service.GetMessagesByDbc(conn, fileId);
+
+                                // 遍历所有MessageID，查找匹配的信号
+                                foreach (var message in messages)
+                                {
+                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemNameList(conn, message.MessageID, calibrationSignal);
+                                    if (signalInfo != null)
+                                    {
+                                        allSignalInfos.Add($"{deviceName}+{channel}", signalInfo);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return allSignalInfos;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"加载调试校准协议失败: {ex.Message}");
                 throw;
             }
         }
@@ -1481,13 +1505,7 @@ namespace ChargeDebug.Form
                 voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
 
                 // 4.加载树形图信号名称协议
-                treeSignalProtocols = await LoadTreeSignalsProtocolAsync("电压");
-                // 按 SystemName 分组
-                var debugSignals = treeSignalProtocols
-                        .Where(s => s.MessageName.Substring(0, 2) == "调试")
-                        .GroupBy(s => s.SignalName.Substring(0, s.SignalName.Length - 4))
-                        .ToDictionary(g => g.Key, g => g.ToList());
-
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
                 if (treeSignalProtocols.Count == 0)
                 {
                     LogService.Log("没有选择电压信号!");
@@ -1495,7 +1513,12 @@ namespace ChargeDebug.Form
                 }
 
                 // 5.加载调试协议
-                //debugProtocols = await LoadDebugProtocolsAsync();
+                debugProtocols = await LoadDebugProtocolsAsync();
+                if (debugProtocols.Count == 0)
+                {
+                    LogService.Log("加载校准信号协议失败!");
+                    return false;
+                }
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.LoadProtocol, "开始启动设备:");
@@ -1558,7 +1581,7 @@ namespace ChargeDebug.Form
                     voltageSource,
                     voltmeter,
                     treeSignalProtocols,
-                    debugSignals,
+                    debugProtocols,
                     cancellationToken,"电压", "",
                     voltageSourceProtocols,
                     voltmeterProtocols);
@@ -1578,7 +1601,7 @@ namespace ChargeDebug.Form
                     voltageSource,
                     voltmeter,
                     treeSignalProtocols,
-                    debugSignals,
+                    debugProtocols,
                     cancellationToken,"电压", "",
                     voltageSourceProtocols,
                     voltmeterProtocols);
@@ -1673,12 +1696,7 @@ namespace ChargeDebug.Form
                 //voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
 
                 // 4.加载树形图信号名称协议
-                treeSignalProtocols = await LoadTreeSignalsProtocolAsync("电流");
-                // 按 SystemName 分组
-                var debugSignals = treeSignalProtocols
-                        .Where(s => s.MessageName.Substring(0, 2) == "调试")
-                        .GroupBy(s => s.SignalName.Substring(0, s.SignalName.Length - 4))
-                        .ToDictionary(g => g.Key, g => g.ToList());
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.LoadProtocol, "开始启动设备:");
@@ -1743,7 +1761,7 @@ namespace ChargeDebug.Form
                     currentSource,
                     ammeter,
                     treeSignalProtocols,
-                    debugSignals,
+                    debugProtocols,
                     cancellationToken, "电流", currentSourceName);
                 if (!calibrationSuccess)
                 {
@@ -1759,7 +1777,7 @@ namespace ChargeDebug.Form
                     currentSource,
                     ammeter,
                     treeSignalProtocols,
-                    debugSignals,
+                    debugProtocols,
                     cancellationToken, "电流", currentSourceName);
                 if (!verificationSuccess)
                 {
@@ -3384,23 +3402,12 @@ namespace ChargeDebug.Form
                             string accuracy = node.GetValue("CalibrationAccuracy")?.ToString() ?? "";
                             string result = node.GetValue("CalibrationResult")?.ToString() ?? "";
 
-                            if (signaltype == "电压")
-                            {
-                                string beforeData = node.GetValue("DeviceVoltageSample")?.ToString() ?? "";
-                                beforeParts = beforeData.Split('/');
+                            string beforeData = node.GetValue("BeforeCalibration")?.ToString() ?? "";
+                            beforeParts = beforeData.Split('/');
 
-                                string afterData = node.GetValue("NewDeviceVoltageSample")?.ToString() ?? "";
-                                afterParts = afterData.Split('/');
-                            }
-                            else
-                            {
-                                string beforeData = node.GetValue("DeviceCurrentSample")?.ToString() ?? "";
-                                beforeParts = beforeData.Split('/');
+                            string afterData = node.GetValue("AfterCalibration")?.ToString() ?? "";
+                            afterParts = afterData.Split('/');
 
-                                string afterData = node.GetValue("NewDeviceCurrentSample")?.ToString() ?? "";
-                                afterParts = afterData.Split('/');
-                            }
-                            
                             if (beforeParts.Length == 2 && afterParts.Length == 2)
                             {
                                 worksheet.Cell(dataRow, 1).Value = beforeParts[0];
@@ -4603,7 +4610,7 @@ namespace ChargeDebug.Form
 
             // 额定电压/电流
             column = treeList.Columns.Add();
-            column.Caption = "额定电压/电流(V/A)";
+            column.Caption = "校准范围(V/A)";
             column.FieldName = "RatingVoltageCurrent";
             column.VisibleIndex = 5;
             column.Width = 120;
@@ -5246,8 +5253,8 @@ namespace ChargeDebug.Form
 
             string sql = @"
             INSERT INTO CalibrationPointDetails 
-            (InfoID, PointIndex, BeforeDeviceVoltage, BeforeActualVoltage, AfterDeviceVoltage, AfterActualVoltage, BeforeDeviceCurrent, BeforeActualCurrent, AfterDeviceCurrent, AfterActualCurrent, Accuracy, TestResult)
-            VALUES (@InfoID, @PointIndex, @BeforeDeviceVoltage, @BeforeActualVoltage, @AfterDeviceVoltage, @AfterActualVoltage, @BeforeDeviceCurrent, @BeforeActualCurrent, @AfterDeviceCurrent, @AfterActualCurrent, @Accuracy, @TestResult)";
+            (InfoID, PointIndex, BeforeDeviceCalibration, BeforeActualCalibration, AfterDeviceCalibration, AfterActualCalibration, Accuracy, TestResult)
+            VALUES (@InfoID, @PointIndex, @BeforeDeviceCalibration, @BeforeActualCalibration, @AfterDeviceCalibration, @AfterActualCalibration, @Accuracy, @TestResult)";
 
             for (int i = 0; i < points.Count; i++)
             {
@@ -5257,29 +5264,11 @@ namespace ChargeDebug.Form
                     cmd.Parameters.AddWithValue("@InfoID", infoId);
                     cmd.Parameters.AddWithValue("@PointIndex", i + 1);
 
-                    if (signalType == "电压")
-                    {
-                        cmd.Parameters.AddWithValue("@BeforeDeviceVoltage", point.BeforeDeviceValue);
-                        cmd.Parameters.AddWithValue("@BeforeActualVoltage", point.BeforeActualValue);
-                        cmd.Parameters.AddWithValue("@AfterDeviceVoltage", point.AfterDeviceValue);
-                        cmd.Parameters.AddWithValue("@AfterActualVoltage", point.AfterActualValue);
-                        cmd.Parameters.AddWithValue("@BeforeDeviceCurrent", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@BeforeActualCurrent", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AfterDeviceCurrent", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AfterActualCurrent", DBNull.Value);
-                    }
-                    else
-                    {
-                        cmd.Parameters.AddWithValue("@BeforeDeviceVoltage", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@BeforeActualVoltage", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AfterDeviceVoltage", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AfterActualVoltage", DBNull.Value);
-                        cmd.Parameters.AddWithValue("@BeforeDeviceCurrent", point.BeforeDeviceValue);
-                        cmd.Parameters.AddWithValue("@BeforeActualCurrent", point.BeforeActualValue);
-                        cmd.Parameters.AddWithValue("@AfterDeviceCurrent", point.AfterDeviceValue);
-                        cmd.Parameters.AddWithValue("@AfterActualCurrent", point.AfterActualValue);
-                    }
-                    
+                    cmd.Parameters.AddWithValue("@BeforeDeviceCalibration", point.BeforeDeviceValue);
+                    cmd.Parameters.AddWithValue("@BeforeActualCalibration", point.BeforeActualValue);
+                    cmd.Parameters.AddWithValue("@AfterDeviceCalibration", point.AfterDeviceValue);
+                    cmd.Parameters.AddWithValue("@AfterActualCalibration", point.AfterActualValue);
+
                     cmd.Parameters.AddWithValue("@Accuracy", point.Accuracy);
                     cmd.Parameters.AddWithValue("@TestResult", point.TestResult);
 
@@ -5662,7 +5651,7 @@ namespace ChargeDebug.Form
 
                     // 2. 查询信号信息
                     string signalInfoSql = @"
-                                SELECT InfoID, DeviceName, SignalName, SignalType, ReadTime, 
+                                SELECT InfoID, DeviceName, SignalName, SignalType, CalibrationSignal, ReadTime, 
                                        RatingValue, CalibrationPoints, PrecisionRange, ScaleFactor, ZeroFactor
                                 FROM CalibrationSignalInfo 
                                 WHERE MasterID = @MasterID 
@@ -5681,12 +5670,13 @@ namespace ChargeDebug.Form
                                 string deviceName = reader.GetString(1);
                                 string signalName = reader.GetString(2);
                                 string signalType = reader.GetString(3);
-                                int readTime = reader.GetInt32(4);
-                                double ratingValue = reader.GetDouble(5);
-                                int calibrationPoints = reader.GetInt32(6);
-                                double precisionRange = reader.GetDouble(7);
-                                double scaleFactor = reader.GetDouble(8);
-                                double zeroFactor = reader.GetDouble(9);
+                                string calibrationSignal = reader.IsDBNull(4) ? null : reader.GetString(4);
+                                int readTime = reader.GetInt32(5);
+                                string ratingValue = reader.GetString(6);
+                                int calibrationPoints = reader.GetInt32(7);
+                                double precisionRange = reader.GetDouble(8);
+                                double scaleFactor = reader.GetDouble(9);
+                                double zeroFactor = reader.GetDouble(10);
 
                                 // 创建父节点
                                 var parentNode = treeList.AppendNode(new object[]
@@ -5694,16 +5684,15 @@ namespace ChargeDebug.Form
                                     deviceName,
                                     signalName,
                                     signalType,
+                                    calibrationSignal,
                                     readTime.ToString(),
-                                    ratingValue.ToString(""),
+                                    ratingValue.ToString(),
                                     calibrationPoints.ToString(),
                                     precisionRange.ToString("") + "%",
                                     scaleFactor.ToString(""),
                                     zeroFactor.ToString(""),
-                                    "", // 设备电压采样值
-                                    "", // 实际电压测量值
-                                    "", // 设备电流采样值
-                                    "", // 实际电流测量值
+                                    "", // 设备采样值
+                                    "", // 实际测量值
                                     "", // 校准精度
                                     ""  // 校准结果
                                 }, null);
@@ -5717,10 +5706,8 @@ namespace ChargeDebug.Form
                     // 3. 查询校准点详情
                     string pointDetailsSql = @"
                             SELECT InfoID, PointIndex, 
-                                   BeforeDeviceVoltage, BeforeActualVoltage, 
-                                   AfterDeviceVoltage, AfterActualVoltage,
-                                   BeforeDeviceCurrent, BeforeActualCurrent,
-                                   AfterDeviceCurrent, AfterActualCurrent,
+                                   BeforeDeviceCalibration, BeforeActualCalibration, 
+                                   AfterDeviceCalibration, AfterActualCalibration,
                                    Accuracy, TestResult
                             FROM CalibrationPointDetails 
                             WHERE InfoID IN (SELECT InfoID FROM CalibrationSignalInfo WHERE MasterID = @MasterID)
@@ -5737,38 +5724,36 @@ namespace ChargeDebug.Form
                                 int pointIndex = reader.GetInt32(1);
 
                                 // 获取电压值
-                                double beforeDeviceVoltage = reader.IsDBNull(2) ? 0 : reader.GetDouble(2);
-                                double beforeActualVoltage = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
-                                double afterDeviceVoltage = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
-                                double afterActualVoltage = reader.IsDBNull(5) ? 0 : reader.GetDouble(5);
-
-                                // 获取电流值
-                                double beforeDeviceCurrent = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
-                                double beforeActualCurrent = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
-                                double afterDeviceCurrent = reader.IsDBNull(8) ? 0 : reader.GetDouble(8);
-                                double afterActualCurrent = reader.IsDBNull(9) ? 0 : reader.GetDouble(9);
+                                double beforeDeviceCalibration = reader.IsDBNull(2) ? 0 : reader.GetDouble(2);
+                                double beforeActualCalibration = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
+                                double afterDeviceCalibration = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+                                double afterActualCalibration = reader.IsDBNull(5) ? 0 : reader.GetDouble(5);
 
                                 // 获取精度和结果
-                                double accuracy = reader.IsDBNull(10) ? 0 : reader.GetDouble(10);
-                                string testResult = reader.IsDBNull(11) ? "" : reader.GetString(11);
+                                double accuracy = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
+                                string testResult = reader.IsDBNull(7) ? "" : reader.GetString(7);
+
+                                // 获取电流值
+                                //double beforeDeviceCalibrationCurrent = reader.IsDBNull(2) ? 0 : reader.GetDouble(2);
+                                //double beforeActualCalibrationCurrent = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
+                                //double afterDeviceCalibrationCurrent = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+                                //double afterActualCalibrationCurrent = reader.IsDBNull(5) ? 0 : reader.GetDouble(5);
 
                                 // 查找对应的父节点
                                 if (signalNodes.TryGetValue(infoId, out var parentNode))
                                 {
                                     // 确定是电压还是电流信号
-                                    string signalType = parentNode.GetValue("SignalType")?.ToString() ?? "";
-                                    bool isVoltage = signalType.Contains("电压", StringComparison.OrdinalIgnoreCase);
-                                    bool isCurrent = signalType.Contains("电流", StringComparison.OrdinalIgnoreCase);
+                                    //string signalType = parentNode.GetValue("SignalType")?.ToString() ?? "";
+                                    //bool isVoltage = signalType.Contains("电压", StringComparison.OrdinalIgnoreCase);
+                                    //bool isCurrent = signalType.Contains("电流", StringComparison.OrdinalIgnoreCase);
 
                                     // 创建子节点
                                     var childNode = parentNode.Nodes.Add(new object[]
                                     {
                                         $"校准点 {pointIndex}", // 设备名称列显示校准点名称
-                                        "", "", "", "", "", "", "", "",
-                                        isVoltage ? $"{beforeDeviceVoltage}/{beforeActualVoltage}" : "", // 校准前电压
-                                        isVoltage ? $"{afterDeviceVoltage}/{afterActualVoltage}" : "",   // 校准后电压
-                                        isCurrent ? $"{beforeDeviceCurrent}/{beforeActualCurrent}" : "", // 校准前电流
-                                        isCurrent ? $"{afterDeviceCurrent}/{afterActualCurrent}" : "",   // 校准后电流
+                                        "", "", "", "", "", "", "", "", "",
+                                        $"{beforeDeviceCalibration}/{beforeActualCalibration}", // 校准前
+                                        $"{afterDeviceCalibration}/{afterActualCalibration}",   // 校准后
                                         $"{accuracy}%",  // 校准精度
                                         testResult          // 校准结果
                                     });

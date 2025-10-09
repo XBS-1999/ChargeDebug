@@ -16,6 +16,7 @@ namespace ChargeDebug.Form
         private ComboBoxEdit devicename;
         private ComboBoxEdit signalname;
         private ComboBoxEdit signaltype;
+        private ComboBoxEdit calibrationsignal;
         private TextEdit readtime;
         private TextEdit ratingVoltagecurrent;
         private TextEdit calibrationnumber;
@@ -24,6 +25,7 @@ namespace ChargeDebug.Form
         private LabelControl labeldevicename;
         private LabelControl labelsignalname;
         private LabelControl labelsignaltype;
+        private LabelControl labelcalibrationsignal;
         private LabelControl labelreadtime;
         private LabelControl labelratingVoltagecurrent;
         private LabelControl labelcalibrationnumber;
@@ -31,6 +33,10 @@ namespace ChargeDebug.Form
 
         private SimpleButton btnOK;
         private SimpleButton btnCancel;
+
+        // 添加字段来存储当前选择的设备信息
+        private string currentCommunicationProtocol;
+        private string currentChannelType;
 
         private List<EquipmentModel> equipmentList;
 
@@ -58,31 +64,36 @@ namespace ChargeDebug.Form
             this.MinimizeBox = false;
 
             labeldevicename = new LabelControl { Text = "设备名称及通道号:", Location = new Point(50, 22) };
-            devicename = new ComboBoxEdit { Location = new Point(210, 20), Width = 120 };
+            devicename = new ComboBoxEdit { Location = new Point(210, 17), Width = 120 };
             devicename.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             devicename.SelectedIndexChanged += Devicename_SelectedIndexChanged;
 
             labelsignalname = new LabelControl { Text = "信号名称:", Location = new Point(370, 22) };
-            signalname = new ComboBoxEdit { Location = new Point(480, 20), Width = 150 };
+            signalname = new ComboBoxEdit { Location = new Point(480, 17), Width = 150 };
             signalname.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            
+            signalname.SelectedIndexChanged += Signalname_SelectedIndexChanged;
+
             labelsignaltype = new LabelControl { Text = "信号类型:", Location = new Point(50, 62) };
-            signaltype = new ComboBoxEdit { Location = new Point(210, 60), Width = 120 };
+            signaltype = new ComboBoxEdit { Location = new Point(210, 57), Width = 120 };
             signaltype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             signaltype.Properties.Items.AddRange(new[] { "电压", "电流" });
             signaltype.SelectedIndex = 0;
 
-            labelreadtime = new LabelControl { Text = "稳定读取时间(ms):", Location = new Point(370, 62) };
-            readtime = new TextEdit { Location = new Point(510, 60), Width = 120 };
+            labelcalibrationsignal = new LabelControl { Text = "校准信号:", Location = new Point(370, 62) };
+            calibrationsignal = new ComboBoxEdit { Location = new Point(480, 57), Width = 150 };
+            signalname.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
 
-            labelratingVoltagecurrent = new LabelControl { Text = "额定电压/电流(V/A):", Location = new Point(50, 102) };
-            ratingVoltagecurrent = new TextEdit { Location = new Point(210, 100), Width = 120 };
+            labelreadtime = new LabelControl { Text = "稳定读取时间(ms):", Location = new Point(50, 102) };
+            readtime = new TextEdit { Location = new Point(210, 97), Width = 120 };
 
-            labelcalibrationnumber = new LabelControl { Text = "校准点个数:", Location = new Point(370, 102) };
-            calibrationnumber = new TextEdit { Location = new Point(510, 100), Width = 120 };
+            labelratingVoltagecurrent = new LabelControl { Text = "校准范围(V/A):", Location = new Point(370, 102) };
+            ratingVoltagecurrent = new TextEdit { Location = new Point(510, 97), Width = 120 };
 
-            labelcalibrationaccuracy = new LabelControl { Text = "校准精度范围:", Location = new Point(50, 142) };
-            calibrationaccuracy = new TextEdit { Location = new Point(210, 140), Width = 120 };
+            labelcalibrationnumber = new LabelControl { Text = "校准点个数:", Location = new Point(50, 142) };
+            calibrationnumber = new TextEdit { Location = new Point(210, 137), Width = 120 };
+
+            labelcalibrationaccuracy = new LabelControl { Text = "校准精度范围:", Location = new Point(370, 142) };
+            calibrationaccuracy = new TextEdit { Location = new Point(510, 137), Width = 120 };
 
             // 添加确定按钮
             btnOK = new SimpleButton
@@ -110,6 +121,7 @@ namespace ChargeDebug.Form
                 labeldevicename, devicename,
                 labelsignalname, signalname,
                 labelsignaltype, signaltype,
+                labelcalibrationsignal, calibrationsignal,
                 labelreadtime, readtime,
                 labelratingVoltagecurrent, ratingVoltagecurrent,
                 labelcalibrationnumber, calibrationnumber,
@@ -126,6 +138,9 @@ namespace ChargeDebug.Form
             // 从设备名称中提取基础设备名称（去掉通道号部分）
             string baseDeviceName = devicename.Text.Split('-')[0];
             string baseChannelName = devicename.Text.Split('-')[1];
+
+            currentChannelType = baseChannelName.Substring(0, 2); // 存储通道类型
+
             // 在equipmentList中查找对应设备并获取其通信协议
             EquipmentModel selectedEquipment = equipmentList
                 .FirstOrDefault(e => e.DeviceName == baseDeviceName);
@@ -133,12 +148,67 @@ namespace ChargeDebug.Form
             if (selectedEquipment != null)
             {
                 // 获取设备的通信协议
-                string communicationProtocol = selectedEquipment.CommunicationProtocols;
+                currentCommunicationProtocol = selectedEquipment.CommunicationProtocols;
 
                 // 根据通信协议加载相应的信号名称
-                LoadSignalNamesByProtocol(baseChannelName,communicationProtocol);
+                LoadSignalNamesByProtocol(baseChannelName, currentCommunicationProtocol);
 
                 signalname.SelectedIndex = 0;
+            }
+        }
+
+        private void Signalname_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(signalname.Text) ||
+                string.IsNullOrEmpty(currentCommunicationProtocol) ||
+                string.IsNullOrEmpty(currentChannelType))
+                return;
+
+            // 根据选择的信号名称加载校准信号
+            LoadCalibrationSignals(signalname.Text, currentCommunicationProtocol, currentChannelType);
+        }
+
+        private void LoadCalibrationSignals(string selectedSignalName, string communicationProtocol, string channelType)
+        {
+            // 清空现有校准信号
+            calibrationsignal.Properties.Items.Clear();
+
+            using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+            {
+                conn.Open();
+                long fileId = SQLite_Service.GetDbcFileId(conn, communicationProtocol);
+                var messages = SQLite_Service.GetMessagesByDbc(conn, fileId);
+
+                // 使用HashSet来避免重复的校准信号名称
+                HashSet<string> calibrationSignalNames = new HashSet<string>();
+
+                foreach (var msg in messages)
+                {
+                    if (msg.MessageName == "调试AC写入" || msg.MessageName == "调试DC写入") 
+                    {
+                        var signals = SQLite_Service.GetSignalsByMessage(conn, msg.MessageID);
+
+                        foreach (var signal in signals)
+                        {
+                            if (signal.SignalName.Contains(selectedSignalName))
+                            {
+                                calibrationSignalNames.Add(signal.SystemName);
+                            }
+                        }
+                    }
+                }
+
+                // 将校准信号名称添加到下拉框
+                foreach (string name in calibrationSignalNames)
+                {
+                    calibrationsignal.Properties.Items.Add(name);
+                }
+
+                // 如果有可用的校准信号，选择第一个
+                if (calibrationsignal.Properties.Items.Count > 0)
+                {
+                    calibrationsignal.SelectedIndex = 0;
+                }
             }
         }
 
@@ -231,6 +301,13 @@ namespace ChargeDebug.Form
                 return;
             }
 
+            if (string.IsNullOrEmpty(calibrationsignal.Text))
+            {
+                XtraMessageBox.Show("请选择校准信号!");
+                calibrationsignal.Focus();
+                return;
+            }
+
             if (string.IsNullOrEmpty(readtime.Text) || !int.TryParse(readtime.Text, out _))
             {
                 XtraMessageBox.Show("请输入有效的稳定读取时间(整数)!");
@@ -238,9 +315,38 @@ namespace ChargeDebug.Form
                 return;
             }
 
-            if (string.IsNullOrEmpty(ratingVoltagecurrent.Text) || !double.TryParse(ratingVoltagecurrent.Text, out _))
+            if (string.IsNullOrEmpty(ratingVoltagecurrent.Text))
             {
-                XtraMessageBox.Show("请输入有效的额定电压/电流值(数字)!");
+                XtraMessageBox.Show("请输入校准范围(格式:0-100)!");
+                ratingVoltagecurrent.Focus();
+                return;
+            }
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(ratingVoltagecurrent.Text, @"^\d+-\d+$"))
+            {
+                XtraMessageBox.Show("校准范围格式不正确，应为数字-数字，例如: 0-100");
+                ratingVoltagecurrent.Focus();
+                return;
+            }
+
+            string[] rangeParts = ratingVoltagecurrent.Text.Split('-');
+            if (rangeParts.Length != 2)
+            {
+                XtraMessageBox.Show("校准范围格式不正确，应为数字-数字，例如: 0-100");
+                ratingVoltagecurrent.Focus();
+                return;
+            }
+
+            if (!int.TryParse(rangeParts[0], out int minValue) || !int.TryParse(rangeParts[1], out int maxValue))
+            {
+                XtraMessageBox.Show("校准范围必须为有效的数字，例如: 0-100");
+                ratingVoltagecurrent.Focus();
+                return;
+            }
+
+            if (minValue >= maxValue)
+            {
+                XtraMessageBox.Show("校准范围的起始值必须小于结束值");
                 ratingVoltagecurrent.Focus();
                 return;
             }
@@ -301,6 +407,7 @@ namespace ChargeDebug.Form
                         devicename.Text = signal.DeviceName;
                         signalname.Text = signal.SignalName;
                         signaltype.Text = signal.SignalType;
+                        calibrationsignal.Text = signal.CalibrationSignal;
                         readtime.Text = signal.ReadTime.ToString();
                         ratingVoltagecurrent.Text = signal.RatingVoltageCurrent.ToString();
                         calibrationnumber.Text = signal.CalibrationNumber.ToString();
@@ -352,8 +459,9 @@ namespace ChargeDebug.Form
                         DeviceName = devicename.Text,
                         SignalName = signalname.Text,
                         SignalType = signaltype.Text,
+                        CalibrationSignal = calibrationsignal.Text,
                         ReadTime = Convert.ToInt32(readtime.Text),
-                        RatingVoltageCurrent = Convert.ToInt32(ratingVoltagecurrent.Text),
+                        RatingVoltageCurrent = ratingVoltagecurrent.Text,
                         CalibrationNumber = Convert.ToInt32(calibrationnumber.Text),
                         CalibrationAccuracy = calibrationaccuracy.Text
                     };
