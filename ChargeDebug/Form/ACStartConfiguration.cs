@@ -73,9 +73,6 @@ namespace ChargeDebug.Form
             this.MaximizeBox = false;
             this.MinimizeBox = false;
 
-
-            //
-
             labelStartMode = new LabelControl { Text = "AC侧启动方式:", Location = new Point(30, 22) };
             startMode = new ComboBoxEdit { Location = new Point(labelStartMode.Location.X + labelStartMode.Text.Length * 12, 17), Width = 100 };
             startMode.Properties.Items.AddRange(new[] { "自启动", "指令控制启动" });
@@ -84,7 +81,7 @@ namespace ChargeDebug.Form
             runMode = new ComboBoxEdit { Location = new Point(labelRunMode.Location.X + labelRunMode.Text.Length * 13, 17), Width = 100 };
             runMode.Properties.Items.AddRange(new[] { "停机", "恒定并网直流恒压运行" });
 
-            labelBatteryVoltage = new LabelControl { Text = "通道电池电压:", Location = new Point(runMode.Right + 25, 22) };
+            labelBatteryVoltage = new LabelControl { Text = "直流母线电压:", Location = new Point(runMode.Right + 25, 22) };
             batteryVoltage = new TextEdit { Location = new Point(labelBatteryVoltage.Location.X + labelBatteryVoltage.Text.Length * 13, 17), Width = 100 };
             batteryVoltage.Validated += PositiveParameter_Validated;
             LabelControl battery = new LabelControl { Text = "V", Location = new Point(batteryVoltage.Right + 5, 22) };

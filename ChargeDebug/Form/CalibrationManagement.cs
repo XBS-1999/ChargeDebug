@@ -990,10 +990,13 @@ namespace ChargeDebug.Form
                                 // 遍历所有MessageID，查找匹配的信号
                                 foreach (var message in messages)
                                 {
-                                    var signalInfo = SQLite_Service.GetSignalByMessageAndSystemNameList(conn, message.MessageID, calibrationSignal);
-                                    if (signalInfo != null)
+                                    if(message.MessageName.Contains(channel.Substring(0,2)))
                                     {
-                                        allSignalInfos.Add($"{deviceName}+{channel}", signalInfo);
+                                        var signalInfo = SQLite_Service.GetSignalByMessageAndSystemNameList(conn, message.MessageID, calibrationSignal);
+                                        if (signalInfo.Count != 0)
+                                        {
+                                            allSignalInfos.Add($"{deviceName}-{channel}-{signalName}-{calibrationSignal}", signalInfo);
+                                        }
                                     }
                                 }
                             }
@@ -1354,11 +1357,12 @@ namespace ChargeDebug.Form
                     string deviceName = node.GetValue("DeviceName")?.ToString() ?? "";
                     string signalName = node.GetValue("SignalName")?.ToString() ?? "";
                     string signalType = node.GetValue("SignalType")?.ToString() ?? "";
+                    string calibrationSignal = node.GetValue("CalibrationSignal")?.ToString() ?? "";
 
                     if (string.IsNullOrEmpty(deviceName) || string.IsNullOrEmpty(signalName))
                         continue;
 
-                    // 只处理电压信号
+                    // 只处理指定类型的信号
                     if (!signalType.Contains(type, StringComparison.OrdinalIgnoreCase))
                         continue;
 
@@ -1367,11 +1371,21 @@ namespace ChargeDebug.Form
                     if (!int.TryParse(calibrationNumberStr, out int calibrationNumber) || calibrationNumber <= 0)
                         continue;
 
-                    // 获取额定电压值
-                    string ratingVoltageStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
-                    if (!double.TryParse(ratingVoltageStr, out double ratingVoltage) || ratingVoltage <= 0)
-                        continue; 
-                    
+                    // 获取校准范围值（格式：0-100）
+                    string calibrationRangeStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(calibrationRangeStr))
+                        continue;
+
+                    // 解析校准范围
+                    var rangeParts = calibrationRangeStr.Split('-');
+                    if (rangeParts.Length != 2 ||
+                        !double.TryParse(rangeParts[0], out double minValue) ||
+                        !double.TryParse(rangeParts[1], out double maxValue) ||
+                        minValue >= maxValue)
+                    {
+                        continue;
+                    }
+
                     // 获取精度范围
                     //string precisionRangeStr = node.GetValue("PrecisionRange")?.ToString() ?? "";
                     //if (!double.TryParse(precisionRangeStr, out double precisionRange) || ratingVoltage <= 0)
@@ -1390,60 +1404,10 @@ namespace ChargeDebug.Form
                         continue;
 
                     // 生成校准点
-                    var points = new List<CalibrationPoint>();
-                    
-                    if (type == "电流")
-                    {
-                        for (int i = 0; i < calibrationNumber/2; i++)
-                        {
-                            double voltageValue = (-ratingVoltage / (calibrationNumber / 2)) * (i + 1);
+                    var points = GenerateCalibrationPoints(minValue, maxValue, calibrationNumber, readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
 
-                            points.Add(new CalibrationPoint
-                            {
-                                Voltage = voltageValue,
-                                ReadTimeMs = readTimeMs,
-                                SignalInfo = signalInfo,
-                                DeviceName = deviceName,
-                                SignalName = signalName
-                            });
-                        }
-
-                        for (int i = 0; i < calibrationNumber / 2; i++)
-                        {
-                            double voltageValue = (ratingVoltage / (calibrationNumber / 2)) * (i + 1);
-
-                            points.Add(new CalibrationPoint
-                            {
-                                Voltage = voltageValue,
-                                ReadTimeMs = readTimeMs,
-                                SignalInfo = signalInfo,
-                                DeviceName = deviceName,
-                                SignalName = signalName
-                            });
-                        }
-                    }
-                    else
-                    {
-                        // 如果是线性校准，生成等分点
-                        for (int i = 0; i < calibrationNumber; i++)
-                        {
-                            double voltageValue = (ratingVoltage / calibrationNumber) * (i + 1);
-
-                            points.Add(new CalibrationPoint
-                            {
-                                Voltage = voltageValue,
-                                ReadTimeMs = readTimeMs,
-                                SignalInfo = signalInfo,
-                                DeviceName = deviceName,
-                                SignalName = signalName
-                                //RatedVoltage = ratingVoltageStr,
-                                //PrecisionRange = precisionRangeStr
-                            });
-                        }
-                    }
-
-                    // 添加到字典
-                    string key = $"{deviceName}-{signalName}";
+                    // 添加到字典（支持同一个信号的多个校准范围）
+                    string key = $"{deviceName}-{signalName}-{calibrationSignal}";
                     calibrationPoints[key] = points;
                 }
 
@@ -1454,6 +1418,53 @@ namespace ChargeDebug.Form
                 LogService.Log($"获取校准点失败: {ex.Message}");
                 return new Dictionary<string, List<CalibrationPoint>>();
             }
+        }
+
+        /// <summary>
+        /// 根据范围和点数生成校准点
+        /// </summary>
+        private List<CalibrationPoint> GenerateCalibrationPoints(double minValue, double maxValue, int calibrationNumber,
+            int readTimeMs, SignalInfo signalInfo, string deviceName, string signalName,string calibrationsignal)
+        {
+            var points = new List<CalibrationPoint>();
+
+            if (calibrationNumber <= 1)
+            {
+                // 如果只有1个点，取中间值
+                double value = (minValue + maxValue) / 2;
+                points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+            }
+            else
+            {
+                // 计算步长
+                double step = (maxValue - minValue) / calibrationNumber;
+
+                // 生成等分点
+                for (int i = 0; i < calibrationNumber; i++)
+                {
+                    double value = minValue + (step * (i + 1));
+                    points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+                }
+            }
+
+            return points;
+        }
+
+        /// <summary>
+        /// 创建校准点对象
+        /// </summary>
+        private CalibrationPoint CreateCalibrationPoint(double value, int readTimeMs, SignalInfo signalInfo,
+            string deviceName, string signalName, string calibrationSignal)
+        {
+            return new CalibrationPoint
+            {
+                Voltage = value,
+                ReadTimeMs = readTimeMs,
+                SignalInfo = signalInfo,
+                DeviceName = deviceName,
+                SignalName = signalName,
+                CalibrationSignal = calibrationSignal
+            };
         }
 
         #endregion
@@ -1529,7 +1540,7 @@ namespace ChargeDebug.Form
                 if (!voltageSourceStarted || !voltmeterStarted)
                 {
                     LogService.Log("设备启动失败，请检查设备连接!");
-                    return false;
+                    //return false;
                 }
                 LogService.Log("所有校准设备启动成功，开始电压校准流程!");
 
@@ -1543,7 +1554,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("设置设备模式失败!");
                     LogService.Log("设置设备模式失败!");
-                    return false;
+                    //return false;
                 }
 
                 // 7. 设置初始电压值（从0开始）
@@ -1553,7 +1564,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("设置初始电压失败!");
                     LogService.Log("设置初始电压失败!");
-                    return false;
+                    //return false;
                 }
 
                 // 8. 开机/启用输出
@@ -1563,7 +1574,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("启用输出失败!");
                     LogService.Log("启用输出失败!");
-                    return false;
+                    //return false;
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1697,6 +1708,19 @@ namespace ChargeDebug.Form
 
                 // 4.加载树形图信号名称协议
                 treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
+                if (treeSignalProtocols.Count == 0)
+                {
+                    LogService.Log("没有选择电流信号!");
+                    return false;
+                }
+
+                // 5.加载调试协议
+                debugProtocols = await LoadDebugProtocolsAsync();
+                if (debugProtocols.Count == 0)
+                {
+                    LogService.Log("加载校准信号协议失败!");
+                    return false;
+                }
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.LoadProtocol, "开始启动设备:");
@@ -1981,7 +2005,7 @@ namespace ChargeDebug.Form
                     SignalInfo scaleFactorSignal = null;
                     SignalInfo zeroFactorSignal = null;
 
-                    if (debugSignals.TryGetValue($"{firstPoint.DeviceName}-{firstPoint.SignalName}", out var scaleSignals) && scaleSignals.Count > 0)
+                    if (debugSignals.TryGetValue($"{firstPoint.DeviceName}-{firstPoint.SignalName}-{firstPoint.CalibrationSignal}", out var scaleSignals) && scaleSignals.Count > 0)
                     {
                         scaleFactorSignal = scaleSignals[0];
                         zeroFactorSignal = scaleSignals[1];

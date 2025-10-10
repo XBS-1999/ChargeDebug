@@ -12,6 +12,7 @@ using Log;
 using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using static ChargeDebug.Form.ACStartConfiguration;
 
@@ -831,6 +832,7 @@ namespace ChargeDebug.Form
         private void SendStopCommandIfNeeded()
         {
             if (_stopCommandSent)
+            //if (true)
             {
                 _stopCommandSent = false;
 
@@ -839,17 +841,35 @@ namespace ChargeDebug.Form
                 {
                     try
                     {
-                        bool success = await _startupManager.StopDeviceAsync();
-                        if (success)
+                        if (_title.Contains("DC"))
                         {
-                            // 在停止设备时重置时间
-                            _startTime = DateTime.MinValue;
-                            _stepStartTime = DateTime.MinValue;
-                            LogService.Log("停机指令发送成功");
+                            bool success = await _startupManager.StopDeviceAsync();
+                            if (success)
+                            {
+                                // 在停止设备时重置时间
+                                _startTime = DateTime.MinValue;
+                                _stepStartTime = DateTime.MinValue;
+                                LogService.Log("停机指令发送成功");
+                            }
+                            else
+                            {
+                                LogService.Log("停机指令发送失败");
+                            }
                         }
                         else
                         {
-                            LogService.Log("停机指令发送失败");
+                            // 发送停机指令
+                            bool stopSuccess = await _startupManager.ACStopDeviceAsync();
+                            if (stopSuccess)
+                            {
+                                // 在停止设备时重置时间
+                                _startTime = DateTime.MinValue;
+                                LogService.Log("AC停机指令发送成功");
+                            }
+                            else
+                            {
+                                LogService.Log("AC停机指令发送失败");
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -1167,15 +1187,16 @@ namespace ChargeDebug.Form
                 lock (_faultQueueLock)
                 {
                     string name = "";
-                    if (faultDescription == "故障")
-                    {
-                        name = signalName.Remove(0, 3);
-                    }
-                    else
-                    {
-                        //name = faultDescription;
-                        name = signalName.Remove(0, 3);
-                    }
+                    name = signalName.Remove(0, 3);
+                    //if (faultDescription == "故障")
+                    //{
+                    //    name = signalName.Remove(0, 3);
+                    //}
+                    //else
+                    //{
+                    //    //name = faultDescription;
+                    //    name = signalName.Remove(0, 3);
+                    //}
 
                     if (!_activeFaults.ContainsKey(signalName))
                     {
@@ -1251,87 +1272,6 @@ namespace ChargeDebug.Form
                 }
 
                 LogService.Log($"重建显示队列，当前活跃故障数: {_activeFaults.Count}");
-            }
-        }
-
-        /// <summary>
-        /// 显示下一个故障
-        /// </summary>
-        private void DisplayNextFault(object state)
-        {
-            // 添加销毁状态检查
-            if (_disposed) return;
-
-            // 检查是否处于故障模式
-            bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF);
-            if (!isFaultMode) return;
-
-            try
-            {
-                string nextFault = null;
-
-                lock (_faultQueueLock)
-                {
-                    // 如果没有活跃故障，清空队列并重置状态
-                    if (_activeFaults.Count == 0)
-                    {
-                        if (_faultDisplayQueue.Count > 0)
-                        {
-                            _faultDisplayQueue.Clear();
-                        }
-
-                        if (_isFaultDisplayActive)
-                        {
-                            _isFaultDisplayActive = false;
-                            //UpdateConnectionStatusUI("已连接", Color.White);
-                        }
-                        return;
-                    }
-
-                    // 如果队列为空但仍有活跃故障，重建队列
-                    if (_faultDisplayQueue.Count == 0)
-                    {
-                        RebuildFaultDisplayQueue();
-                    }
-
-                    // 确保队列中有数据
-                    if (_faultDisplayQueue.Count > 0)
-                    {
-                        nextFault = _faultDisplayQueue.Dequeue();
-
-                        // 检查故障是否仍然活跃
-                        if (_activeFaults.ContainsValue(nextFault))
-                        {
-                            // 放回队列尾部实现循环
-                            _faultDisplayQueue.Enqueue(nextFault);
-                        }
-                        else
-                        {
-                            // 如果故障已清除，跳过本次显示
-                            nextFault = null;
-                            LogService.Log($"跳过已清除的故障: {nextFault}");
-                        }
-                    }
-                }
-
-                // 更新UI显示
-                if (!string.IsNullOrEmpty(nextFault))
-                {
-                    _isFaultDisplayActive = true;
-                    this.BeginInvoke((Action)(() =>
-                    {
-                        UpdateConnectionStatusUI(nextFault, Color.Red);
-                    }));
-                }
-                else if (_activeFaults.Count > 0)
-                {
-                    // 如果没有显示故障但仍有活跃故障，立即尝试再次显示
-                    DisplayNextFault(null);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"故障显示错误: {ex.Message}");
             }
         }
 
@@ -1480,7 +1420,26 @@ namespace ChargeDebug.Form
             switch (status)
             {
                 case 0x00: // 待机
-                    UpdateConnectionStatusUI("待机", Color.Yellow);
+                    switch (_acRunStatus)
+                    {
+                        case 0x00:
+                            UpdateConnectionStatusUI("待机", Color.Yellow);
+                            break;
+
+                        case 0x01:
+                            UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
+                            break;
+
+                        case 0x02: // 运行
+                            UpdateConnectionStatusUI("运行", Color.Green);
+                            break;
+                        case 0x03: // 停机过程中
+                            UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
+                            break;
+
+                        default:
+                            break;
+                    }
                     break;
                 case 0x01: // 启动过程中
                     UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
@@ -1773,6 +1732,8 @@ namespace ChargeDebug.Form
 
                             if (success)
                             {
+                                _stopCommandSent = true;
+
                                 // 检测设备状态变化
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3),"AC");
 
@@ -1799,8 +1760,8 @@ namespace ChargeDebug.Form
                                 XtraMessageBox.Show("AC通道控制成功");
 
                                 // 设置AC运行时间
-                                //_totalTimeData.Value = "00:00:00";
-                                //_startTime = DateTime.Now;
+                                _totalTimeData.Value = "00:00:00";
+                                _startTime = DateTime.Now;
                             }
                             else
                             {
@@ -1998,51 +1959,9 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 检查设备状态,运行、和启动中情况下才能停机
-                if (_dcRunStatus == 0x02 || _dcRunStatus == 0x01)
-                {
-                    // 确认对话框
-                    if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                    {
-                        return;
-                    }
-
-                    // 发送停机指令
-                    bool success = await _startupManager.StopDeviceAsync();
-
-                    if (success)
-                    {
-                        // 在停止设备时重置时间
-                        _startTime = DateTime.MinValue;
-                        _stepStartTime = DateTime.MinValue;
-
-                        await Task.Delay(100);
-
-                        // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode("停机", "DC");
-
-                        if (runmode)
-                        {
-                            LogService.Log("设备停机成功");
-                        }
-                        else
-                        {
-                            LogService.Log("设备停止失败，请检查设备状态");
-                            XtraMessageBox.Show("设备停止失败，请检查设备状态");
-                        }
-                    }
-                    else
-                    {
-                        LogService.Log("设备停止失败，请检查设备状态");
-                        XtraMessageBox.Show("设备停止失败，请检查设备状态");
-                    }
-                }
-                else
-                {
-                    LogService.Log("设备状态异常，禁止停机");
-                    XtraMessageBox.Show("设备状态异常，禁止停机");
-                }
+                //任何状态下都可以停机
+                _stopCommandSent = true;
+                SendStopCommandIfNeeded();
             }
             catch (Exception ex)
             {

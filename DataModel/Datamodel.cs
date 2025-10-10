@@ -162,6 +162,11 @@ namespace DataModel
         public string SignalName { get; set; }
 
         /// <summary>
+        /// 校准信号
+        /// </summary>
+        public string CalibrationSignal { get; set; }
+
+        /// <summary>
         /// 额定电压
         /// </summary>
         //public string RatedVoltage { get; set; }
