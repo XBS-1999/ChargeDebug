@@ -1,4 +1,5 @@
 ﻿using ChargeDebug.Service;
+using ClosedXML.Excel;
 using DataModel;
 using DevExpress.Utils;
 using DevExpress.XtraEditors;
@@ -8,11 +9,12 @@ using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
+using DocumentFormat.OpenXml.InkML;
 using Log;
-using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Linq;
+using System.Data;
+using System.IO;
 using System.Runtime.CompilerServices;
 using static ChargeDebug.Form.ACStartConfiguration;
 
@@ -26,6 +28,25 @@ namespace ChargeDebug.Form
     public partial class Module : XtraUserControl, IDisposable
     {
         // ==================== 字段声明区域 ====================
+        #region 实时数据保存字段
+
+        // ==================== 实时数据保存相关字段 ====================
+
+        // 静态字典，用于管理同一设备下的数据保存状态和文件写入器
+        private static readonly ConcurrentDictionary<string, bool> _deviceSaveStatus = new ConcurrentDictionary<string, bool>();
+        private static readonly ConcurrentDictionary<string, StreamWriter> _deviceFileWriters = new ConcurrentDictionary<string, StreamWriter>();
+        private static readonly ConcurrentDictionary<string, object> _deviceFileLocks = new ConcurrentDictionary<string, object>();
+        private static readonly ConcurrentDictionary<string, bool> _deviceHeaderWritten = new ConcurrentDictionary<string, bool>();
+
+        // 实例字段
+        private CheckBox _chkRealTimeSave;
+        private string _deviceKey; // 设备标识键
+
+        // 实时数据保存相关字段
+        private bool _isRealTimeSaving = false;
+
+        #endregion
+
         #region 字段声明
 
         public static readonly Dictionary<string, StartupManager> StartupManagers = new Dictionary<string, StartupManager>();
@@ -109,6 +130,34 @@ namespace ChargeDebug.Form
 
         #endregion
 
+        #region 启动数据保存字段
+
+        // 启动数据保存相关字段
+        private bool _isStartupSaving = false;
+        private StreamWriter _startupFileWriter;
+        private readonly object _startupFileLock = new object();
+        private string _startupFilePath;
+        private DateTime _startupStartTime;
+
+        // 保存目录管理
+        private static string _baseSaveDirectory;
+        private string _deviceSaveDirectory;
+
+        #endregion
+
+        #region 文件管理字段
+
+        // 文件大小限制
+        private const long MAX_REALTIME_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+        private const long MAX_BASE_FOLDER_SIZE = 2000 * 1024 * 1024; // 2000MB
+
+        // 文件管理相关字段
+        private string _currentRealtimeFilePath;
+        private long _currentRealtimeFileSize = 0;
+        private DateTime _currentRealtimeFileCreateTime;
+
+        #endregion
+
         // ==================== 属性区域 ====================
         #region 属性
 
@@ -139,6 +188,15 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 实时数据保存状态
+        /// </summary>
+        public bool IsRealTimeSaving
+        {
+            get => _isRealTimeSaving;
+            private set => _isRealTimeSaving = value;
+        }
+
         #endregion
 
         // ==================== 构造函数与初始化区域 ====================
@@ -154,6 +212,15 @@ namespace ChargeDebug.Form
         {
             _equipment = equipment;
             _title = title;
+
+            // 生成设备标识键（基于设备IP和索引）
+            _deviceKey = $"{equipment.DeviceName}_{equipment.DeviceIP}_{equipment.DeviceIndex}";
+
+            // 初始化设备文件锁
+            _deviceFileLocks.GetOrAdd(_deviceKey, new object());
+
+            // 初始化保存目录
+            InitializeSaveDirectories();
 
             // 根据模块标识判断通道类型
             DetectChannelTypes(title, signals);
@@ -181,6 +248,139 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 初始化保存目录
+        /// </summary>
+        private void InitializeSaveDirectories()
+        {
+            try
+            {
+                // 基础保存目录：软件运行目录下的RealTimeData文件夹
+                _baseSaveDirectory = Path.Combine(Application.StartupPath, "RealTimeData");
+                if (!Directory.Exists(_baseSaveDirectory))
+                {
+                    Directory.CreateDirectory(_baseSaveDirectory);
+                }
+
+                // 设备专用目录：基于设备名称和IP
+                string safeDeviceName = string.Join("_", _equipment.DeviceName.Split(Path.GetInvalidFileNameChars()));
+                string safeDeviceIP = _equipment.DeviceIP.Replace(".", "_");
+                _deviceSaveDirectory = Path.Combine(_baseSaveDirectory, $"{safeDeviceName}_{safeDeviceIP}");
+
+                if (!Directory.Exists(_deviceSaveDirectory))
+                {
+                    Directory.CreateDirectory(_deviceSaveDirectory);
+                }
+
+                // 启动时检查基础文件夹大小并清理
+                //CheckAndCleanBaseFolder();
+
+                //LogService.Log($"初始化保存目录: {_deviceSaveDirectory}");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"初始化保存目录失败: {ex.Message}");
+                // 如果创建目录失败，使用基础目录作为备用
+                _deviceSaveDirectory = _baseSaveDirectory;
+            }
+        }
+
+        /// <summary>
+        /// 检查并清理基础文件夹
+        /// </summary>
+        private void CheckAndCleanBaseFolder()
+        {
+            try
+            {
+                long currentSize = CalculateFolderSize(_baseSaveDirectory);
+                LogService.Log($"RealTimeData文件夹当前大小: {currentSize / 1024 / 1024}MB");
+
+                if (currentSize > MAX_BASE_FOLDER_SIZE)
+                {
+                    LogService.Log("RealTimeData文件夹超过2000MB，开始清理...");
+                    CleanOldFiles(_baseSaveDirectory);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"检查基础文件夹大小时出错: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 清理旧文件
+        /// </summary>
+        private void CleanOldFiles(string folderPath)
+        {
+            try
+            {
+                // 获取所有文件，按创建时间排序
+                var allFiles = Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories)
+                                       .Select(f => new FileInfo(f))
+                                       .OrderBy(f => f.CreationTime)
+                                       .ToList();
+
+                long currentSize = CalculateFolderSize(folderPath);
+                int filesDeleted = 0;
+
+                // 从最旧的文件开始删除，直到文件夹大小小于限制
+                foreach (var file in allFiles)
+                {
+                    if (currentSize <= MAX_BASE_FOLDER_SIZE * 0.5) // 清理到50%的限制大小
+                        break;
+
+                    try
+                    {
+                        long fileSize = file.Length;
+                        file.Delete();
+                        currentSize -= fileSize;
+                        filesDeleted++;
+                        LogService.Log($"删除旧文件: {file.FullName}, 大小: {fileSize / 1024 / 1024}MB");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Log($"删除文件失败 {file.FullName}: {ex.Message}");
+                    }
+                }
+
+                LogService.Log($"清理完成，删除了 {filesDeleted} 个文件，当前文件夹大小: {currentSize / 1024 / 1024}MB");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"清理旧文件时出错: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 计算文件夹大小
+        /// </summary>
+        private long CalculateFolderSize(string folderPath)
+        {
+            long size = 0;
+            try
+            {
+                if (!Directory.Exists(folderPath)) return 0;
+
+                foreach (string file in Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        FileInfo fileInfo = new FileInfo(file);
+                        size += fileInfo.Length;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Log($"计算文件大小失败 {file}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"计算文件夹大小失败 {folderPath}: {ex.Message}");
+            }
+            return size;
+        }
+
+        /// <summary>
         /// 初始化用户界面
         /// </summary>
         private void InitializeUI()
@@ -189,11 +389,14 @@ namespace ChargeDebug.Form
             this.ClientSize = new Size(400, 700);
 
             // 通道容器
-            GroupControl groupControl = new GroupControl();
+            CustomGroupControl groupControl = new CustomGroupControl();
             groupControl.Text = _title;
             groupControl.Dock = DockStyle.Fill;
             groupControl.Padding = new System.Windows.Forms.Padding(-3);
             groupControl.Margin = new System.Windows.Forms.Padding(0);
+
+            // 在标题栏添加实时数据保存开关
+            AddRealTimeSaveToTitle(groupControl);
 
             // 主布局容器
             LayoutControl layoutControl = new LayoutControl();
@@ -210,6 +413,23 @@ namespace ChargeDebug.Form
             InitializeContextMenu();
 
             this.Controls.Add(groupControl);
+        }
+
+        /// <summary>
+        /// 在GroupControl标题栏添加实时数据保存开关
+        /// </summary>
+        private void AddRealTimeSaveToTitle(CustomGroupControl groupControl)
+        {
+            // 创建实时保存复选框
+            _chkRealTimeSave = new CheckBox();
+            _chkRealTimeSave.Text = "实时保存";
+            _chkRealTimeSave.AutoSize = true;
+            _chkRealTimeSave.CheckedChanged += ChkRealTimeSave_CheckedChanged;
+            _chkRealTimeSave.BackColor = Color.Transparent;
+            //_chkRealTimeSave.ForeColor = Color.White; // 白色文字在标题栏更明显
+
+            // 将复选框添加到GroupControl的标题栏
+            groupControl.AddControlToTitle(_chkRealTimeSave);
         }
 
         /// <summary>
@@ -313,6 +533,122 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 实时数据保存复选框状态改变事件
+        /// </summary>
+        private void ChkRealTimeSave_CheckedChanged(object sender, EventArgs e)
+        {
+            bool shouldSave = _chkRealTimeSave.Checked;
+
+            // 更新设备级别的保存状态
+            UpdateDeviceSaveStatus(shouldSave);
+
+            if (shouldSave)
+            {
+                StartRealTimeSave();
+                LogService.Log($"{_title} 开始实时数据保存");
+            }
+            else
+            {
+                StopRealTimeSave();
+                LogService.Log($"{_title} 停止实时数据保存");
+            }
+        }
+
+        /// <summary>
+        /// 更新设备级别的数据保存状态
+        /// </summary>
+        private void UpdateDeviceSaveStatus(bool shouldSave)
+        {
+            // 更新设备状态
+            _deviceSaveStatus.AddOrUpdate(_deviceKey, shouldSave, (key, oldValue) => shouldSave);
+
+            // 查找同一设备下的其他模块并开启保存
+            var otherModules = FindOtherModulesInSameDevice();
+            foreach (var module in otherModules)
+            {
+                if (module != this && module.IsHandleCreated)
+                {
+                    module.BeginInvoke(new Action(() =>
+                    {
+                        // 先移除事件处理程序避免递归调用
+                        module._chkRealTimeSave.CheckedChanged -= module.ChkRealTimeSave_CheckedChanged;
+
+                        // 设置复选框状态
+                        module._chkRealTimeSave.Checked = shouldSave;
+
+                        // 重新添加事件处理程序
+                        module._chkRealTimeSave.CheckedChanged += module.ChkRealTimeSave_CheckedChanged;
+
+                        // 更新实例的保存状态
+                        module._isRealTimeSaving = shouldSave;
+
+                        LogService.Log($"同步模块 {module._title} 实时保存状态: {shouldSave}");
+                    }));
+                }
+            }
+
+            // 更新当前实例的保存状态
+            _isRealTimeSaving = shouldSave;
+
+            // 如果没有模块在保存，关闭文件写入器
+            if (!shouldSave)
+            {
+                bool anyModuleSaving = otherModules.Any(m => m != this && m._isRealTimeSaving);
+                if (!anyModuleSaving)
+                {
+                    //CloseDeviceFileWriter();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 查找同一设备下的其他模块
+        /// </summary>
+        private List<Module> FindOtherModulesInSameDevice()
+        {
+            var modules = new List<Module>();
+
+            try
+            {
+                var parentForm = this.FindForm();
+                if (parentForm != null)
+                {
+                    // 查找窗体中的所有模块
+                    FindModulesInForm(parentForm, modules);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"查找同一设备模块时出错: {ex.Message}");
+            }
+
+            return modules;
+        }
+
+        /// <summary>
+        /// 在窗体中查找模块
+        /// </summary>
+        private void FindModulesInForm(Control parent, List<Module> modules)
+        {
+            foreach (Control control in parent.Controls)
+            {
+                if (control is Module module)
+                {
+                    // 检查是否属于同一设备
+                    if (module._deviceKey == this._deviceKey)
+                    {
+                        modules.Add(module);
+                    }
+                }
+                else if (control.HasChildren)
+                {
+                    // 递归查找子控件
+                    FindModulesInForm(control, modules);
+                }
+            }
+        }
+
         #endregion
 
         // ==================== CAN通信区域 ====================
@@ -375,6 +711,9 @@ namespace ChargeDebug.Form
                 // 检查该CAN ID是否有注册的信号
                 if (!canIdSignals.TryGetValue(canId, out var signals)) continue;
 
+                //保存解析的信号
+                Dictionary<string, double> signalValue = new Dictionary<string, double>();
+
                 foreach (var signal in signals)
                 {
                     if (!signalDefinitions.TryGetValue(signal.SystemName, out var signalDef)) continue;
@@ -391,6 +730,7 @@ namespace ChargeDebug.Form
 
                     // 4. 更新缓存（实时更新）
                     _signalValues[signal.SystemName] = physicalValue;
+                    signalValue[signal.SystemName] = physicalValue;
 
                     // 5. 实时处理故障信号（不等待UI更新）
                     if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
@@ -406,7 +746,26 @@ namespace ChargeDebug.Form
 
                     // 7. 实时更新运行状态
                     UpdateDeviceStatus(signal.SystemName, physicalValue);
+
+                    // 8. 实时保存数据（如果启用）
+                    //if (_isRealTimeSaving)
+                    //{
+                    //    SaveSignalData(signal.SystemName, physicalValue, rawValue, signalDef, frame);
+                    //}
                 }
+
+                //实时保存数据（如果启用）
+                if (_isRealTimeSaving)
+                {
+                    SaveSignalData(frame, signalValue);
+                }
+
+                // ============ 新增：保存启动数据（如果启动保存启用） ============
+                if (_isStartupSaving)
+                {
+                    SaveStartupData(frame, signalValue);
+                }
+                // ============ 新增结束 ============
             }
         }
 
@@ -1630,6 +1989,9 @@ namespace ChargeDebug.Form
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
+                            // ============ 新增：开始启动数据保存 ============
+                            StartStartupDataSave();
+
                             // 获取用户设置的配置数据
                             _protectionParameters = configForm.Configuration;
 
@@ -1638,6 +2000,8 @@ namespace ChargeDebug.Form
                             {
                                 LogService.Log("启动前检查失败：关键信号超出阈值");
                                 XtraMessageBox.Show("启动前检查失败：关键信号超出阈值，请检查设备状态");
+                                // 停止启动数据保存
+                                StopStartupDataSave();
                                 return;
                             }
                             // ============ 新增结束 ============
@@ -1661,10 +2025,14 @@ namespace ChargeDebug.Form
                                     bool stopSuccess = await _startupManager.StopDeviceAsync();
                                     if (!stopSuccess)
                                     {
+                                        // 停止启动数据保存
+                                        StopStartupDataSave();
                                         XtraMessageBox.Show("停机指令发送失败");
                                         return;
                                     }
 
+                                    // 停止启动数据保存
+                                    StopStartupDataSave();
                                     // 状态没有变化，启动失败
                                     LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
@@ -1702,6 +2070,8 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
+                // 停止启动数据保存
+                StopStartupDataSave();
                 LogService.Log($"设备启动失败:{ex.Message}");
                 XtraMessageBox.Show($"设备启动失败:{ex.Message}");
             }
@@ -1722,6 +2092,10 @@ namespace ChargeDebug.Form
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
+                            // ============ 新增：开始启动数据保存 ============
+                            StartStartupDataSave();
+                            // ============ 新增结束 ============
+
                             var acConfig = configForm.ACConfiguration;
 
                             // 记录AC启动配置
@@ -1747,17 +2121,21 @@ namespace ChargeDebug.Form
                                     if (!stopSuccess)
                                     {
                                         XtraMessageBox.Show("停机指令发送失败");
+                                        // 停止启动数据保存
+                                        StopStartupDataSave();
                                         return;
                                     }
 
                                     // 状态没有变化，启动失败
                                     LogService.Log($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     XtraMessageBox.Show($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
+                                    // 停止启动数据保存
+                                    StopStartupDataSave();
                                     return;
                                 }
 
                                 LogService.Log("AC通道控制成功");
-                                XtraMessageBox.Show("AC通道控制成功");
+                                //XtraMessageBox.Show("AC通道控制成功");
 
                                 // 设置AC运行时间
                                 _totalTimeData.Value = "00:00:00";
@@ -1767,6 +2145,8 @@ namespace ChargeDebug.Form
                             {
                                 LogService.Log("AC通道控制失败!");
                                 XtraMessageBox.Show("AC通道控制失败!");
+                                // 停止启动数据保存
+                                StopStartupDataSave();
                             }
                         }
                     }
@@ -1781,36 +2161,8 @@ namespace ChargeDebug.Form
             {
                 LogService.Log($"AC通道控制失败:{ex.Message}");
                 XtraMessageBox.Show($"AC通道控制失败:{ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 启动AC设备的内部方法
-        /// </summary>
-        private async Task<bool> StartACDeviceAsync(ACConfigurationData aCConfigurationData)
-        {
-            try
-            {
-                // 示例：构造AC启动数据帧
-                byte[] acStartData = new byte[8];
-
-                CANManager.Instance.SendCommand(
-                        _equipment.DeviceIndex,
-                        _equipment.CanIndex,
-                        _acreadFaultCanId, // 使用实际的AC控制CAN ID
-                        acStartData
-                );
-
-                // 等待设备响应
-                await Task.Delay(100);
-                    return true;
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"启动AC设备时出错: {ex.Message}");
-                return false;
+                // 停止启动数据保存
+                StopStartupDataSave();
             }
         }
 
@@ -1969,6 +2321,10 @@ namespace ChargeDebug.Form
                 //任何状态下都可以停机
                 _stopCommandSent = true;
                 SendStopCommandIfNeeded();
+
+                // ============ 新增：停止启动数据保存 ============
+                StopStartupDataSave();
+                // ============ 新增结束 ============
             }
             catch (Exception ex)
             {
@@ -2048,6 +2404,710 @@ namespace ChargeDebug.Form
                 );
             }
             XtraMessageBox.Show("电压高档位切换成功");
+        }
+
+        #endregion
+
+        // ==================== 实时数据保存方法 ====================
+        #region 数据保存
+        /// <summary>
+        /// 开始实时数据保存
+        /// </summary>
+        private void StartRealTimeSave()
+        {
+            try
+            {
+                // 弹出保存文件对话框
+                using (SaveFileDialog saveFileDialog = new SaveFileDialog())
+                {
+                    saveFileDialog.Filter = "CSV文件 (*.csv)|*.csv";
+                    saveFileDialog.Title = "选择实时数据保存路径";
+
+                    // 使用设备目录作为初始目录
+                    //saveFileDialog.InitialDirectory = _deviceSaveDirectory;
+                    saveFileDialog.FileName = GenerateRealtimeFileName();
+
+                    if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        string filePath = saveFileDialog.FileName;
+
+                        // 先停止之前的保存（如果正在运行）
+                        //StopRealTimeSave();
+
+                        // 初始化设备文件写入器
+                        InitializeDeviceFileWriter(filePath);
+
+                        //LogService.Log($"开始实时数据保存: {filePath}");
+                        XtraMessageBox.Show($"开始实时数据保存到: {Path.GetFileName(filePath)}", "实时保存",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                        _isRealTimeSaving = true;
+                    }
+                    else
+                    {
+                        // 用户取消选择文件，取消复选框勾选
+                        _chkRealTimeSave.Checked = false;
+                        _isRealTimeSaving = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"开始实时数据保存失败: {ex.Message}");
+                XtraMessageBox.Show($"开始实时数据保存失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                _chkRealTimeSave.Checked = false;
+                _isRealTimeSaving = false;
+            }
+        }
+
+        /// <summary>
+        /// 初始化设备文件写入器
+        /// </summary>
+        private void InitializeDeviceFileWriter(string filePath)
+        {
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    // 如果设备文件写入器已存在，先关闭
+                    if (_deviceFileWriters.TryGetValue(_deviceKey, out var existingWriter))
+                    {
+                        try
+                        {
+                            existingWriter?.Close();
+                            existingWriter?.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"关闭现有文件写入器时出错: {ex.Message}");
+                        }
+                    }
+
+                    // 创建新的文件写入器
+                    var writer = new StreamWriter(filePath, true, System.Text.Encoding.UTF8)
+                    {
+                        AutoFlush = true // 设置自动刷新，确保数据及时写入
+                    };
+                    _deviceFileWriters[_deviceKey] = writer;
+
+                    // 重置表头写入状态
+                    _deviceHeaderWritten[_deviceKey] = false;
+
+                    // 记录当前文件信息
+                    _currentRealtimeFilePath = filePath;
+                    _currentRealtimeFileSize = new FileInfo(filePath).Length;
+                    _currentRealtimeFileCreateTime = DateTime.Now;
+
+                    //LogService.Log($"初始化设备文件写入器: {_deviceKey} -> {filePath}, 初始大小: {_currentRealtimeFileSize}字节");
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"初始化设备文件写入器失败: {ex.Message}");
+                    throw;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 写入CSV文件表头
+        /// </summary>
+        private void WriteCsvHeader()
+        {
+            if (!_deviceFileWriters.TryGetValue(_deviceKey, out var writer)) return;
+
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    if (!_deviceHeaderWritten[_deviceKey])
+                    {
+                        // 写入CSV表头
+                        string header = "时间戳,设备名称,通道号,CANID,帧类型,帧格式,CAN类型,长度,数据,数据解析";
+                        writer.WriteLine(header);
+                        writer.Flush();
+
+                        _deviceHeaderWritten[_deviceKey] = true;
+                        //LogService.Log($"写入CSV表头: {_deviceKey}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"写入CSV表头失败: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 保存信号数据到CSV文件
+        /// </summary>
+        private void SaveSignalData(CANManager.ZCAN_Receive_Data frame, Dictionary<string, double> signalValue)
+        {
+            if (!_isRealTimeSaving) return;
+
+            // 在锁外部检查写入器状态，避免死锁
+            if (!_deviceFileWriters.TryGetValue(_deviceKey, out var writer) || writer == null)
+            {
+                LogService.Log("文件写入器不可用，停止保存");
+                StopRealTimeSave();
+                return;
+            }
+
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    // 再次检查写入器状态（在锁内）
+                    if (!_deviceFileWriters.TryGetValue(_deviceKey, out writer) || writer == null || writer.BaseStream == null)
+                    {
+                        LogService.Log("文件写入器在锁内检查不可用，停止保存");
+                        StopRealTimeSave();
+                        return;
+                    }
+
+                    // 检查文件大小，如果超过100MB则轮转文件
+                    if (_currentRealtimeFileSize > MAX_REALTIME_FILE_SIZE)
+                    {
+                        RotateRealtimeFile();
+                        // 重新获取writer
+                        if (!_deviceFileWriters.TryGetValue(_deviceKey, out writer) || writer == null)
+                        {
+                            LogService.Log("文件轮转后无法获取写入器，停止保存");
+                            StopRealTimeSave();
+                            return;
+                        }
+                    }
+
+                    // 确保表头已写入
+                    if (!_deviceHeaderWritten[_deviceKey])
+                    {
+                        WriteCsvHeader();
+                        // 更新文件大小
+                        try
+                        {
+                            _currentRealtimeFileSize = new FileInfo(_currentRealtimeFilePath).Length;
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"获取文件大小失败: {ex.Message}");
+                            _currentRealtimeFileSize = 0;
+                        }
+                    }
+
+                    // 获取当前时间戳
+                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss fff");
+
+                    // 根据CAN ID获取通道号
+                    string channelNumber = GetChannelNumberByCanId(frame.can_id & 0x1FFFFFFF);
+
+                    // 提取CAN帧的详细信息
+                    uint canId = frame.can_id & 0x1FFFFFFF; // 去除扩展位
+                    string frameType = GetFrameType(frame.can_id);     // 帧类型
+                    string frameFormat = GetFrameFormat(frame.can_id); // 帧格式
+                    //string canType = GetCanType(frame.can_id); // CAN类型
+                    int dataLength = frame.can_dlc; // 数据长度
+                    string dataHex = BitConverter.ToString(frame.data.Take(dataLength).ToArray()).Replace("-", " "); // 数据字节的十六进制表示
+                    string analyzedata = string.Join("; ", signalValue.Select(kv => $"{kv.Key}={kv.Value}"));
+                   
+                    // 构建数据行
+                    var dataRow = new List<string>
+                    {
+                        timestamp, // 时间戳
+                        _equipment.DeviceName, // 设备名称
+                        channelNumber, // 通道号
+                        $"0x{canId.ToString("X")}", //CANID
+                        frameType,     //帧类型
+                        frameFormat,   //帧格式
+                        "CAN",         //CAN类型
+                        dataLength.ToString(),//长度
+                        dataHex,        //数据
+                        analyzedata
+                    };
+
+                    // 写入CSV行
+                    string csvLine = string.Join(",", dataRow);
+                    long lineLength = System.Text.Encoding.UTF8.GetByteCount(csvLine + Environment.NewLine);
+
+                    // 检查写入器状态
+                    if (writer != null && writer.BaseStream != null && writer.BaseStream.CanWrite)
+                    {
+                        writer.WriteLine(csvLine);
+                        writer.Flush(); // 立即刷新缓冲区，确保数据写入磁盘
+
+                        // 更新当前文件大小
+                        _currentRealtimeFileSize += lineLength;
+                    }
+                    else
+                    {
+                        LogService.Log("写入器状态异常，停止保存");
+                        StopRealTimeSave();
+                    }
+                }
+                catch (ObjectDisposedException ex)
+                {
+                    LogService.Log($"写入器已被释放: {ex.Message}");
+                    StopRealTimeSave();
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"保存信号数据失败: {ex.Message}");
+                    // 保存失败时停止保存
+                    StopRealTimeSave();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 生成实时数据文件名
+        /// </summary>
+        private string GenerateRealtimeFileName()
+        {
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            return $"实时数据_{_equipment.DeviceName}_{timestamp}.csv";
+        }
+
+        /// <summary>
+        /// 轮转实时数据文件
+        /// </summary>
+        private void RotateRealtimeFile()
+        {
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    if (_deviceFileWriters.TryGetValue(_deviceKey, out var oldWriter))
+                    {
+                        // 记录旧文件信息
+                        string oldFilePath = _currentRealtimeFilePath;
+                        long oldFileSize = _currentRealtimeFileSize;
+
+                        // 生成新文件名
+                        string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                        string newFileName = GenerateRealtimeFileName();
+                        string newFilePath = Path.Combine(desktopPath, newFileName);
+
+                        // 先创建新文件写入器
+                        var newWriter = new StreamWriter(newFilePath, true, System.Text.Encoding.UTF8)
+                        {
+                            AutoFlush = true
+                        };
+
+                        // 更新字典中的写入器引用
+                        _deviceFileWriters[_deviceKey] = newWriter;
+
+                        // 然后安全关闭旧写入器
+                        try
+                        {
+                            if (oldWriter != null)
+                            {
+                                oldWriter.Flush();
+                                oldWriter.Close();
+                                oldWriter.Dispose();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"关闭旧文件写入器时出错: {ex.Message}");
+                        }
+
+                        // 删除旧文件（确保只保留一个文件）
+                        try
+                        {
+                            if (File.Exists(oldFilePath))
+                            {
+                                File.Delete(oldFilePath);
+                                LogService.Log($"删除旧文件: {oldFilePath} ({oldFileSize / 1024 / 1024}MB)");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"删除旧文件失败: {ex.Message}");
+                        }
+
+                        // 重置表头写入状态
+                        _deviceHeaderWritten[_deviceKey] = false;
+
+                        // 更新当前文件信息
+                        _currentRealtimeFilePath = newFilePath;
+                        _currentRealtimeFileSize = 0;
+                        _currentRealtimeFileCreateTime = DateTime.Now;
+
+                        LogService.Log($"实时数据文件轮转完成: 删除旧文件({oldFileSize / 1024 / 1024}MB)，创建新文件: {newFilePath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"轮转实时数据文件失败: {ex.Message}");
+                    StopRealTimeSave();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 定期检查基础文件夹大小
+        /// </summary>
+        private void CheckBaseFolderPeriodically()
+        {
+            // 在后台线程中检查，避免阻塞数据保存
+            Task.Run(() =>
+            {
+                try
+                {
+                    long currentSize = CalculateFolderSize(_baseSaveDirectory);
+                    if (currentSize > MAX_BASE_FOLDER_SIZE)
+                    {
+                        LogService.Log("检测到RealTimeData文件夹超过2000MB，开始清理...");
+                        CleanOldFiles(_baseSaveDirectory);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"定期检查基础文件夹大小时出错: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// 获取帧类型
+        /// </summary>
+        private string GetFrameType(uint canId)
+        {
+            if ((canId & 0x80000000) != 0)
+                return "扩展帧";
+            else
+                return "标准帧";
+        }
+
+        /// <summary>
+        /// 获取帧格式
+        /// </summary>
+        private string GetFrameFormat(uint canId)
+        {
+            if ((canId & 0x40000000) != 0)
+                return "远程帧";
+            else
+                return "数据帧";
+        }
+
+        /// <summary>
+        /// 根据CAN ID获取通道号
+        /// CAN ID最后两位:
+        ///   A0 -> AC1, A1 -> AC2
+        ///   20 -> DC1, 21 -> DC2
+        /// </summary>
+        private string GetChannelNumberByCanId(uint canId)
+        {
+            try
+            {
+                // 获取CAN ID的最后两位（十六进制）
+                byte lastByte = (byte)(canId & 0xFF);
+                string lastTwoHex = lastByte.ToString("X2");
+
+                switch (lastTwoHex)
+                {
+                    case "A0": return "AC1";
+                    case "A1": return "AC2";
+                    case "20": return "DC1";
+                    case "21": return "DC2";
+                    default:
+                        // 如果不在预定义列表中，尝试从CAN ID推断
+                        if (lastByte >= 0xA0 && lastByte <= 0xAF)
+                            return $"AC{lastByte - 0xA0 + 1}";
+                        else if (lastByte >= 0x20 && lastByte <= 0x2F)
+                            return $"DC{lastByte - 0x20 + 1}";
+                        else
+                            return $"Unknown_{lastTwoHex}";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"根据CAN ID获取通道号失败: {ex.Message}, CAN ID: 0x{canId:X}");
+                return "Unknown";
+            }
+        }
+
+        /// <summary>
+        /// 停止实时数据保存
+        /// </summary>
+        private void StopRealTimeSave()
+        {
+            try
+            {
+                _isRealTimeSaving = false;
+
+                // 更新UI状态
+                if (this.InvokeRequired)
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        if (_chkRealTimeSave != null && !_chkRealTimeSave.IsDisposed)
+                            _chkRealTimeSave.Checked = false;
+                    }));
+                }
+                else
+                {
+                    if (_chkRealTimeSave != null && !_chkRealTimeSave.IsDisposed)
+                        _chkRealTimeSave.Checked = false;
+                }
+
+                LogService.Log($"停止实时数据保存: {_deviceKey}, 最终文件大小: {_currentRealtimeFileSize / 1024 / 1024}MB");
+
+                // 立即关闭文件写入器
+                CloseDeviceFileWriterImmediately();
+
+                // 重置文件大小信息
+                _currentRealtimeFileSize = 0;
+                _currentRealtimeFilePath = null;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"停止实时数据保存时出错: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 立即关闭设备文件写入器
+        /// </summary>
+        private void CloseDeviceFileWriterImmediately()
+        {
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    if (_deviceFileWriters.TryRemove(_deviceKey, out var writer))
+                    {
+                        try
+                        {
+                            if (writer != null)
+                            {
+                                writer.Flush();
+                                writer.Close();
+                                writer.Dispose();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"关闭文件写入器时出错: {ex.Message}");
+                        }
+                        LogService.Log($"立即关闭设备文件写入器: {_deviceKey}");
+                    }
+
+                    _deviceHeaderWritten.TryRemove(_deviceKey, out _);
+                    _deviceSaveStatus.TryRemove(_deviceKey, out _);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"立即关闭设备文件写入器时出错: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 关闭设备文件写入器
+        /// </summary>
+        private void CloseDeviceFileWriter()
+        {
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    // 检查是否还有其他模块在使用该设备文件
+                    var otherModules = FindOtherModulesInSameDevice();
+                    bool otherModuleSaving = otherModules.Any(m => m != this && m._isRealTimeSaving);
+
+                    if (!otherModuleSaving)
+                    {
+                        if (_deviceFileWriters.TryRemove(_deviceKey, out var writer))
+                        {
+                            writer?.Close();
+                            writer?.Dispose();
+                            LogService.Log($"关闭设备文件写入器: {_deviceKey}");
+                        }
+
+                        _deviceHeaderWritten.TryRemove(_deviceKey, out _);
+                        _deviceSaveStatus.TryRemove(_deviceKey, out _);
+                    }
+                    else
+                    {
+                        LogService.Log($"设备 {_deviceKey} 仍有其他模块在保存数据，不关闭文件写入器");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"关闭设备文件写入器时出错: {ex.Message}");
+                }
+            }
+        }
+
+        #endregion
+
+        #region 启动数据保存方法
+
+        /// <summary>
+        /// 开始启动数据保存
+        /// </summary>
+        private void StartStartupDataSave()
+        {
+            try
+            {
+                lock (_startupFileLock)
+                {
+                    if (_isStartupSaving)
+                    {
+                        // 如果已经在保存，先停止之前的保存
+                        StopStartupDataSave();
+                    }
+
+                    // 创建日期子文件夹
+                    string dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
+                    string dateSaveDirectory = Path.Combine(_baseSaveDirectory, dateFolder);
+                    if (!Directory.Exists(dateSaveDirectory))
+                    {
+                        Directory.CreateDirectory(dateSaveDirectory);
+                    }
+
+                    // 生成启动数据文件名
+                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    string fileName = $"启动数据_{_equipment.DeviceName}_{timestamp}.csv";
+                    _startupFilePath = Path.Combine(_deviceSaveDirectory, fileName);
+
+                    // 创建文件写入器
+                    _startupFileWriter = new StreamWriter(_startupFilePath, true, System.Text.Encoding.UTF8)
+                    {
+                        AutoFlush = true
+                    };
+
+                    // 写入CSV表头
+                    WriteStartupDataHeader();
+
+                    _isStartupSaving = true;
+                    _startupStartTime = DateTime.Now;
+
+                    LogService.Log($"开始启动数据保存: {_startupFilePath}");
+
+                    // 检查基础文件夹大小
+                    CheckAndCleanBaseFolder();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"开始启动数据保存失败: {ex.Message}");
+                _isStartupSaving = false;
+            }
+        }
+
+        /// <summary>
+        /// 写入启动数据表头
+        /// </summary>
+        private void WriteStartupDataHeader()
+        {
+            try
+            {
+                string header = "时间戳,运行时间(秒),设备名称,通道号,CANID,帧类型,帧格式,长度,数据,数据解析";
+                _startupFileWriter.WriteLine(header);
+                _startupFileWriter.Flush();
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"写入启动数据表头失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 保存启动数据
+        /// </summary>
+        private void SaveStartupData(CANManager.ZCAN_Receive_Data frame, Dictionary<string, double> signalValue)
+        {
+            if (!_isStartupSaving || _startupFileWriter == null) return;
+
+            lock (_startupFileLock)
+            {
+                try
+                {
+                    // 计算运行时间
+                    TimeSpan runTime = DateTime.Now - _startupStartTime;
+                    string runTimeStr = runTime.TotalSeconds.ToString("F3");
+
+                    // 获取当前时间戳
+                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss fff");
+
+                    // 根据CAN ID获取通道号
+                    string channelNumber = GetChannelNumberByCanId(frame.can_id & 0x1FFFFFFF);
+
+                    // 提取CAN帧的详细信息
+                    uint canId = frame.can_id & 0x1FFFFFFF;
+                    string frameType = GetFrameType(frame.can_id);
+                    string frameFormat = GetFrameFormat(frame.can_id);
+                    int dataLength = frame.can_dlc;
+                    string dataHex = BitConverter.ToString(frame.data.Take(dataLength).ToArray()).Replace("-", " ");
+
+                    // 构建数据解析字符串
+                    string analyzedata = string.Join("; ", signalValue.Select(kv => $"{kv.Key}={kv.Value}"));
+
+                    // 构建数据行
+                    var dataRow = new List<string>
+                    {
+                        timestamp,
+                        runTimeStr,
+                        _equipment.DeviceName,
+                        channelNumber,
+                        $"0x{canId:X}",
+                        frameType,
+                        frameFormat,
+                        dataLength.ToString(),
+                        dataHex,
+                        analyzedata
+                    };
+
+                    // 写入CSV行
+                    string csvLine = string.Join(",", dataRow);
+                    _startupFileWriter.WriteLine(csvLine);
+                    _startupFileWriter.Flush();
+
+                    CheckBaseFolderPeriodically();
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"保存启动数据失败: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 停止启动数据保存
+        /// </summary>
+        private void StopStartupDataSave()
+        {
+            try
+            {
+                lock (_startupFileLock)
+                {
+                    if (_isStartupSaving && _startupFileWriter != null)
+                    {
+                        _startupFileWriter.Close();
+                        _startupFileWriter.Dispose();
+                        _startupFileWriter = null;
+
+                        // 记录保存信息
+                        TimeSpan saveDuration = DateTime.Now - _startupStartTime;
+                        LogService.Log($"启动数据保存结束: {_startupFilePath}, 持续时间: {saveDuration.TotalSeconds:F1}秒, 文件大小: {new FileInfo(_startupFilePath).Length}字节");
+
+                        // 显示保存完成消息
+                        this.BeginInvoke(new Action(() =>
+                        {
+                            XtraMessageBox.Show($"启动数据已保存到:\n{_startupFilePath}", "启动数据保存完成",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }));
+                    }
+
+                    _isStartupSaving = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"停止启动数据保存时出错: {ex.Message}");
+                _isStartupSaving = false;
+            }
         }
 
         #endregion
@@ -2220,6 +3280,14 @@ namespace ChargeDebug.Form
 
             try
             {
+                // 停止实时数据保存
+                StopRealTimeSave();
+
+                StopStartupDataSave();
+
+                // 确保文件流完全关闭
+                CloseDeviceFileWriterImmediately();
+
                 // 清理时从字典中移除
                 if (StartupManagers.ContainsKey(_equipment.DeviceName))
                 {
@@ -2273,6 +3341,69 @@ namespace ChargeDebug.Form
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// 自定义GroupControl，支持在标题栏添加控件
+    /// </summary>
+    public class CustomGroupControl : GroupControl
+    {
+        private List<Control> _titleControls = new List<Control>();
+
+        /// <summary>
+        /// 添加控件到标题栏
+        /// </summary>
+        public void AddControlToTitle(Control control)
+        {
+            if (control == null) return;
+
+            _titleControls.Add(control);
+            this.Controls.Add(control);
+            control.BringToFront();
+
+            // 设置初始位置
+            UpdateTitleControlPositions();
+
+            // 订阅尺寸变化事件
+            this.SizeChanged += (s, e) => UpdateTitleControlPositions();
+            this.TextChanged += (s, e) => UpdateTitleControlPositions();
+        }
+
+        /// <summary>
+        /// 更新标题栏控件位置
+        /// </summary>
+        private void UpdateTitleControlPositions()
+        {
+            if (_titleControls.Count == 0) return;
+
+            // 计算标题文本的宽度
+            using (Graphics g = this.CreateGraphics())
+            {
+                // 标题栏高度
+                int titleHeight = this.AppearanceCaption.Font.Height + 10;
+
+                // 从右向左排列控件
+                int rightMargin = 10;
+                for (int i = _titleControls.Count - 1; i >= 0; i--)
+                {
+                    var control = _titleControls[i];
+                    if (control.Visible)
+                    {
+                        control.Location = new Point(
+                            this.Width - rightMargin - control.Width,
+                            (titleHeight - control.Height) / 2
+                        );
+                        rightMargin += control.Width + 5;
+                    }
+                }
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            UpdateTitleControlPositions();
+        }
     }
 
     /// <summary>
