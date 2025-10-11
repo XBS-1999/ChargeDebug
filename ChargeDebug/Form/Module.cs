@@ -1959,6 +1959,13 @@ namespace ChargeDebug.Form
         {
             try
             {
+                // 确认对话框
+                if (XtraMessageBox.Show("确定要停止测试吗？", "确认停机",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    return;
+                }
+
                 //任何状态下都可以停机
                 _stopCommandSent = true;
                 SendStopCommandIfNeeded();

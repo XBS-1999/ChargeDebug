@@ -428,17 +428,21 @@ namespace ChargeDebug.Form
             
             foreach (var equipment in equipmentList)
             {
-                //devicename.Properties.Items.Add($"{equipment.DeviceName}");
-                //// 处理AC通道
+                //获取AC,DC起始地址
+                int acnum = Convert.ToInt32(equipment.ACAddress.Substring(equipment.ACAddress.Length - 1));
+                int dcnum = Convert.ToInt32(equipment.DCAddress.Substring(equipment.DCAddress.Length - 1));
+
                 for (int i = 0; i < equipment.ACNumber; i++)
                 {
-                    devicename.Properties.Items.Add($"{equipment.DeviceName}-AC{i + 1}");
+                    acnum++;
+                    devicename.Properties.Items.Add($"{equipment.DeviceName}-AC{acnum}");
                 }
 
                 // 处理DC通道
                 for (int i = 0; i < equipment.DCNumber; i++)
                 {
-                    devicename.Properties.Items.Add($"{equipment.DeviceName}-DC{i + 1}");
+                    dcnum++;
+                    devicename.Properties.Items.Add($"{equipment.DeviceName}-DC{dcnum}");
                 }
             }
             devicename.SelectedIndex = 0;
