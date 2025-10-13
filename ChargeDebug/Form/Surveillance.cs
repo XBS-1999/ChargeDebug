@@ -28,13 +28,16 @@ namespace ChargeDebug.Form
         // 在 Surveillance 类中
         private bool _enabled = true;
 
+        private string _userPermissions;
+
         // 存储创建的模块引用
         private readonly List<Module> _modules = new List<Module>();
 
-        public Surveillance(string dbPath, List<EquipmentModel> equipmentList)
+        public Surveillance(string dbPath, List<EquipmentModel> equipmentList, string userPermissions)
         {
 
             dbcPath = dbPath;
+            _userPermissions = userPermissions;
             DeviceConfig(equipmentList);
             InitializeComponent();
 
@@ -263,7 +266,7 @@ namespace ChargeDebug.Form
 
                         //var userControl = new Module($"{equipment.DeviceNumber}-通道{i + 1}")
                         // 传递所有必需参数：标题、设备号、通道索引、信号列表
-                        var userControl = new Module(title, equipment, channelSignals);
+                        var userControl = new Module(title, equipment, channelSignals, _userPermissions);
                         _modules.Add(userControl); // 存储引用
 
 

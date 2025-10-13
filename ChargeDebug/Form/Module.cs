@@ -156,6 +156,8 @@ namespace ChargeDebug.Form
         private long _currentRealtimeFileSize = 0;
         private DateTime _currentRealtimeFileCreateTime;
 
+        private string _userPermissions;
+
         #endregion
 
         // ==================== 属性区域 ====================
@@ -208,10 +210,11 @@ namespace ChargeDebug.Form
         /// <param name="title">模块标题</param>
         /// <param name="equipment">设备模型</param>
         /// <param name="signals">信号列表</param>
-        public Module(string title, EquipmentModel equipment, List<SignalInfo> signals)
+        public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
         {
             _equipment = equipment;
             _title = title;
+            _userPermissions = userPermissions;
 
             // 生成设备标识键（基于设备IP和索引）
             _deviceKey = $"{equipment.DeviceName}_{equipment.DeviceIP}_{equipment.DeviceIndex}";
@@ -864,35 +867,38 @@ namespace ChargeDebug.Form
         /// </summary>
         private void ProcessSignals(List<SignalInfo> signals)
         {
-            // 添加时间显示项到信号列表
-            allSignals.Add(new Showdata
+            if (_userPermissions != "普通用户")
             {
-                SystemName = "累计运行时间",
-                Unit = "时:分:秒",
-            });
+                // 添加时间显示项到信号列表
+                allSignals.Add(new Showdata
+                {
+                    SystemName = "累计运行时间",
+                    Unit = "时:分:秒",
+                });
 
-            allSignals.Add(new Showdata
-            {
-                SystemName = "工步运行时间",
-                Unit = "时:分:秒",
-            });
+                allSignals.Add(new Showdata
+                {
+                    SystemName = "工步运行时间",
+                    Unit = "时:分:秒",
+                });
 
-            signalData.Add(new Showdata
-            {
-                SystemName = "累计运行时间",
-                Unit = "时:分:秒",
-            });
+                signalData.Add(new Showdata
+                {
+                    SystemName = "累计运行时间",
+                    Unit = "时:分:秒",
+                });
 
-            signalData.Add(new Showdata
-            {
-                SystemName = "工步运行时间",
-                Unit = "时:分:秒",
-            });
+                signalData.Add(new Showdata
+                {
+                    SystemName = "工步运行时间",
+                    Unit = "时:分:秒",
+                });
 
-            // 保存时间显示项的引用
-            _totalTimeData = signalData.First(s => s.SystemName == "累计运行时间");
-            _stepTimeData = signalData.First(s => s.SystemName == "工步运行时间");
-
+                // 保存时间显示项的引用
+                _totalTimeData = signalData.First(s => s.SystemName == "累计运行时间");
+                _stepTimeData = signalData.First(s => s.SystemName == "工步运行时间");
+            }
+            
             foreach (var signal in signals)
             {
                 // 将十六进制CAN ID转换为整数

@@ -12,8 +12,8 @@ namespace Log
         private static readonly object initLock = new object();
         private static readonly object cleanupLock = new object();
         private static bool isInitialized;
-        private static long maxFolderSize = 50L * 1024 * 1024; // 200MB
-        private static long cleanupThreshold = 20L * 1024 * 1024; // 100MB - 清理到该大小
+        private static long maxFolderSize = 50L * 1024 * 1024;    // 50MB
+        private static long cleanupThreshold = 20L * 1024 * 1024; // 20MB - 清理到该大小
 
         public static event Action<string> LogAdded;
 

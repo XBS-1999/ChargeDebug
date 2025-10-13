@@ -324,12 +324,14 @@ namespace ChargeDebug
             // 普通用户：只显示部分功能
             else if (_userPermissions == "普通用户")
             {
-                buttonItem2.Visibility = BarItemVisibility.Never;  // 参数管理
-                buttonItem3.Visibility = BarItemVisibility.Never;  // 设备管理
+                //buttonItem2.Visibility = BarItemVisibility.Never;  // 参数管理
+                //buttonItem3.Visibility = BarItemVisibility.Never;  // 设备管理
                 buttonItem4.Visibility = BarItemVisibility.Never;  // 协议管理
                 buttonItem5.Visibility = BarItemVisibility.Never;  // 用户管理
                 buttonItem6.Visibility = BarItemVisibility.Never;  // 故障录波
                 buttonItem7.Visibility = BarItemVisibility.Never;  // 在线升级
+                buttonItem8.Visibility = BarItemVisibility.Never;  // 用户切换
+                buttonItem9.Visibility = BarItemVisibility.Never;  // 校准管理
             }
 
             // 在状态栏显示当前用户信息
@@ -347,7 +349,7 @@ namespace ChargeDebug
             logViewer = new LogViewer();
 
             //注册页面
-            RegisterPage(typeof(Surveillance), new Surveillance(dbPath,equipmentList));
+            RegisterPage(typeof(Surveillance), new Surveillance(dbPath,equipmentList, _userPermissions));
             RegisterPage(typeof(Parameter), new Parameter(dbPath, equipmentList));
             RegisterPage(typeof(Equipment), new Equipment(dbPath));
             RegisterPage(typeof(Agreement), new Agreement(dbPath, equipmentList));
