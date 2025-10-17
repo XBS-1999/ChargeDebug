@@ -15,7 +15,6 @@ using DevExpress.DataProcessing;
 using System.IO;
 using ClosedXML.Excel;
 using System.Data;
-using Ivi.Visa;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -1410,7 +1409,7 @@ namespace ChargeDebug.Form
                         continue;
 
                     // 生成校准点
-                    var points = GenerateCalibrationPoints(minValue, maxValue, calibrationNumber, readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
+                    var points = GenerateCalibrationPoints(signalType,minValue, maxValue, calibrationNumber, readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
 
                     // 添加到字典（支持同一个信号的多个校准范围）
                     string key = $"{deviceName}-{signalName}-{calibrationSignal}";
@@ -1429,7 +1428,7 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 根据范围和点数生成校准点
         /// </summary>
-        private List<CalibrationPoint> GenerateCalibrationPoints(double minValue, double maxValue, int calibrationNumber,
+        private List<CalibrationPoint> GenerateCalibrationPoints(string signalType, double minValue, double maxValue, int calibrationNumber,
             int readTimeMs, SignalInfo signalInfo, string deviceName, string signalName,string calibrationsignal)
         {
             var points = new List<CalibrationPoint>();
@@ -1442,14 +1441,36 @@ namespace ChargeDebug.Form
             }
             else
             {
-                // 计算步长
-                double step = (maxValue - minValue) / calibrationNumber;
-
-                // 生成等分点
-                for (int i = 0; i < calibrationNumber; i++)
+                if (signalType == "电压")
                 {
-                    double value = minValue + (step * (i + 1));
-                    points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+                    // 计算步长
+                    double step = (maxValue - minValue) / calibrationNumber;
+
+                    // 生成等分点
+                    for (int i = 0; i < calibrationNumber; i++)
+                    {
+                        double value = minValue + (step * (i + 1));
+                        points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+                    }
+                }
+                else
+                {
+                    // 计算步长
+                    double step = (maxValue - minValue) / (calibrationNumber / 2);
+
+                    // 生成负值等分点
+                    for (int i = 0; i < calibrationNumber / 2; i++)
+                    {
+                        double value = minValue + (-step * (i + 1));
+                        points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+                    }
+
+                    // 生成负值等分点
+                    for (int i = 0; i < calibrationNumber / 2; i++)
+                    {
+                        double value = minValue + (step * (i + 1));
+                        points.Add(CreateCalibrationPoint(value, readTimeMs, signalInfo, deviceName, signalName, calibrationsignal));
+                    }
                 }
             }
 
@@ -2033,16 +2054,22 @@ namespace ChargeDebug.Form
 
                             if (scale == 0.0 && zero == 0.0)
                             {
-                                LogService.Log($"读取原有校准系数失败");
                                 num++;
                             }
                             else
                             {
                                 originalScaleFactor = scale;
                                 originalZeroFactor = zero;
+                                num = 0;
                                 LogService.Log($"读取原有校准系数 - 比例系数: {originalScaleFactor}, 零点系数: {originalZeroFactor}");
                                 break;
                             }
+                        }
+
+                        if (num >= 3)
+                        {
+                            LogService.Log($"读取原有校准系数失败");
+                            return false;
                         }
                     }
 
@@ -2084,11 +2111,11 @@ namespace ChargeDebug.Form
                                     if (!setcurrent)
                                     {
                                         LogService.Log($"设置电流 {stepVoltage}A 失败，跳过此校准点");
-                                        break;
+                                        return false;
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(2000, cancellationToken);
+                                    await Task.Delay(1000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2110,6 +2137,7 @@ namespace ChargeDebug.Form
                             catch (Exception ex)
                             {
                                 LogService.Log($"校准点 {point.Voltage}A 处理失败: {ex.Message}");
+                                return false;
                             }
 
                             // 更新进度
@@ -2132,11 +2160,11 @@ namespace ChargeDebug.Form
                             if (!setcurrent)
                             {
                                 LogService.Log($"设置电流 {stepVoltage}A 失败");
-                                break;
+                                return false;
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(2000, cancellationToken);
+                            await Task.Delay(1000, cancellationToken);
                         }
 
                         // 处理正电流部分：从0到额定值，步进20A
@@ -2161,11 +2189,11 @@ namespace ChargeDebug.Form
                                     if (!setcurrent)
                                     {
                                         LogService.Log($"设置电流 {stepVoltage}A 失败，跳过此校准点");
-                                        break;
+                                        return false;
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(2000, cancellationToken);
+                                    await Task.Delay(1000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2187,6 +2215,7 @@ namespace ChargeDebug.Form
                             catch (Exception ex)
                             {
                                 LogService.Log($"校准点 {point.Voltage}A 处理失败: {ex.Message}");
+                                return false;
                             }
 
                             // 更新进度
@@ -2211,18 +2240,18 @@ namespace ChargeDebug.Form
                             if (!setcurrent)
                             {
                                 LogService.Log($"设置电流 {stepVoltage}A 失败");
-                                break;
+                                return false;
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(2000, cancellationToken); // 短暂等待
+                            await Task.Delay(1000, cancellationToken); // 短暂等待
                         }
 
                         LogService.Log("关闭电流源输出...");
 
                         await startupManager.SetParameters(0x00, 0.0, 0.0);
 
-                        await Task.Delay(3000, cancellationToken);
+                        await Task.Delay(1000, cancellationToken);
                     }
                     else
                     {
@@ -2309,6 +2338,18 @@ namespace ChargeDebug.Form
                             // 将新的校准系数写入设备
                             if (scaleFactorSignal != null && zeroFactorSignal != null)
                             {
+                                if (0.9 > newScaleFactor || newScaleFactor > 1.1)
+                                {
+                                    LogService.Log($"比例系数{newScaleFactor}超出设置(0.9—1.1)范围");
+                                    return false;
+                                }
+
+                                if (-5.0 > newZeroFactor || newZeroFactor > 5.0)
+                                {
+                                    LogService.Log($"零点系数{newZeroFactor}超出设置(-10.0—10.0)范围");
+                                    return false;
+                                }
+
                                 bool writeSuccess = await WriteCalibrationFactors(
                                     firstPoint.DeviceName,
                                     scaleFactorSignal, zeroFactorSignal,
@@ -2544,11 +2585,11 @@ namespace ChargeDebug.Form
                                     if (!setcurrent)
                                     {
                                         LogService.Log($"设置电流 {stepVoltage}A 失败，跳过此校准点");
-                                        break;
+                                        return false;
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(2000, cancellationToken);
+                                    await Task.Delay(1000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2604,11 +2645,11 @@ namespace ChargeDebug.Form
                             if (!setcurrent)
                             {
                                 LogService.Log($"设置电流 {stepVoltage}A 失败");
-                                break;
+                                return false;
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(2000, cancellationToken); // 短暂等待
+                            await Task.Delay(1000, cancellationToken); // 短暂等待
                         }
 
                         // 处理正电流部分：从0到额定值，步进20A
@@ -2632,12 +2673,12 @@ namespace ChargeDebug.Form
 
                                     if (!setcurrent)
                                     {
-                                        LogService.Log($"设置电流 {stepVoltage}A 失败，跳过此校准点");
-                                        break;
+                                        LogService.Log($"设置电流 {stepVoltage}A 失败");
+                                        return false;
                                     }
 
                                     currentVoltage = stepVoltage;
-                                    await Task.Delay(2000, cancellationToken);
+                                    await Task.Delay(1000, cancellationToken);
                                 }
 
                                 // 等待电流稳定
@@ -2694,11 +2735,11 @@ namespace ChargeDebug.Form
                             if (!setcurrent)
                             {
                                 LogService.Log($"设置电流 {stepVoltage}A 失败");
-                                break;
+                                return false;
                             }
 
                             currentVoltage = stepVoltage;
-                            await Task.Delay(2000, cancellationToken); // 短暂等待
+                            await Task.Delay(1000, cancellationToken); // 短暂等待
                         }
                     }
                     else
@@ -2789,19 +2830,12 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 记录开始时间
-                //DateTime startTime = DateTime.Now;
-
-                // 并行读取电压表值和设备采样值
-                var voltmeterTask = ReadVoltmeterValue(voltmeter, voltmeterSignals);
-                var deviceTask = ReadDeviceVoltageSample(deviceName, signalInfo, treeSignals);
+                // 并行读取电压表值和设备采样值 - 确保真正的异步执行
+                var voltmeterTask = ReadVoltmeterValueAsync(voltmeter, voltmeterSignals);
+                var deviceTask = ReadDeviceVoltageSampleAsync(deviceName, signalInfo, treeSignals);
 
                 // 等待两个任务完成
                 await Task.WhenAll(voltmeterTask, deviceTask);
-
-                // 记录结束时间并计算耗时
-                //TimeSpan duration = DateTime.Now - startTime;
-                //LogService.Log($"电压读取完成，耗时: {duration.TotalMilliseconds}ms");
 
                 return (voltmeterTask.Result, deviceTask.Result);
             }
@@ -2819,20 +2853,20 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 读取电压表值
+        /// 异步读取电压表值
         /// </summary>
-        private async Task<double> ReadVoltmeterValue(EquipmentModel voltmeter, List<ModbusSignal> voltmeterSignals)
+        private async Task<double> ReadVoltmeterValueAsync(EquipmentModel voltmeter, List<ModbusSignal> voltmeterSignals)
         {
+            LogService.Log("开始异步执行ReadVoltmeterValue");
             try
             {
                 // 根据电压表类型选择不同的读取方式
                 switch (voltmeter.CanType)
                 {
                     case "USB-SCPI":
-                        return await ReadScpiVoltmeterValue(voltmeter);
+                        return await ReadScpiVoltmeterValueAsync(voltmeter);
 
                     case "RS485-MODBUS":
-                        // 实现Modbus电压表读取逻辑
                         throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
 
                     default:
@@ -2841,16 +2875,17 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                //LogService.Log($"读取电压表值失败: {ex.Message}");
+                LogService.Log($"异步读取电压表值失败: {ex.Message}");
                 throw;
             }
         }
 
         /// <summary>
-        /// 读取设备电压采样值
+        /// 异步读取设备电压采样值
         /// </summary>
-        private async Task<double> ReadDeviceVoltageSample(string deviceName, SignalInfo signalInfo, List<SignalInfo> treeSignals)
+        private async Task<double> ReadDeviceVoltageSampleAsync(string deviceName, SignalInfo signalInfo, List<SignalInfo> treeSignals)
         {
+            LogService.Log("开始异步执行ReadDeviceVoltageSample");
             try
             {
                 // 根据设备类型选择不同的读取方式
@@ -2858,153 +2893,105 @@ namespace ChargeDebug.Form
                 if (equipment == null)
                     throw new Exception($"未找到设备: {deviceName}");
 
-                // 记录读取开始时间
-                //DateTime startTime = DateTime.Now;
-
                 double result;
 
                 switch (equipment.CanType)
                 {
                     case "RS485-MODBUS":
-                        //result = await ReadModbusDeviceValue(equipment, signalInfo);
                         throw new Exception($"不支持的设备类型: {equipment.CanType}");
 
                     case "ZCAN_CANETTCP":
-                        result = await ReadCanDeviceValue(equipment, signalInfo);
+                        result = await ReadCanDeviceValueAsync(equipment, signalInfo);
                         break;
 
                     default:
                         throw new Exception($"不支持的设备类型: {equipment.CanType}");
                 }
 
-                // 记录读取耗时
-                //TimeSpan duration = DateTime.Now - startTime;
-                //if (duration.TotalMilliseconds > 100)
-                //{
-                //    LogService.Log($"设备 {equipment.DeviceName} 读取耗时: {duration.TotalMilliseconds}ms");
-                //}
-
                 return result;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                //LogService.Log($"读取设备电压采样值失败: {ex.Message}");
+                LogService.Log($"异步读取设备电压采样值失败: {ex.Message}");
                 throw;
             }
         }
 
         /// <summary>
-        /// 读取CAN设备电压采样值
+        /// 异步读取SCPI电压表值
         /// </summary>
-        private async Task<double> ReadCanDeviceValue(EquipmentModel equipment, SignalInfo signalInfo)
+        private async Task<double> ReadScpiVoltmeterValueAsync(EquipmentModel voltmeter)
         {
             try
             {
-                // 记录开始时间
-                //DateTime startTime = DateTime.Now;
+                // 使用Task.Run将同步方法包装为异步，避免阻塞
+                return await Task.Run(() =>
+                {
+                    // 发送查询命令并读取响应
+                    double voltageValue = Keysight34465A_Communicator.Instance.MeasureDCVoltage(aperture: 0.5);
+
+                    //LogService.Log($"读取实际电压值: {voltageValue}");
+                    return voltageValue;
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"读取电压表值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 异步读取CAN设备电压采样值
+        /// </summary>
+        private async Task<double> ReadCanDeviceValueAsync(EquipmentModel equipment, SignalInfo signalInfo)
+        {
+            try
+            {
                 // 构建通道键
                 string channelKey = CANManager.GetChannelKey(equipment.DeviceIndex, equipment.CanIndex);
                 CANManager.Instance.ClearQueue(channelKey);
-                await Task.Delay(600);//延时600ms
 
                 // 从SignalInfo中获取CAN ID
                 uint canId = uint.Parse(signalInfo.CANID.Replace("0x", ""),
                     System.Globalization.NumberStyles.HexNumber);
 
+                List<double> values = new List<double>();
 
-                // 接收指定CAN ID的帧
-                var frame = await CANManager.Instance.ReceiveFrameAsync(channelKey, canId, 2000);
-
-                if (frame.IsEmpty())
+                try
                 {
-                    throw new Exception($"接收CAN帧超时，CAN ID: 0x{canId:X}");
+                    // 接收指定CAN ID的帧
+                    var frames = await CANManager.Instance.ReceiveAllFramesAsync(channelKey, canId, 1000);
+
+                    foreach (var frame in frames)
+                    {
+                        // 解析帧中的数据
+                        ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalInfo);
+                        double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
+                        values.Add(physicalValue);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 忽略单次读取的异常，继续尝试读取
+                    LogService.Log($"读取异常: {ex.Message}");
                 }
 
-                // 解析帧中的数据
-                ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalInfo);
-                double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
+                // 检查是否读取到数据
+                if (values.Count == 0)
+                {
+                    throw new Exception($"在500ms内未接收到任何CAN帧，CAN ID: 0x{canId:X}");
+                }
 
-                // 记录结束时间并计算耗时
-                //TimeSpan duration = DateTime.Now - startTime;
+                // 计算平均值
+                double averageValue = values.Average();
+                //LogService.Log($"读取到采样电压值: {averageValue}");
 
-                LogService.Log($"电压采样值读取完成");
-
-                return physicalValue;
+                return averageValue;
             }
             catch (Exception)
             {
                 //LogService.Log($"读取CAN设备值失败: {ex.Message}");
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 读取SCPI电压表值
-        /// </summary>
-        private async Task<double> ReadScpiVoltmeterValue(EquipmentModel voltmeter)
-        {
-            try
-            {
-                // 记录开始时间
-                //DateTime startTime = DateTime.Now;
-
-                // 发送查询命令并读取响应
-                Keysight34465A_Communicator.Instance.SendCommand("CONF:VOLT:DC AUTO");
-
-                // 等待设置生效
-                await Task.Delay(50);
-
-                // 发送查询命令（必须以问号结尾）
-                string response = Keysight34465A_Communicator.Instance.Query("READ?");
-
-                if (double.TryParse(response.Trim(), out double voltageValue))
-                {
-                    // 记录结束时间并计算耗时
-                    //TimeSpan duration = DateTime.Now - startTime;
-                    LogService.Log($"电压表读取完成");
-
-                    return voltageValue;
-                }
-
-                throw new Exception($"无效的电压值响应: {response}");
-            }
-            catch (Exception)
-            {
-                //LogService.Log($"读取SCPI电压表值失败: {ex.Message}");
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 读取RS232电流表值
-        /// </summary>
-        private async Task<double> ReadScpiAmmeterValue(EquipmentModel voltmeter)
-        {
-            try
-            {
-                // 发送查询命令并读取响应
-                Keysight34465A_Communicator.Instance.SendCommand("CONF:VOLT:DC AUTO");
-
-                // 等待设置生效
-                await Task.Delay(50);
-
-                // 发送查询命令（必须以问号结尾）
-                string response = Keysight34465A_Communicator.Instance.Query("READ?");
-
-                if (double.TryParse(response.Trim(), out double voltageValue))
-                {
-                    // 记录结束时间并计算耗时
-                    //TimeSpan duration = DateTime.Now - startTime;
-                    LogService.Log($"电压表读取完成");
-
-                    return voltageValue;
-                }
-
-                throw new Exception($"无效的电压值响应: {response}");
-            }
-            catch (Exception)
-            {
-                //LogService.Log($"读取SCPI电压表值失败: {ex.Message}");
                 throw;
             }
         }
@@ -3373,16 +3360,7 @@ namespace ChargeDebug.Form
                     {
                         count++;
                         // 获取信号信息 - 从第一个节点获取设备名称和信号名称
-                        string channel = "";
-                        if (channelGroup.GetValue("DeviceName").ToString().Contains("-"))
-                        {
-                            channel = channelGroup.GetValue("DeviceName")?.ToString().Split('-')[1] ?? "";
-                        }
-                        else
-                        {
-                            channel = channelGroup.GetValue("DeviceName")?.ToString() ?? "";
-                        }
-                        
+                        string deviceName = channelGroup.GetValue("DeviceName")?.ToString() ?? "";
                         string signaltype = channelGroup.GetValue("SignalType")?.ToString() ?? "";
                         string signalName = channelGroup.GetValue("SignalName")?.ToString() ?? "";
                         string ratingVoltage = channelGroup.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
@@ -3390,7 +3368,7 @@ namespace ChargeDebug.Form
                         string zerofactor = channelGroup.GetValue("ZeroFactor")?.ToString() ?? "";
 
                         // 通道标题
-                        worksheet.Cell(currentRow, 1).Value = $"{channel}-{signalName}";
+                        worksheet.Cell(currentRow, 1).Value = $"{deviceName}-{signalName}";
                         worksheet.Range(currentRow, 1, currentRow, 4).Merge(); // 合并通道标题
 
                         worksheet.Cell(currentRow, 5).Value = "额定值";

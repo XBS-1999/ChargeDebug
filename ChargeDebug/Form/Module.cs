@@ -28,6 +28,20 @@ namespace ChargeDebug.Form
     public partial class Module : XtraUserControl, IDisposable
     {
         // ==================== 字段声明区域 ====================
+        #region 启动数据保存字段
+
+        // 启动数据保存相关字段
+        private bool _isStartupSaving = false;
+        private StreamWriter _startupFileWriter;
+        private string _startupFilePath;
+        private DateTime _startupStartTime;
+
+        // 保存目录管理
+        private static string _baseSaveDirectory;
+        private string _deviceSaveDirectory;
+
+        #endregion
+
         #region 实时数据保存字段
 
         // ==================== 实时数据保存相关字段 ====================
@@ -71,7 +85,7 @@ namespace ChargeDebug.Form
         private uint _dcRunStatus;
         private uint _acRunMode;
         private uint _dcRunMode;
-        //private uint currentStatus;
+        private uint softwareprotection = 0x00;
 
         // 时间管理字段
         private DateTime _startTime;
@@ -130,21 +144,6 @@ namespace ChargeDebug.Form
 
         #endregion
 
-        #region 启动数据保存字段
-
-        // 启动数据保存相关字段
-        private bool _isStartupSaving = false;
-        private StreamWriter _startupFileWriter;
-        private readonly object _startupFileLock = new object();
-        private string _startupFilePath;
-        private DateTime _startupStartTime;
-
-        // 保存目录管理
-        private static string _baseSaveDirectory;
-        private string _deviceSaveDirectory;
-
-        #endregion
-
         #region 文件管理字段
 
         // 文件大小限制
@@ -188,15 +187,6 @@ namespace ChargeDebug.Form
                 }
                 //UpdateConnectionStatusUI("", Color.White);
             }
-        }
-
-        /// <summary>
-        /// 实时数据保存状态
-        /// </summary>
-        public bool IsRealTimeSaving
-        {
-            get => _isRealTimeSaving;
-            private set => _isRealTimeSaving = value;
         }
 
         #endregion
@@ -295,7 +285,7 @@ namespace ChargeDebug.Form
             try
             {
                 long currentSize = CalculateFolderSize(_baseSaveDirectory);
-                LogService.Log($"RealTimeData文件夹当前大小: {currentSize / 1024 / 1024}MB");
+                //LogService.Log($"RealTimeData文件夹当前大小: {currentSize / 1024 / 1024}MB");
 
                 if (currentSize > MAX_BASE_FOLDER_SIZE)
                 {
@@ -592,7 +582,7 @@ namespace ChargeDebug.Form
             }
 
             // 更新当前实例的保存状态
-            _isRealTimeSaving = shouldSave;
+            //_isRealTimeSaving = shouldSave;
 
             // 如果没有模块在保存，关闭文件写入器
             if (!shouldSave)
@@ -749,26 +739,19 @@ namespace ChargeDebug.Form
 
                     // 7. 实时更新运行状态
                     UpdateDeviceStatus(signal.SystemName, physicalValue);
-
-                    // 8. 实时保存数据（如果启用）
-                    //if (_isRealTimeSaving)
-                    //{
-                    //    SaveSignalData(signal.SystemName, physicalValue, rawValue, signalDef, frame);
-                    //}
                 }
 
-                //实时保存数据（如果启用）
-                if (_isRealTimeSaving)
-                {
-                    SaveSignalData(frame, signalValue);
-                }
+                // 实时保存数据（如果启用）- 使用新线程避免阻塞
+                //if (_isRealTimeSaving)
+                //{
+                //    Task.Run(() => SaveSignalData(frame, signalValue));
+                //}
 
-                // ============ 新增：保存启动数据（如果启动保存启用） ============
-                if (_isStartupSaving)
-                {
-                    SaveStartupData(frame, signalValue);
-                }
-                // ============ 新增结束 ============
+                ////// 保存启动数据（如果启动保存启用）- 使用新线程避免阻塞
+                //if (_isStartupSaving)
+                //{
+                //    Task.Run(() => SaveStartupData(frame, signalValue));
+                //}
             }
         }
 
@@ -1070,13 +1053,13 @@ namespace ChargeDebug.Form
                 }
             }
 
-            CheckAndControlFaultTimer(oldDcRunStatus, oldAcRunStatus);
-
             if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
             {
                 // 触发停机指令，只发一次
                 SendStopCommandIfNeeded();
             }
+
+            CheckAndControlFaultTimer(oldDcRunStatus, oldAcRunStatus);
         }
 
         /// <summary>
@@ -1135,6 +1118,8 @@ namespace ChargeDebug.Form
                         value > overVoltage)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x01;
+                        _faultDisplayQueue.Enqueue($"过压保护: {value} > {overVoltage}");
                         LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
                         //XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
                     }
@@ -1142,6 +1127,8 @@ namespace ChargeDebug.Form
                              value < underVoltage)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x02;
+                        _faultDisplayQueue.Enqueue($"欠压保护: {value} > {underVoltage}");
                         LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
                         //XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
                     }
@@ -1154,6 +1141,8 @@ namespace ChargeDebug.Form
                         value > overCurrent)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x03;
+                        _faultDisplayQueue.Enqueue($"过流保护: {value} > {overCurrent}");
                         LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
                         //XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
                     }
@@ -1161,6 +1150,8 @@ namespace ChargeDebug.Form
                              value < underCurrent)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x04;
+                        _faultDisplayQueue.Enqueue($"过流保护: {value} > {underCurrent}");
                         LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
                         //XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
                     }
@@ -1173,6 +1164,8 @@ namespace ChargeDebug.Form
                         value > overPower)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x05;
+                        _faultDisplayQueue.Enqueue($"过功率保护: {value} > {overPower}");
                         LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
                         //XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
                     }
@@ -1180,6 +1173,8 @@ namespace ChargeDebug.Form
                              value < underPower)
                     {
                         SendStopCommandIfNeeded();
+                        softwareprotection = 0x06;
+                        _faultDisplayQueue.Enqueue($"欠功率保护: {value} > {underPower}");
                         LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
                         //XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
                     }
@@ -1197,7 +1192,6 @@ namespace ChargeDebug.Form
         private void SendStopCommandIfNeeded()
         {
             if (_stopCommandSent)
-            //if (true)
             {
                 _stopCommandSent = false;
 
@@ -1521,16 +1515,24 @@ namespace ChargeDebug.Form
         /// </summary>
         private bool CompareParameters(ConfigurationData oldParams, ConfigurationData newParams)
         {
-            // 比较保护参数
-            if (oldParams.OverVoltage != newParams.OverVoltage ||
-                oldParams.UnderVoltage != newParams.UnderVoltage ||
-                oldParams.OverCurrent != newParams.OverCurrent ||
-                oldParams.UnderCurrent != newParams.UnderCurrent ||
-                oldParams.OverPower != newParams.OverPower ||
-                oldParams.UnderPower != newParams.UnderPower)
+            if (oldParams != null && newParams != null)
+            {
+                // 比较保护参数
+                if (oldParams.OverVoltage != newParams.OverVoltage ||
+                    oldParams.UnderVoltage != newParams.UnderVoltage ||
+                    oldParams.OverCurrent != newParams.OverCurrent ||
+                    oldParams.UnderCurrent != newParams.UnderCurrent ||
+                    oldParams.OverPower != newParams.OverPower ||
+                    oldParams.UnderPower != newParams.UnderPower)
+                {
+                    return true;
+                }
+            }
+            else
             {
                 return true;
             }
+            
 
             return false;
         }
@@ -1717,7 +1719,7 @@ namespace ChargeDebug.Form
 
                 // 2. 获取故障显示内容
                 string faultDisplay = string.Empty;
-                bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF);
+                bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF) || (softwareprotection != 0x00);
                 if (isFaultMode)
                 {
                     faultDisplay = GetNextFaultToDisplay();
@@ -1782,47 +1784,54 @@ namespace ChargeDebug.Form
                 return;
             }
 
-            switch (status)
+            if (!_hasDCChannel)
             {
-                case 0x00: // 待机
-                    switch (_acRunStatus)
-                    {
-                        case 0x00:
-                            UpdateConnectionStatusUI("待机", Color.Yellow);
-                            break;
+                switch (_acRunStatus)
+                {
+                    case 0x00:
+                        UpdateConnectionStatusUI("待机", Color.Yellow);
+                        break;
 
-                        case 0x01:
-                            UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
-                            break;
+                    case 0x01:
+                        UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
+                        break;
 
-                        case 0x02: // 运行
-                            UpdateConnectionStatusUI("运行", Color.Green);
-                            break;
-                        case 0x03: // 停机过程中
-                            UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
-                            break;
+                    case 0x02: // 运行
+                        UpdateConnectionStatusUI("运行", Color.Green);
+                        break;
+                    case 0x03: // 停机过程中
+                        UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
+                        break;
 
-                        default:
-                            break;
-                    }
-                    break;
-                case 0x01: // 启动过程中
-                    UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
-                    break;
-                case 0x02: // 运行
-                    UpdateConnectionStatusUI("运行", Color.Green);
-                    break;
-                case 0x03: // 停机过程中
-                    UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
-                    break;
-                //case 0xFF:
-                //    // 查询故障显示方法
-                //    DisplayNextFault(null);
-                //    break;
+                    default:
+                        break;
+                }
+            }
+            else
+            {
+                switch (_dcRunStatus)
+                {
+                    case 0x00: // 待机
+                        UpdateConnectionStatusUI("待机", Color.Yellow);
+                        break;
+                    case 0x01: // 启动过程中
+                        UpdateConnectionStatusUI("启动过程中", Color.YellowGreen);
+                        break;
+                    case 0x02: // 运行
+                        UpdateConnectionStatusUI("运行", Color.Green);
+                        break;
+                    case 0x03: // 停机过程中
+                        UpdateConnectionStatusUI("停机过程中", Color.YellowGreen);
+                        break;
+                    //case 0xFF:
+                    //    // 查询故障显示方法
+                    //    DisplayNextFault(null);
+                    //    break;
 
-                default:
-                    //UpdateConnectionStatusUI("未知状态", Color.Gray);
-                    break;
+                    default:
+                        //UpdateConnectionStatusUI("未知状态", Color.Gray);
+                        break;
+                }
             }
         }
 
@@ -2505,7 +2514,7 @@ namespace ChargeDebug.Form
                     _currentRealtimeFileSize = new FileInfo(filePath).Length;
                     _currentRealtimeFileCreateTime = DateTime.Now;
 
-                    //LogService.Log($"初始化设备文件写入器: {_deviceKey} -> {filePath}, 初始大小: {_currentRealtimeFileSize}字节");
+                    LogService.Log($"初始化设备文件写入器: {_deviceKey} -> {filePath}, 初始大小: {_currentRealtimeFileSize}字节");
                 }
                 catch (Exception ex)
                 {
@@ -2555,7 +2564,8 @@ namespace ChargeDebug.Form
             if (!_deviceFileWriters.TryGetValue(_deviceKey, out var writer) || writer == null)
             {
                 LogService.Log("文件写入器不可用，停止保存");
-                StopRealTimeSave();
+                // 在UI线程中更新状态
+                this.BeginInvoke(new Action(() => StopRealTimeSave()));
                 return;
             }
 
@@ -2567,7 +2577,7 @@ namespace ChargeDebug.Form
                     if (!_deviceFileWriters.TryGetValue(_deviceKey, out writer) || writer == null || writer.BaseStream == null)
                     {
                         LogService.Log("文件写入器在锁内检查不可用，停止保存");
-                        StopRealTimeSave();
+                        this.BeginInvoke(new Action(() => StopRealTimeSave()));
                         return;
                     }
 
@@ -2579,7 +2589,7 @@ namespace ChargeDebug.Form
                         if (!_deviceFileWriters.TryGetValue(_deviceKey, out writer) || writer == null)
                         {
                             LogService.Log("文件轮转后无法获取写入器，停止保存");
-                            StopRealTimeSave();
+                            this.BeginInvoke(new Action(() => StopRealTimeSave()));
                             return;
                         }
                     }
@@ -2646,19 +2656,19 @@ namespace ChargeDebug.Form
                     else
                     {
                         LogService.Log("写入器状态异常，停止保存");
-                        StopRealTimeSave();
+                        this.BeginInvoke(new Action(() => StopRealTimeSave()));
                     }
                 }
                 catch (ObjectDisposedException ex)
                 {
                     LogService.Log($"写入器已被释放: {ex.Message}");
-                    StopRealTimeSave();
+                    this.BeginInvoke(new Action(() => StopRealTimeSave()));
                 }
                 catch (Exception ex)
                 {
                     LogService.Log($"保存信号数据失败: {ex.Message}");
                     // 保存失败时停止保存
-                    StopRealTimeSave();
+                    this.BeginInvoke(new Action(() => StopRealTimeSave()));
                 }
             }
         }
@@ -2956,7 +2966,7 @@ namespace ChargeDebug.Form
         {
             try
             {
-                lock (_startupFileLock)
+                lock (_deviceFileLocks[_deviceKey])
                 {
                     if (_isStartupSaving)
                     {
@@ -2975,7 +2985,7 @@ namespace ChargeDebug.Form
                     // 生成启动数据文件名
                     string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                     string fileName = $"启动数据_{_equipment.DeviceName}_{timestamp}.csv";
-                    _startupFilePath = Path.Combine(_deviceSaveDirectory, fileName);
+                    _startupFilePath = Path.Combine(dateSaveDirectory, fileName);
 
                     // 创建文件写入器
                     _startupFileWriter = new StreamWriter(_startupFilePath, true, System.Text.Encoding.UTF8)
@@ -2989,7 +2999,7 @@ namespace ChargeDebug.Form
                     _isStartupSaving = true;
                     _startupStartTime = DateTime.Now;
 
-                    LogService.Log($"开始启动数据保存: {_startupFilePath}");
+                    LogService.Log($"数据保存开始: {_startupFilePath}");
 
                     // 检查基础文件夹大小
                     CheckAndCleanBaseFolder();
@@ -2997,7 +3007,7 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                LogService.Log($"开始启动数据保存失败: {ex.Message}");
+                LogService.Log($"数据保存失败: {ex.Message}");
                 _isStartupSaving = false;
             }
         }
@@ -3026,7 +3036,7 @@ namespace ChargeDebug.Form
         {
             if (!_isStartupSaving || _startupFileWriter == null) return;
 
-            lock (_startupFileLock)
+            lock (_deviceFileLocks[_deviceKey])
             {
                 try
                 {
@@ -3070,6 +3080,7 @@ namespace ChargeDebug.Form
                     _startupFileWriter.WriteLine(csvLine);
                     _startupFileWriter.Flush();
 
+                    // 定期检查基础文件夹大小（在后台线程中）
                     CheckBaseFolderPeriodically();
                 }
                 catch (Exception ex)
@@ -3086,7 +3097,7 @@ namespace ChargeDebug.Form
         {
             try
             {
-                lock (_startupFileLock)
+                lock (_deviceFileLocks[_deviceKey])
                 {
                     if (_isStartupSaving && _startupFileWriter != null)
                     {
@@ -3096,14 +3107,7 @@ namespace ChargeDebug.Form
 
                         // 记录保存信息
                         TimeSpan saveDuration = DateTime.Now - _startupStartTime;
-                        LogService.Log($"启动数据保存结束: {_startupFilePath}, 持续时间: {saveDuration.TotalSeconds:F1}秒, 文件大小: {new FileInfo(_startupFilePath).Length}字节");
-
-                        // 显示保存完成消息
-                        this.BeginInvoke(new Action(() =>
-                        {
-                            XtraMessageBox.Show($"启动数据已保存到:\n{_startupFilePath}", "启动数据保存完成",
-                                MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }));
+                        LogService.Log($"数据保存结束: {_startupFilePath}, 持续时间: {saveDuration.TotalSeconds:F1}秒, 文件大小: {new FileInfo(_startupFilePath).Length}字节");
                     }
 
                     _isStartupSaving = false;

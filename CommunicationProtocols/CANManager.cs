@@ -932,6 +932,62 @@ namespace ChargeDebug.Service
             return new ZCAN_Receive_Data(); // 返回空帧
         }
 
+        public async Task<List<ZCAN_Receive_Data>> ReceiveAllFramesAsync(string channelKey, uint expectedCanId, int timeoutMs)
+        {
+            var receivedFrames = new List<ZCAN_Receive_Data>();
+            var startTime = DateTime.Now;
+            var lastProcessTime = startTime;
+
+            while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
+            {
+                if (_receiveQueues.TryGetValue(channelKey, out var queue) && queue.Count > 0)
+                {
+                    var tempList = new List<ZCAN_Receive_Data>();
+                    bool foundFrame = false;
+
+                    while (queue.TryDequeue(out var frame))
+                    {
+                        uint receivedId = frame.can_id & 0x1FFFFFFF;
+
+                        if (receivedId == expectedCanId)
+                        {
+                            receivedFrames.Add(frame);
+                            foundFrame = true;
+
+                            // 可选：记录每帧数据
+                            // string hexData = BitConverter.ToString(frame.data).Replace("-", " ");
+                            // LogService.Log($"设备{channelKey} | 接收帧 | CAN ID: 0x{receivedId:X8} | 数据: {hexData}");
+                        }
+                        else
+                        {
+                            tempList.Add(frame);
+                        }
+                    }
+
+                    // 重新入队不匹配的帧
+                    foreach (var f in tempList)
+                    {
+                        queue.Enqueue(f);
+                    }
+
+                    // 如果本次处理找到了帧，重置延时；否则增加延时
+                    if (!foundFrame)
+                    {
+                        await Task.Delay(5); // 没有找到帧时增加延时
+                    }
+                }
+                else
+                {
+                    await Task.Delay(10); // 队列为空时增加延时
+                }
+            }
+
+            LogService.Log($"设备{channelKey} | 接收完成 | 目标CAN ID: 0x{expectedCanId:X8} | " +
+                           $"共接收 {receivedFrames.Count} 帧数据 | 耗时: {(DateTime.Now - startTime).TotalMilliseconds}ms");
+
+            return receivedFrames;
+        }
+
         public async Task<Dictionary<uint, List<ZCAN_Receive_Data>>> ReceiveMultipleFramesAsync(
             string channelKey,
             List<uint> expectedCanIds,

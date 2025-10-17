@@ -142,6 +142,9 @@ namespace CommunicationProtocols
                 // 设置ASCII格式数据
                 SendCommand("FORM:DATA ASCII");
 
+                // 设置Aperture为500ms
+                SetAperture(0.5);
+
                 // 清除状态
                 SendCommand("*CLS");
             }
@@ -230,6 +233,171 @@ namespace CommunicationProtocols
 
         #endregion
 
+        #region Aperture设置方法
+
+        /// <summary>
+        /// 设置Aperture（积分时间）
+        /// </summary>
+        /// <param name="apertureTime">Aperture时间（秒），最小0.00002秒，最大0.2秒</param>
+        /// <param name="measurementType">测量类型：DCV, ACV, DCI, ACI, RES, FREQ等，为空时设置当前测量函数</param>
+        public void SetAperture(double apertureTime, string measurementType = "")
+        {
+            if (!IsConnected)
+                throw new Exception("未连接到万用表");
+
+            try
+            {
+                // 验证aperture时间范围
+                if (apertureTime < 0.00002 || apertureTime > 1)
+                    throw new ArgumentException("Aperture时间必须在0.00002秒到1秒之间");
+
+                string command;
+                if (string.IsNullOrEmpty(measurementType))
+                {
+                    // 设置当前测量函数的aperture
+                    command = $"SENS:VOLT:DC:APER {apertureTime}";
+                }
+                else
+                {
+                    // 根据指定的测量类型设置aperture
+                    switch (measurementType.ToUpper())
+                    {
+                        case "DCV":
+                            command = $"SENS:VOLT:DC:APER {apertureTime}";
+                            break;
+                        case "ACV":
+                            command = $"SENS:VOLT:AC:APER {apertureTime}";
+                            break;
+                        case "DCI":
+                            command = $"SENS:CURR:DC:APER {apertureTime}";
+                            break;
+                        case "ACI":
+                            command = $"SENS:CURR:AC:APER {apertureTime}";
+                            break;
+                        case "RES":
+                            command = $"SENS:RES:APER {apertureTime}";
+                            break;
+                        case "FREQ":
+                            command = $"SENS:FREQ:APER {apertureTime}";
+                            break;
+                        default:
+                            throw new ArgumentException($"不支持的测量类型: {measurementType}");
+                    }
+                }
+
+                SendCommand(command);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设置Aperture失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 设置Aperture为500ms（0.5秒）
+        /// 注意：34465A的最大Aperture时间为0.2秒，此方法会设置为最大值
+        /// </summary>
+        public void SetApertureTo500ms()
+        {
+            SetAperture(0.2); // 设置为最大允许值0.2秒
+        }
+
+        /// <summary>
+        /// 查询当前Aperture设置
+        /// </summary>
+        /// <param name="measurementType">测量类型</param>
+        /// <returns>Aperture时间（秒）</returns>
+        public double GetAperture(string measurementType = "DCV")
+        {
+            if (!IsConnected)
+                throw new Exception("未连接到万用表");
+
+            try
+            {
+                string query;
+                switch (measurementType.ToUpper())
+                {
+                    case "DCV":
+                        query = "SENS:VOLT:DC:APER?";
+                        break;
+                    case "ACV":
+                        query = "SENS:VOLT:AC:APER?";
+                        break;
+                    case "DCI":
+                        query = "SENS:CURR:DC:APER?";
+                        break;
+                    case "ACI":
+                        query = "SENS:CURR:AC:APER?";
+                        break;
+                    case "RES":
+                        query = "SENS:RES:APER?";
+                        break;
+                    case "FREQ":
+                        query = "SENS:FREQ:APER?";
+                        break;
+                    default:
+                        throw new ArgumentException($"不支持的测量类型: {measurementType}");
+                }
+
+                string response = Query(query);
+                if (double.TryParse(response, out double result))
+                    return result;
+                else
+                    throw new Exception($"无效的Aperture响应: {response}");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"查询Aperture失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 设置NPLC（电源线周期数）代替Aperture时间
+        /// </summary>
+        /// <param name="nplc">NPLC值，最小0.02，最大100</param>
+        /// <param name="measurementType">测量类型</param>
+        public void SetNPLC(double nplc, string measurementType = "DCV")
+        {
+            if (!IsConnected)
+                throw new Exception("未连接到万用表");
+
+            try
+            {
+                if (nplc < 0.02 || nplc > 100)
+                    throw new ArgumentException("NPLC必须在0.02到100之间");
+
+                string command;
+                switch (measurementType.ToUpper())
+                {
+                    case "DCV":
+                        command = $"SENS:VOLT:DC:NPLC {nplc}";
+                        break;
+                    case "ACV":
+                        command = $"SENS:VOLT:AC:NPLC {nplc}";
+                        break;
+                    case "DCI":
+                        command = $"SENS:CURR:DC:NPLC {nplc}";
+                        break;
+                    case "ACI":
+                        command = $"SENS:CURR:AC:NPLC {nplc}";
+                        break;
+                    case "RES":
+                        command = $"SENS:RES:NPLC {nplc}";
+                        break;
+                    default:
+                        throw new ArgumentException($"不支持的测量类型: {measurementType}");
+                }
+
+                SendCommand(command);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设置NPLC失败: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region 测量命令
 
         /// <summary>
@@ -237,8 +405,9 @@ namespace CommunicationProtocols
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>电压值（伏特）</returns>
-        public double MeasureDCVoltage(double range = 0, double resolution = 0.001)
+        public double MeasureDCVoltage(double range = 0, double resolution = 0.001, double aperture = 0)
         {
             try
             {
@@ -247,13 +416,24 @@ namespace CommunicationProtocols
                 else
                     SendCommand("CONF:VOLT:DC AUTO");
 
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "DCV");
+                }
+
                 // 触发并读取测量值
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(100);
 
                 string response = _mbSession.RawIO.ReadString().Trim();
                 if (double.TryParse(response, out double result))
-                    return result;
+                {
+                    // 格式化并重新解析以确保精度
+                    string formatted = result.ToString("F3");
+                    double finalValue = double.Parse(formatted);
+                    return finalValue;
+                }
                 else
                     throw new Exception($"无效的响应格式: {response}");
             }
@@ -268,8 +448,9 @@ namespace CommunicationProtocols
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>电压值（伏特）</returns>
-        public double MeasureACVoltage(double range = 0, double resolution = 0.001)
+        public double MeasureACVoltage(double range = 0, double resolution = 0.001, double aperture = 0)
         {
             try
             {
@@ -277,6 +458,12 @@ namespace CommunicationProtocols
                     SendCommand($"CONF:VOLT:AC {range},{resolution}");
                 else
                     SendCommand("CONF:VOLT:AC AUTO");
+
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "ACV");
+                }
 
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(100);
@@ -298,8 +485,9 @@ namespace CommunicationProtocols
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>电阻值（欧姆）</returns>
-        public double MeasureResistance(double range = 0, double resolution = 0.1)
+        public double MeasureResistance(double range = 0, double resolution = 0.1, double aperture = 0)
         {
             try
             {
@@ -307,6 +495,12 @@ namespace CommunicationProtocols
                     SendCommand($"CONF:RES {range},{resolution}");
                 else
                     SendCommand("CONF:RES AUTO");
+
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "RES");
+                }
 
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(100);
@@ -328,8 +522,9 @@ namespace CommunicationProtocols
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>电流值（安培）</returns>
-        public double MeasureDCCurrent(double range = 0, double resolution = 0.0001)
+        public double MeasureDCCurrent(double range = 0, double resolution = 0.0001, double aperture = 0)
         {
             try
             {
@@ -337,6 +532,12 @@ namespace CommunicationProtocols
                     SendCommand($"CONF:CURR:DC {range},{resolution}");
                 else
                     SendCommand("CONF:CURR:DC AUTO");
+
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "DCI");
+                }
 
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(100);
@@ -358,8 +559,9 @@ namespace CommunicationProtocols
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>电流值（安培）</returns>
-        public double MeasureACCurrent(double range = 0, double resolution = 0.0001)
+        public double MeasureACCurrent(double range = 0, double resolution = 0.0001, double aperture = 0)
         {
             try
             {
@@ -367,6 +569,12 @@ namespace CommunicationProtocols
                     SendCommand($"CONF:CURR:AC {range},{resolution}");
                 else
                     SendCommand("CONF:CURR:AC AUTO");
+
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "ACI");
+                }
 
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(100);
@@ -387,12 +595,19 @@ namespace CommunicationProtocols
         /// 测量频率
         /// </summary>
         /// <param name="voltageRange">电压量程</param>
+        /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
         /// <returns>频率值（赫兹）</returns>
-        public double MeasureFrequency(double voltageRange = 10)
+        public double MeasureFrequency(double voltageRange = 10, double aperture = 0)
         {
             try
             {
                 SendCommand($"CONF:FREQ {voltageRange}");
+
+                // 如果指定了aperture，则设置
+                if (aperture > 0)
+                {
+                    SetAperture(aperture, "FREQ");
+                }
 
                 SendCommand("READ?");
                 System.Threading.Thread.Sleep(300); // 频率测量需要更长时间
