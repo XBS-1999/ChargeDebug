@@ -542,14 +542,14 @@ namespace ZLGAPI
     public class ZDBC
     {
         #region 常量定义
-        public const int _MAX_FILE_PATH_          = 260;    // 最长文件路径
-        public const int _DBC_NAME_LENGTH_        = 127;    // 名称最长长度
+        public const int _MAX_FILE_PATH_ = 260;    // 最长文件路径
+        public const int _DBC_NAME_LENGTH_ = 127;    // 名称最长长度
         public const int _DBC_COMMENT_MAX_LENGTH_ = 127;    // 注释最长长度
-        public const int _DBC_UNIT_MAX_LENGTH_    = 23;     // 单位最长长度
-        public const int _DBC_SIGNAL_MAX_COUNT_   = 256;    // 一个消息含有的信号的最大数目
+        public const int _DBC_UNIT_MAX_LENGTH_ = 23;     // 单位最长长度
+        public const int _DBC_SIGNAL_MAX_COUNT_ = 256;    // 一个消息含有的信号的最大数目
 
-        public const int MUTIPLEXER_NONE     = 0;   // 不使用复用器
-        public const int MUTIPLEXER_M_VALUE  = 1;   // 复用信号，当复用器开关的值为multiplexer_value时，该信号有效
+        public const int MUTIPLEXER_NONE = 0;   // 不使用复用器
+        public const int MUTIPLEXER_M_VALUE = 1;   // 复用信号，当复用器开关的值为multiplexer_value时，该信号有效
         public const int MUTIPLEXER_M_SWITCH = 2;   // 复用器开关，一个DBC消息只能有一个信号为开关
 
         public const int FT_CAN = 0;    // CAN
@@ -673,7 +673,7 @@ namespace ZLGAPI
         /// <returns>是否成功。</returns>
         [DllImport(".\\zdbc.dll", CallingConvention = CallingConvention.StdCall)]
         public static extern bool ZDBC_Decode(uint DBCHandle, IntPtr P2DBCMessage, IntPtr P2Obj, uint nCount, byte frame_type);
-        
+
         /// <summary>
         /// 根据 DBCMessage 编码为原始数据。
         /// </summary>
@@ -685,7 +685,7 @@ namespace ZLGAPI
         /// <returns>是否成功。</returns>
         [DllImport(".\\zdbc.dll", CallingConvention = CallingConvention.StdCall)]
         public static extern bool ZDBC_Encode(uint DBCHandle, IntPtr P2Obj, IntPtr P2nCount, IntPtr pMsg, byte frame_type);
-        
+
         /// <summary>
         /// 信号原始值转换为实际值
         /// </summary>
@@ -776,7 +776,7 @@ namespace ZLGAPI
 
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = _DBC_UNIT_MAX_LENGTH_ + 1)]
             public byte[] unit;                                         //单位
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = _DBC_NAME_LENGTH_ + 1)]        
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = _DBC_NAME_LENGTH_ + 1)]
             public byte[] strName;                                      //名称
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = _DBC_COMMENT_MAX_LENGTH_ + 1)]
             public byte[] strComment;                                   //注释

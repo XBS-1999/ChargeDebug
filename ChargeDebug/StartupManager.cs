@@ -1,9 +1,8 @@
-﻿using ChargeDebug.Service;
+﻿using ChargeDebug.Form;
+using ChargeDebug.Service;
 using DataModel;
 using Log;
-using ChargeDebug.Form;
 using System.Globalization;
-using System.Threading;
 using static ChargeDebug.Form.ACStartConfiguration;
 
 #pragma warning disable
@@ -83,7 +82,7 @@ namespace ChargeDebug
                         return false;
                     }
                 }
-                
+
                 // 步骤3: 发送控制参数32YCC
                 bool controlparameters = await SendControlParams32YCC(configData);
                 if (!controlparameters)
@@ -129,7 +128,7 @@ namespace ChargeDebug
                         return false;
                     }
                 }
-                
+
                 return true;
             }
             catch (Exception ex)
@@ -231,7 +230,7 @@ namespace ChargeDebug
 
                 // 构造保护参数数据
                 byte[] data = new byte[8];
-                data[0] = 0x00;   
+                data[0] = 0x00;
                 data[1] = 0x00;
                 data[2] = 0x00;
                 data[3] = 0x00;
@@ -426,7 +425,7 @@ namespace ChargeDebug
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -435,7 +434,7 @@ namespace ChargeDebug
                         sendCanId,
                         data
                     );
-                    
+
                     var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 50);
 
                     if (response.data != null)
@@ -454,6 +453,7 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -489,16 +489,16 @@ namespace ChargeDebug
                 data[2] = (byte)(underPowerValue & 0xFF);       // 低字节
                 data[3] = (byte)((underPowerValue >> 8) & 0xFF);// 高字节
 
-                data[4] = 0x00;      
-                data[5] = 0x00; 
-                data[6] = 0x00; 
+                data[4] = 0x00;
+                data[5] = 0x00;
+                data[6] = 0x00;
                 data[7] = 0x00;
 
                 // 构造通道键
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -526,6 +526,7 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -702,12 +703,12 @@ namespace ChargeDebug
                     default:
                         return true;
                 }
-                
+
                 // 构造通道键
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -735,6 +736,7 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -780,7 +782,7 @@ namespace ChargeDebug
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -808,6 +810,8 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -882,7 +886,7 @@ namespace ChargeDebug
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -910,6 +914,8 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -949,7 +955,7 @@ namespace ChargeDebug
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -977,6 +983,8 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -1014,9 +1022,9 @@ namespace ChargeDebug
 
                 // 构造通道键
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
-                
+
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -1044,6 +1052,8 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+
+                    await Task.Delay(50);
                 }
 
                 return true;
@@ -1083,7 +1093,7 @@ namespace ChargeDebug
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
 
                 int number = 0;
-                while (number < 3)
+                while (number < 5)
                 {
                     CANManager.Instance.SendCommand
                     (
@@ -1111,6 +1121,8 @@ namespace ChargeDebug
                     {
                         number++;
                     }
+
+                    await Task.Delay(50);
                 }
 
                 return true;

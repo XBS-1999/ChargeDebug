@@ -1,4 +1,3 @@
-using DevExpress.XtraBars;
 using DevExpress.XtraEditors;
 using System.Diagnostics;
 using System.Runtime.InteropServices;

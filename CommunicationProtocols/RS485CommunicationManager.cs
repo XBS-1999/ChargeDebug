@@ -1,10 +1,7 @@
-﻿using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IO.Ports;
-using System.Security.Cryptography;
-using System.Text;
-using DataModel;
+﻿using DataModel;
 using Log;
+using System.Collections.Concurrent;
+using System.IO.Ports;
 
 #pragma warning disable
 namespace ChargeDebug.Service

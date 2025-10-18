@@ -1,16 +1,16 @@
-using DevExpress.XtraEditors;
-using DevExpress.XtraGrid;
-using DevExpress.XtraGrid.Views.Grid;
-using DevExpress.XtraLayout;
-using DevExpress.XtraLayout.Utils;
+using DevExpress.Data;
 using DevExpress.Utils;
 using DevExpress.Utils.Layout;
-using System.Data.SQLite;
-using System.Data;
+using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
+using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
-using DevExpress.Data;
+using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraGrid.Views.Grid.ViewInfo;
+using DevExpress.XtraLayout;
+using DevExpress.XtraLayout.Utils;
+using System.Data;
+using System.Data.SQLite;
 
 namespace ProjectManagement
 {
@@ -453,7 +453,7 @@ namespace ProjectManagement
             {
                 Text = text,
                 Size = new Size(80, 30),
-                Margin = new System.Windows.Forms.Padding(0,0,0,20),
+                Margin = new System.Windows.Forms.Padding(0, 0, 0, 20),
                 Appearance =
                 {
                     Font = new Font("Tahoma", 12, FontStyle.Bold),

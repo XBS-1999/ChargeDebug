@@ -1,10 +1,9 @@
-﻿using System.Collections.Concurrent;
+﻿using DataModel;
+using Log;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Diagnostics;
-using DataModel;
-using Log;
-using System.IO;
 
 #pragma warning disable
 namespace ChargeDebug.Service
@@ -457,12 +456,12 @@ namespace ChargeDebug.Service
                     }
 
                     //ZCAN_SetValue(deviceHandle, $"{channelIndex}/baud_rate_custom", Encoding.ASCII.GetBytes(equipment.BaudRate));
-                    
+
                     // 设置网络参数
                     ZCAN_SetValue(deviceHandle, $"{channelIndex}/work_mode", Encoding.ASCII.GetBytes("0"));
                     ZCAN_SetValue(deviceHandle, $"{channelIndex}/ip", Encoding.ASCII.GetBytes(equipment.DeviceIP));
                     ZCAN_SetValue(deviceHandle, $"{channelIndex}/work_port", Encoding.ASCII.GetBytes(equipment.DevicePort));
-                    
+
                     // 初始化通道配置
                     ZCAN_CHANNEL_INIT_CONFIG config = new ZCAN_CHANNEL_INIT_CONFIG
                     {
@@ -1088,7 +1087,7 @@ namespace ChargeDebug.Service
             foreach (var kvp in _receiveQueues)
             {
                 var queue = kvp.Value;
-                const int MAX_QUEUE_SIZE = 1000;
+                const int MAX_QUEUE_SIZE = 3000;
 
                 // 如果队列过大，清理旧数据
                 while (queue.Count > MAX_QUEUE_SIZE)

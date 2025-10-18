@@ -1,23 +1,23 @@
-﻿using ClosedXML.Excel;
+﻿using ChargeDebug.Service;
+using ClosedXML.Excel;
+using DataModel;
 using DevExpress.XtraEditors;
-using DevExpress.XtraTreeList.Columns;
-using DevExpress.XtraTreeList.Nodes;
-using DevExpress.XtraTreeList;
-using System.Runtime.InteropServices;
-using ZLGAPI;
-using System.Text;
-using DevExpress.XtraGrid.Views.Grid;
+using DevExpress.XtraEditors.Controls;
+using DevExpress.XtraEditors.Repository;
 using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
-using System.Data.SQLite;
-using System.Data;
+using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraGrid.Views.Grid.ViewInfo;
-using DevExpress.XtraEditors.Repository;
-using DevExpress.XtraEditors.Controls;
+using DevExpress.XtraTreeList;
+using DevExpress.XtraTreeList.Columns;
+using DevExpress.XtraTreeList.Nodes;
 using System.ComponentModel;
-using ChargeDebug.Service;
+using System.Data;
+using System.Data.SQLite;
 using System.Globalization;
-using DataModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using ZLGAPI;
 
 namespace ChargeDebug.Form
 {
@@ -510,7 +510,8 @@ namespace ChargeDebug.Form
         private void DeleteSelectedMessages()
         {
             // 使用协议处理器删除选中项
-            _currentProtocolHandler.DeleteSelectedItems(treeList, dbcPath, () => {
+            _currentProtocolHandler.DeleteSelectedItems(treeList, dbcPath, () =>
+            {
                 if (AgreementUse())
                     ConfigUpdated?.Invoke(this, EventArgs.Empty);
             });
@@ -531,7 +532,8 @@ namespace ChargeDebug.Form
         private void DeleteSelectedSignal()
         {
             // 使用协议处理器删除选中子项
-            _currentProtocolHandler.DeleteSelectedChildItems(treeList, dbcPath, () => {
+            _currentProtocolHandler.DeleteSelectedChildItems(treeList, dbcPath, () =>
+            {
                 if (AgreementUse())
                     ConfigUpdated?.Invoke(this, EventArgs.Empty);
             });
@@ -1434,7 +1436,7 @@ namespace ChargeDebug.Form
                 });
             }
 
-            public void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e) 
+            public void CustomNodeCellEdit(GetCustomNodeCellEditEventArgs e)
             {
                 if (e.Node.Level == 0) // 消息节点
                 {
@@ -1468,7 +1470,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn) 
+            public bool AllowEdit(TreeListNode focusedNode, TreeListColumn focusedColumn)
             {
                 // 不允许编辑Orders列
                 if (focusedColumn.Caption == "Orders") return false;
@@ -1656,7 +1658,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void AddNewItem(TreeList treeList, string dbcPath) 
+            public void AddNewItem(TreeList treeList, string dbcPath)
             {
                 treeList.BeginUnboundLoad();
                 try
@@ -1693,7 +1695,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback) 
+            public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback)
             {
                 // 获取所有选中的父节点（消息节点）
                 var parentNodesToDelete = treeList.Nodes.Cast<TreeListNode>()
@@ -1759,7 +1761,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void AddNewChildItem(TreeList treeList, string dbcPath) 
+            public void AddNewChildItem(TreeList treeList, string dbcPath)
             {
                 try
                 {
@@ -1814,7 +1816,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback) 
+            public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback)
             {
                 // 获取所有选中的子节点（信号节点）
                 var nodesToDelete = treeList.GetNodeList()
@@ -1897,7 +1899,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache) 
+            public void ImportExcel(TreeList treeList, string fileName, ref Dictionary<long, List<ReuseSignal>> reuseSignalsCache)
             {
                 try
                 {
@@ -2108,7 +2110,7 @@ namespace ChargeDebug.Form
                 return 1.0m;
             }
 
-            public void ExportExcel(TreeList treeList, string fileName, string dbcPath) 
+            public void ExportExcel(TreeList treeList, string fileName, string dbcPath)
             {
                 using (var workbook = new XLWorkbook())
                 {
@@ -2284,7 +2286,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction) 
+            public void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction)
             {
                 if (node.Level == 0) // 消息节点
                 {
@@ -2379,7 +2381,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            public void WriteNodeToExcel(TreeList treeList, IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath) 
+            public void WriteNodeToExcel(TreeList treeList, IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath)
             {
                 // 写入当前节点所有列的数据
                 for (int i = 0; i < treeList.Columns.Count; i++)

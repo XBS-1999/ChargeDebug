@@ -1,9 +1,6 @@
 ﻿using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
-using System.Collections.Generic;
-using System.Drawing;
 using System.Globalization;
-using System.Windows.Forms;
 
 #pragma warning disable
 namespace ChargeDebug.Form

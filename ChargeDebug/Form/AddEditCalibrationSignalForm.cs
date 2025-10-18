@@ -184,7 +184,7 @@ namespace ChargeDebug.Form
 
                 foreach (var msg in messages)
                 {
-                    if (msg.MessageName == "调试AC写入" || msg.MessageName == "调试DC写入") 
+                    if (msg.MessageName == "调试AC写入" || msg.MessageName == "调试DC写入")
                     {
                         var signals = SQLite_Service.GetSignalsByMessage(conn, msg.MessageID);
 
@@ -367,7 +367,7 @@ namespace ChargeDebug.Form
                     return;
                 }
             }
-            
+
             // 验证校准精度格式
             if (string.IsNullOrEmpty(calibrationaccuracy.Text))
             {
@@ -425,7 +425,7 @@ namespace ChargeDebug.Form
 
             //加载设备名称及通道号下拉框
             // 从equipmentList中筛选设备类型为"充放电设备"的设备
-            
+
             foreach (var equipment in equipmentList)
             {
                 //获取AC,DC起始地址

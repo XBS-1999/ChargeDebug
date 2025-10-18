@@ -1,14 +1,11 @@
 ﻿using DevExpress.XtraEditors;
-using DevExpress.XtraGrid;
-using DevExpress.XtraGrid.Views.Grid;
-using DevExpress.XtraGrid.Columns;
-using DevExpress.XtraExport.Helpers;
-using DevExpress.XtraVerticalGrid;
-using System.ComponentModel;
-using DevExpress.XtraGrid.Views.Grid.ViewInfo;
-using DevExpress.XtraRichEdit;
-using System.Data;
 using DevExpress.XtraEditors.Repository;
+using DevExpress.XtraGrid;
+using DevExpress.XtraGrid.Columns;
+using DevExpress.XtraGrid.Views.Grid;
+using DevExpress.XtraGrid.Views.Grid.ViewInfo;
+using System.ComponentModel;
+using System.Data;
 
 namespace ChargeDebug.Form
 {
@@ -100,9 +97,9 @@ namespace ChargeDebug.Form
                 Text = "取消",
                 Width = 80,
                 Height = 30,
-                Location = new Point(btnOK.Right + 20 , gridControl.Bottom + 15)
+                Location = new Point(btnOK.Right + 20, gridControl.Bottom + 15)
             };
-            this.Controls.AddRange(new[] { btnSelectAll,btnCounterSelection, btnOK, btnCancel });
+            this.Controls.AddRange(new[] { btnSelectAll, btnCounterSelection, btnOK, btnCancel });
 
             //注册事件
             btnSelectAll.Click += BtnSelectAll_Click;

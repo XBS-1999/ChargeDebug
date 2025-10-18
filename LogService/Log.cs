@@ -1,12 +1,11 @@
-﻿using System.Collections.Concurrent;
-using System.Text;
+﻿using System.Text;
 
 #pragma warning disable
 namespace Log
 {
     public static class LogService
     {
-        private static readonly ConcurrentQueue<string> logQueue = new ConcurrentQueue<string>();
+        //private static readonly ConcurrentQueue<string> logQueue = new ConcurrentQueue<string>();
         private static StreamWriter logWriter;
         private static string currentLogFilePath;
         private static readonly object initLock = new object();
@@ -240,7 +239,7 @@ namespace Log
             string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss:fff");
             string logEntry = $"[{timestamp}] {message}";
 
-            logQueue.Enqueue(logEntry);
+            //logQueue.Enqueue(logEntry);
 
             try
             {

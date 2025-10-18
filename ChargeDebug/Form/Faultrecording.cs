@@ -900,7 +900,7 @@ namespace ChargeDebug.Form
                     );
 
                     var byteFrames = new Dictionary<uint, List<byte[]>>();
-                    
+
                     foreach (var kv in receivedZcanFrames)
                     {
                         byteFrames[kv.Key] = kv.Value.Select(zcan => zcan.data).ToList();

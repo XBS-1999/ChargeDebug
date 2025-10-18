@@ -112,7 +112,7 @@ namespace TcpAssistant
 
             cbFirmwareModel = new ComboBoxEdit();
             cbSystemModell = new ComboBoxEdit();
-            
+
             btnSelectFile = new ButtonEdit();
             btnUpgrade = new SimpleButton();
 
@@ -295,7 +295,7 @@ namespace TcpAssistant
             }
 
             await Task.Delay(100); //延时100ms
-            
+
             // 步骤2: 发送请求升级指令 (0x01)
             if (!await SendTCPCommandAndVerify("请求升级指令", 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
             {
@@ -531,7 +531,7 @@ namespace TcpAssistant
 
                     //CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
-                        deviceIndex,channelIndex,
+                        deviceIndex, channelIndex,
                         0x0000AA02,
                         swappedData
                     );
@@ -656,7 +656,7 @@ namespace TcpAssistant
             throw new ArgumentException($"无效的块索引: {blockIndex}");
         }
 
-        private async Task SendBlock(int deviceIndex, int channelIndex,uint startAddress, 
+        private async Task SendBlock(int deviceIndex, int channelIndex, uint startAddress,
             byte[] blockData, int blockIndex, int totalBlocks, int times)
         {
             // 1. 发送烧写地址和长度
@@ -682,7 +682,7 @@ namespace TcpAssistant
 
         // 辅助方法：发送命令并验证响应
         private async Task<bool> SendAndVerifyCommand(
-            int deviceIndex,  int channelIndex,
+            int deviceIndex, int channelIndex,
             uint sendCanId,
             uint receiveCanId,
             byte[] data,
@@ -837,7 +837,7 @@ namespace TcpAssistant
                             // 等待并验证响应
                             var response = await tcpHelper.ReceiveCommandAsync(0x06, 2000);
 
-                            if(response != null)
+                            if (response != null)
                             {
                                 // 检查状态字节（索引2的位置）
                                 byte status = response[2];
@@ -861,7 +861,7 @@ namespace TcpAssistant
                                         _ => $"未知错误 (0x{status:X2})"
                                     };
                                     AppendInfo($"❌ 数据包发送失败: {errorMessage}");
-                                } 
+                                }
                             }
                         }
                         catch (Exception ex)
@@ -1034,7 +1034,7 @@ namespace TcpAssistant
                             {
                                 AppendInfo($"✅ {commandName} 响应成功");
                                 return true;
-                            }   
+                            }
                         }
                         else
                         {
@@ -1051,7 +1051,7 @@ namespace TcpAssistant
                                 _ => $"未知错误 (0x{status:X2})"
                             };
                             AppendInfo($"❌ {commandName} 发送失败: {errorMessage}");
-                        } 
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -1494,7 +1494,7 @@ namespace TcpAssistant
                 {
                     string filePath = dialog.FileName;
                     btnSelectFile.Text = filePath;
-                    
+
                     // 使用统一的验证方法
                     if (!ValidateFile(out string errorMessage))
                     {
@@ -1547,7 +1547,7 @@ namespace TcpAssistant
             if (items.Length > 0)
             {
                 combo.SelectedIndex = 0;
-                if(combo == cbProtocolType)
+                if (combo == cbProtocolType)
                 {
                     combo.SelectedIndex = 1;
                 }

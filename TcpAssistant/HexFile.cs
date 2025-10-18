@@ -114,7 +114,7 @@ namespace TcpAssistant
 
                 // 添加当前记录数据
                 currentBlockData.AddRange(record.Data);
-                if(firmwareModel.Substring(0,3) == "ARM")
+                if (firmwareModel.Substring(0, 3) == "ARM")
                 {
                     currentAddress += (uint)record.Data.Length;
                 }
@@ -122,7 +122,7 @@ namespace TcpAssistant
                 {
                     currentAddress += (uint)record.Data.Length / 2;
                 }
-                
+
                 // 检查是否达到块大小限制（256字节）
                 if (currentBlockData.Count >= 256)
                 {

@@ -1,5 +1,4 @@
-﻿using DevExpress.DashboardWeb;
-using DevExpress.XtraEditors;
+﻿using DevExpress.XtraEditors;
 using System.Globalization;
 
 #pragma warning disable
@@ -17,7 +16,7 @@ namespace ChargeDebug.Form
         private ComboBoxEdit startMode;
         private ComboBoxEdit runMode;
         private TextEdit batteryVoltage;
-        
+
         private SimpleButton btnOK;
         private SimpleButton btnCancel;
 
@@ -90,7 +89,7 @@ namespace ChargeDebug.Form
             {
                 Text = "确定",
                 DialogResult = DialogResult.None,
-                Location = new Point(245, batteryVoltage.Bottom + 20), 
+                Location = new Point(245, batteryVoltage.Bottom + 20),
                 Size = new Size(80, 30)
             };
             btnOK.Click += BtnOK_Click;
@@ -99,7 +98,7 @@ namespace ChargeDebug.Form
             {
                 Text = "取消",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(btnOK.Right + 50, btnOK.Location.Y), 
+                Location = new Point(btnOK.Right + 50, btnOK.Location.Y),
                 Size = new Size(80, 30)
             };
             btnCancel.Click += BtnCancel_Click;

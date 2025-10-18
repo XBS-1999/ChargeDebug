@@ -1,6 +1,4 @@
-﻿using System.IO.Ports;
-
-#pragma warning disable
+﻿#pragma warning disable
 namespace DataModel
 {
     public class EquipmentModel
@@ -95,7 +93,7 @@ namespace DataModel
     public class ModbusSignal
     {
         public string? DeviceName { get; set; }
-        
+
         public long SignalID { get; set; }
         public long DbcFileId { get; set; }
         public string? SignalName { get; set; }

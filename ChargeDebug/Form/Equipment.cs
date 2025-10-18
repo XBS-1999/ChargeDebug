@@ -5,9 +5,8 @@ using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using System.Data;
 using System.Data.SQLite;
-using System.Drawing;
-using System.IO.Ports;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class Equipment : XtraUserControl
@@ -233,17 +232,10 @@ namespace ChargeDebug.Form
             simpleButton2.TabIndex = 2;
             simpleButton2.Text = "删除设备";
 
-            SimpleButton refreshButton = new SimpleButton();
-            refreshButton.Location = new Point(10, 170);
-            refreshButton.Name = "refreshButton";
-            refreshButton.Size = new Size(100, 30);
-            refreshButton.TabIndex = 3;
-            refreshButton.Text = "刷新状态";
-
             PanelControl panelControl = new PanelControl();
             panelControl.Dock = DockStyle.Right;
             panelControl.Width = 120;
-            panelControl.Controls.AddRange(new[] { simpleButton, simpleButton1, simpleButton2, refreshButton });
+            panelControl.Controls.AddRange(new[] { simpleButton, simpleButton1, simpleButton2});
 
             this.Controls.Add(gridControl);
             this.Controls.Add(panelControl);
@@ -252,15 +244,12 @@ namespace ChargeDebug.Form
             simpleButton.Click += AddDevice_Click;
             simpleButton1.Click += EditDevice_Click;
             simpleButton2.Click += DeleteDevice_Click;
-            refreshButton.Click += RefreshButton_Click;
         }
 
         private void Equipment_Load(object? sender, EventArgs e)
         {
             // 加载数据
             LoadData();
-            // 初始刷新连接状态
-            //RefreshConnectionStatus();
         }
 
         private void LoadData()
@@ -299,7 +288,7 @@ namespace ChargeDebug.Form
                         row["ConnectionStatus"] = "未知"; // 初始状态
                     }
                 }
-
+                gridControl.DataSource = null;
                 gridControl.DataSource = dataTable;
             }
             catch (Exception ex)
@@ -307,49 +296,6 @@ namespace ChargeDebug.Form
                 XtraMessageBox.Show($"Error loading data: {ex.Message}", "Error",
                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-        }
-
-        // 刷新连接状态
-        private void RefreshConnectionStatus()
-        {
-            // 这里实现连接状态检测逻辑
-            // 实际项目中，这里可能会调用设备通信接口来检测设备连接状态
-            DataTable data = (DataTable)gridControl.DataSource;
-
-            if (data != null)
-            {
-                foreach (DataRow row in data.Rows)
-                {
-                    // 模拟连接状态检测
-                    // 实际项目中应该根据设备类型和通信协议进行实际检测
-                    string deviceType = row["DeviceType"]?.ToString() ?? "";
-                    string protocol = row["CommunicationProtocols"]?.ToString() ?? "";
-
-                    // 模拟不同的连接状态
-                    Random rnd = new Random();
-                    int status = rnd.Next(0, 3);
-
-                    switch (status)
-                    {
-                        case 0:
-                            row["ConnectionStatus"] = "已连接";
-                            break;
-                        case 1:
-                            row["ConnectionStatus"] = "未连接";
-                            break;
-                        case 2:
-                            row["ConnectionStatus"] = "连接中";
-                            break;
-                    }
-                }
-
-                gridControl.RefreshDataSource();
-            }
-        }
-
-        private void RefreshButton_Click(object sender, EventArgs e)
-        {
-            RefreshConnectionStatus();
         }
 
         //增加设备
@@ -603,7 +549,7 @@ namespace ChargeDebug.Form
 
                         // 刷新数据
                         LoadData();
-                        // 保存成功后触发事件
+
                         ConfigUpdated?.Invoke(this, EventArgs.Empty);
 
                         XtraMessageBox.Show("设备修改成功！", "提示",

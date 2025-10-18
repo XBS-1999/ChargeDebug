@@ -1,20 +1,20 @@
-﻿using DevExpress.XtraEditors;
+﻿using ChargeDebug.Service;
+using ClosedXML.Excel;
+using CommunicationProtocols;
+using DataModel;
+using DevExpress.DataProcessing;
+using DevExpress.Utils;
+using DevExpress.XtraEditors;
+using DevExpress.XtraEditors.Controls;
+using DevExpress.XtraLayout;
+using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraTreeList;
 using DevExpress.XtraTreeList.Columns;
-using DevExpress.XtraLayout;
-using DevExpress.Utils;
-using DevExpress.XtraLayout.Utils;
-using DevExpress.XtraEditors.Controls;
-using System.Data.SQLite;
-using ChargeDebug.Service;
-using DataModel;
-using Log;
-using CommunicationProtocols;
 using DevExpress.XtraTreeList.Nodes;
-using DevExpress.DataProcessing;
-using System.IO;
-using ClosedXML.Excel;
+using Log;
 using System.Data;
+using System.Data.SQLite;
+using System.IO;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -185,7 +185,7 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 添加信号按钮点击事件
         /// </summary>
-        
+
         private void BtnAddSignal_Click(object? sender, EventArgs e)
         {
             try
@@ -353,7 +353,7 @@ namespace ChargeDebug.Form
                     ShowAllSignals();
                     return;
                 }
-                    
+
                 deviceNumber = inputForm.DeviceNumber;
 
                 // 1. 获取当前勾选的信号名称列表
@@ -911,7 +911,7 @@ namespace ChargeDebug.Form
                                 foreach (var message in messages)
                                 {
                                     var signalInfo = SQLite_Service.GetSignalByMessageAndSystemName(conn, message.MessageID, signalName);
-                                    
+
                                     if (signalInfo != null)
                                     {
                                         // 设置CANID
@@ -995,7 +995,7 @@ namespace ChargeDebug.Form
                                 // 遍历所有MessageID，查找匹配的信号
                                 foreach (var message in messages)
                                 {
-                                    if(message.MessageName.Contains(channel.Substring(0,2)))
+                                    if (message.MessageName.Contains(channel.Substring(0, 2)))
                                     {
                                         var signalInfo = SQLite_Service.GetSignalByMessageAndSystemNameList(conn, message.MessageID, calibrationSignal);
                                         if (signalInfo.Count != 0)
@@ -1023,7 +1023,7 @@ namespace ChargeDebug.Form
         /// </summary>
         /// <param name="equipment">设备模型</param>
         /// <returns>启动是否成功</returns>
-        private async Task<bool> StartEquipment(EquipmentModel equipment,string title)
+        private async Task<bool> StartEquipment(EquipmentModel equipment, string title)
         {
             try
             {
@@ -1131,14 +1131,14 @@ namespace ChargeDebug.Form
                     };
                 }
 
-                bool sendSuccess = RS232Manager.Instance.SendData(equipment.ComPort, command,true);
+                bool sendSuccess = RS232Manager.Instance.SendData(equipment.ComPort, command, true);
                 if (sendSuccess)
                 {
                     await Task.Delay(200);
                     byte[] readBuffer = RS232Manager.Instance.ReadBuffer(equipment.ComPort);
                     if (readBuffer[4] == 0x01)
                     {
-                         return true;
+                        return true;
                     }
                     else
                     {
@@ -1198,7 +1198,7 @@ namespace ChargeDebug.Form
                         }
                         else if (equipment.CanType == "RS232")
                         {
-                            
+
                         }
                         // 可以添加其他设备类型的处理
                         break;
@@ -1409,7 +1409,7 @@ namespace ChargeDebug.Form
                         continue;
 
                     // 生成校准点
-                    var points = GenerateCalibrationPoints(signalType,minValue, maxValue, calibrationNumber, readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
+                    var points = GenerateCalibrationPoints(signalType, minValue, maxValue, calibrationNumber, readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
 
                     // 添加到字典（支持同一个信号的多个校准范围）
                     string key = $"{deviceName}-{signalName}-{calibrationSignal}";
@@ -1429,7 +1429,7 @@ namespace ChargeDebug.Form
         /// 根据范围和点数生成校准点
         /// </summary>
         private List<CalibrationPoint> GenerateCalibrationPoints(string signalType, double minValue, double maxValue, int calibrationNumber,
-            int readTimeMs, SignalInfo signalInfo, string deviceName, string signalName,string calibrationsignal)
+            int readTimeMs, SignalInfo signalInfo, string deviceName, string signalName, string calibrationsignal)
         {
             var points = new List<CalibrationPoint>();
 
@@ -1505,7 +1505,7 @@ namespace ChargeDebug.Form
         {
             EquipmentModel voltageSource = null;
             EquipmentModel voltmeter = null;
-            
+
             try
             {
                 // 在关键位置添加取消检查
@@ -1562,8 +1562,8 @@ namespace ChargeDebug.Form
                 UpdateProgress(ProgressStage.LoadProtocol, "开始启动设备:");
 
                 // 5. 根据设备通讯类型启动设备
-                bool voltageSourceStarted = await StartEquipment(voltageSource,"");
-                bool voltmeterStarted = await StartEquipment(voltmeter,"");
+                bool voltageSourceStarted = await StartEquipment(voltageSource, "");
+                bool voltmeterStarted = await StartEquipment(voltmeter, "");
                 if (!voltageSourceStarted || !voltmeterStarted)
                 {
                     LogService.Log("设备启动失败，请检查设备连接!");
@@ -1620,7 +1620,7 @@ namespace ChargeDebug.Form
                     voltmeter,
                     treeSignalProtocols,
                     debugProtocols,
-                    cancellationToken,"电压", "",
+                    cancellationToken, "电压", "",
                     voltageSourceProtocols,
                     voltmeterProtocols);
                 if (!calibrationSuccess)
@@ -1640,7 +1640,7 @@ namespace ChargeDebug.Form
                     voltmeter,
                     treeSignalProtocols,
                     debugProtocols,
-                    cancellationToken,"电压", "",
+                    cancellationToken, "电压", "",
                     voltageSourceProtocols,
                     voltmeterProtocols);
                 if (!verificationSuccess)
@@ -1768,7 +1768,7 @@ namespace ChargeDebug.Form
 
                 // 6. 设置设备模式
                 LogService.Log("设置电流源参数...");
-                bool setpparameters1 = await SetPparameters("设置远程控制帧", ammeter); 
+                bool setpparameters1 = await SetPparameters("设置远程控制帧", ammeter);
                 bool setpparameters2 = await SetPparameters("设置交直流帧", ammeter);
                 bool setpparameters3 = await SetPparameters("设置采样速度帧", ammeter);
                 bool setpparameters4 = await SetPparameters("设置显示位数帧", ammeter);
@@ -1920,7 +1920,7 @@ namespace ChargeDebug.Form
                 return false;
                 throw new Exception($"设备启动失败: {ex.Message}");
             }
-            
+
         }
 
         /// <summary>
@@ -1999,7 +1999,7 @@ namespace ChargeDebug.Form
             EquipmentModel voltmeter,
             List<SignalInfo> treeSignals,
             Dictionary<string, List<SignalInfo>> debugSignals,
-            CancellationToken cancellationToken,string type,string currentSourceName,
+            CancellationToken cancellationToken, string type, string currentSourceName,
             List<ModbusSignal> voltageSourceSignals = null,
             List<ModbusSignal> voltmeterSignals = null)
         {
@@ -2143,7 +2143,7 @@ namespace ChargeDebug.Form
                             // 更新进度
                             int progress = (int)((double)globalPointIndex / totalPoints * 100);
                             UpdateProgress(ProgressStage.HandlePoint,
-                                          $"处理校准点 {globalPointIndex}/{totalPoints}",progress);
+                                          $"处理校准点 {globalPointIndex}/{totalPoints}", progress);
                         }
 
                         // 负电流下降阶段：从-额定值到0，步进50A
@@ -3434,7 +3434,7 @@ namespace ChargeDebug.Form
                             currentRow = dataRow + 1;
                             worksheet.Range(dataRow, 1, dataRow, 6).Merge(); // 合并
                         }
-                        
+
                         // 设置数据区域边框
                         if (dataRow > 1)
                         {
@@ -3761,7 +3761,7 @@ namespace ChargeDebug.Form
         /// 读取设备的校准系数
         /// </summary>
         private async Task<(double scaleFactor, double zeroFactor)> ReadCalibrationFactors(
-            string deviceName,SignalInfo scaleFactorSignal, SignalInfo zeroFactorSignal)
+            string deviceName, SignalInfo scaleFactorSignal, SignalInfo zeroFactorSignal)
         {
             try
             {
@@ -3772,7 +3772,7 @@ namespace ChargeDebug.Form
                     return (0.0, 0.0);
 
                 // 发送读取请求帧
-                await SendReadCalibrationRequest(equipment, channel,scaleFactorSignal);
+                await SendReadCalibrationRequest(equipment, channel, scaleFactorSignal);
 
                 // 接收响应帧并解析系数
                 return await ReceiveAndParseCalibrationResponse(
@@ -3813,7 +3813,7 @@ namespace ChargeDebug.Form
                 await SendReadCalibrationRequest(equipment, channel, scaleFactorSignal);
 
                 // 接收响应帧并解析系数
-                var(scale, zero) = await ReceiveAndParseCalibrationResponse(
+                var (scale, zero) = await ReceiveAndParseCalibrationResponse(
                                   equipment, scaleFactorSignal, zeroFactorSignal, channel);
 
                 if ((scale == scaleFactor) && (zero == zeroFactor))
@@ -4492,7 +4492,7 @@ namespace ChargeDebug.Form
 
             // 零点系数列
             column = treeList.Columns.Add();
-            column.Caption = "零点系数"; 
+            column.Caption = "零点系数";
             column.FieldName = "ZeroFactor";
             column.VisibleIndex = 9;
             column.Width = 50;
@@ -5074,7 +5074,7 @@ namespace ChargeDebug.Form
             {
                 cmd.Parameters.AddWithValue("@MasterID", masterId);
                 cmd.Parameters.AddWithValue("@DeviceName", signalData.DeviceName);
-                cmd.Parameters.AddWithValue("@SignalName", signalData.SignalName); 
+                cmd.Parameters.AddWithValue("@SignalName", signalData.SignalName);
                 cmd.Parameters.AddWithValue("@SignalType", "电压"); // 根据实际情况判断
                 cmd.Parameters.AddWithValue("@ReadTime", 1000);
                 cmd.Parameters.AddWithValue("@RatingValue", signalData.RatingValue);

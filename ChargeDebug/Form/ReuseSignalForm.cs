@@ -1,11 +1,10 @@
-﻿using DevExpress.XtraEditors;
-using DevExpress.XtraGrid.Views.Grid;
+﻿using DataModel;
+using DevExpress.XtraEditors;
 using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
+using DevExpress.XtraGrid.Views.Grid;
 using System.ComponentModel;
 using System.Text.RegularExpressions;
-using ChargeDebug.Service;
-using DataModel;
 
 namespace ChargeDebug.Form
 {
@@ -64,7 +63,7 @@ namespace ChargeDebug.Form
             SimpleButton btnAdd = new SimpleButton
             {
                 Text = "添加",
-                Size = new Size(80,30),
+                Size = new Size(80, 30),
                 Location = new Point(35, 420)
             };
 
@@ -174,7 +173,7 @@ namespace ChargeDebug.Form
 
         private void BtnCancel_Click(object? sender, EventArgs e)
         {
-            this.Close(); 
+            this.Close();
         }
 
         private void BtnOK_Click(object? sender, EventArgs e)

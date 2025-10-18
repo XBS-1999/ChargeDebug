@@ -1,6 +1,5 @@
 ﻿using DevExpress.XtraEditors;
 using System.Data.SQLite;
-using DevExpress.XtraEditors.Controls;
 
 namespace ChargeDebug.Form
 {

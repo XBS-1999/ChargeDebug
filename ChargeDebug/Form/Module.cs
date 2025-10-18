@@ -1,5 +1,4 @@
 ﻿using ChargeDebug.Service;
-using ClosedXML.Excel;
 using DataModel;
 using DevExpress.Utils;
 using DevExpress.XtraEditors;
@@ -9,14 +8,12 @@ using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
-using DocumentFormat.OpenXml.InkML;
 using Log;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Data;
 using System.IO;
 using System.Runtime.CompilerServices;
-using static ChargeDebug.Form.ACStartConfiguration;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -28,7 +25,24 @@ namespace ChargeDebug.Form
     public partial class Module : XtraUserControl, IDisposable
     {
         // ==================== 字段声明区域 ====================
-        #region 启动数据保存字段
+        #region 数据保存字段
+
+        // 实时数据保存队列
+        private readonly ConcurrentQueue<StartupDataItem> _realtimesave = new ConcurrentQueue<StartupDataItem>();
+        private readonly AutoResetEvent _realtimeDataEvent = new AutoResetEvent(false);
+        // 启动数据保存队列
+        private readonly ConcurrentQueue<StartupDataItem> _startupDataQueue = new ConcurrentQueue<StartupDataItem>();
+        private readonly AutoResetEvent _startupDataEvent = new AutoResetEvent(false);
+        private CancellationTokenSource _startupDataCancellationTokenSource;
+        private Task _startupDataProcessingTask;
+
+        // 启动数据项定义
+        private struct StartupDataItem
+        {
+            public CANManager.ZCAN_Receive_Data Frame;
+            public Dictionary<string, double> SignalValues;
+            public DateTime Timestamp;
+        }
 
         // 启动数据保存相关字段
         private bool _isStartupSaving = false;
@@ -744,14 +758,30 @@ namespace ChargeDebug.Form
                 // 实时保存数据（如果启用）- 使用新线程避免阻塞
                 //if (_isRealTimeSaving)
                 //{
-                //    Task.Run(() => SaveSignalData(frame, signalValue));
+                //    var realtimesaveDataItem = new StartupDataItem
+                //    {
+                //        Frame = frame,
+                //        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
+                //        Timestamp = DateTime.Now
+                //    };
+
+                //    _realtimesave.Enqueue(realtimesaveDataItem);
+                //    _realtimeDataEvent.Set(); // 通知处理线程有新的数据
                 //}
 
                 ////// 保存启动数据（如果启动保存启用）- 使用新线程避免阻塞
-                //if (_isStartupSaving)
-                //{
-                //    Task.Run(() => SaveStartupData(frame, signalValue));
-                //}
+                if (_isStartupSaving)
+                {
+                    var startupDataItem = new StartupDataItem
+                    {
+                        Frame = frame,
+                        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
+                        Timestamp = DateTime.Now
+                    };
+
+                    _startupDataQueue.Enqueue(startupDataItem);
+                    _startupDataEvent.Set(); // 通知处理线程有新的数据
+                }
             }
         }
 
@@ -881,7 +911,7 @@ namespace ChargeDebug.Form
                 _totalTimeData = signalData.First(s => s.SystemName == "累计运行时间");
                 _stepTimeData = signalData.First(s => s.SystemName == "工步运行时间");
             }
-            
+
             foreach (var signal in signals)
             {
                 // 将十六进制CAN ID转换为整数
@@ -1506,8 +1536,8 @@ namespace ChargeDebug.Form
                     return Task.FromResult(false);
                 }
             }
-            
-            
+
+
         }
 
         /// <summary>
@@ -1532,7 +1562,7 @@ namespace ChargeDebug.Form
             {
                 return true;
             }
-            
+
 
             return false;
         }
@@ -2000,7 +2030,7 @@ namespace ChargeDebug.Form
                 if (_dcRunStatus == 0x00 || _dcRunStatus == 0x03)
                 {
                     // 显示启动配置对话框
-                    using (var configForm = new StartConfiguration(_title, "DC启动配置",true))
+                    using (var configForm = new StartConfiguration(_title, "DC启动配置", true))
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
@@ -2058,7 +2088,7 @@ namespace ChargeDebug.Form
                                     // 状态已改变，启动成功
                                     _totalTimeData.Value = "00:00:00";
                                     _startTime = DateTime.Now;
-                                    
+
                                     LogService.Log("设备启动成功");
                                 }
 
@@ -2124,7 +2154,7 @@ namespace ChargeDebug.Form
                                 _stopCommandSent = true;
 
                                 // 检测设备状态变化
-                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3),"AC");
+                                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3), "AC");
 
                                 // 检测设备运行工步码是否一致
                                 bool runmode = await CheckRunMode(acConfig.RunMode, "AC");
@@ -2231,7 +2261,7 @@ namespace ChargeDebug.Form
                 // 保存当前保护参数以便比较
                 ConfigurationData currentParams = _protectionParameters;
 
-                _paramForm = new StartConfiguration(_title, "参数配置",true);
+                _paramForm = new StartConfiguration(_title, "参数配置", true);
 
                 // 设置窗体位置居中
                 CenterFormToParent(_paramForm);
@@ -2624,7 +2654,7 @@ namespace ChargeDebug.Form
                     int dataLength = frame.can_dlc; // 数据长度
                     string dataHex = BitConverter.ToString(frame.data.Take(dataLength).ToArray()).Replace("-", " "); // 数据字节的十六进制表示
                     string analyzedata = string.Join("; ", signalValue.Select(kv => $"{kv.Key}={kv.Value}"));
-                   
+
                     // 构建数据行
                     var dataRow = new List<string>
                     {
@@ -2999,16 +3029,134 @@ namespace ChargeDebug.Form
                     _isStartupSaving = true;
                     _startupStartTime = DateTime.Now;
 
-                    LogService.Log($"数据保存开始: {_startupFilePath}");
-
                     // 检查基础文件夹大小
                     CheckAndCleanBaseFolder();
+
+                    // 启动数据处理任务
+                    StartStartupDataProcessing();
+
+                    LogService.Log($"启动数据保存开始: {_startupFilePath}");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Log($"数据保存失败: {ex.Message}");
+                LogService.Log($"启动数据保存失败: {ex.Message}");
                 _isStartupSaving = false;
+            }
+        }
+
+        /// <summary>
+        /// 启动启动数据处理任务
+        /// </summary>
+        private void StartStartupDataProcessing()
+        {
+            _startupDataCancellationTokenSource = new CancellationTokenSource();
+            _startupDataProcessingTask = Task.Run(() => ProcessStartupDataQueue(_startupDataCancellationTokenSource.Token));
+            LogService.Log("启动数据处理任务已启动");
+        }
+
+        /// <summary>
+        /// 处理启动数据队列
+        /// </summary>
+        private void ProcessStartupDataQueue(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // 等待数据到达或取消请求
+                    if (_startupDataEvent.WaitOne(1000)) // 1秒超时，定期检查取消令牌
+                    {
+                        // 处理队列中的所有数据
+                        while (_startupDataQueue.TryDequeue(out var dataItem))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                                break;
+
+                            SaveStartupDataToFile(dataItem);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // 任务被取消，正常退出
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"处理启动数据队列时出错: {ex.Message}");
+                    // 短暂延迟后继续处理
+                    Thread.Sleep(100);
+                }
+            }
+
+            // 任务取消后，处理队列中剩余的数据
+            LogService.Log("启动数据处理任务结束，处理剩余数据...");
+            while (_startupDataQueue.TryDequeue(out var dataItem))
+            {
+                SaveStartupDataToFile(dataItem);
+            }
+            LogService.Log("启动数据处理任务已完全停止");
+        }
+
+        /// <summary>
+        /// 将启动数据保存到文件
+        /// </summary>
+        private void SaveStartupDataToFile(StartupDataItem dataItem)
+        {
+            if (!_isStartupSaving || _startupFileWriter == null) return;
+
+            lock (_deviceFileLocks[_deviceKey])
+            {
+                try
+                {
+                    // 计算运行时间
+                    TimeSpan runTime = dataItem.Timestamp - _startupStartTime;
+                    string runTimeStr = runTime.TotalSeconds.ToString("F3");
+
+                    // 获取时间戳
+                    string timestamp = dataItem.Timestamp.ToString("yyyy-MM-dd HH:mm:ss fff");
+
+                    // 根据CAN ID获取通道号
+                    string channelNumber = GetChannelNumberByCanId(dataItem.Frame.can_id & 0x1FFFFFFF);
+
+                    // 提取CAN帧的详细信息
+                    uint canId = dataItem.Frame.can_id & 0x1FFFFFFF;
+                    string frameType = GetFrameType(dataItem.Frame.can_id);
+                    string frameFormat = GetFrameFormat(dataItem.Frame.can_id);
+                    int dataLength = dataItem.Frame.can_dlc;
+                    string dataHex = BitConverter.ToString(dataItem.Frame.data.Take(dataLength).ToArray()).Replace("-", " ");
+
+                    // 构建数据解析字符串
+                    string analyzedata = string.Join("; ", dataItem.SignalValues.Select(kv => $"{kv.Key}={kv.Value}"));
+
+                    // 构建数据行
+                    var dataRow = new List<string>
+                    {
+                        timestamp,
+                        runTimeStr,
+                        _equipment.DeviceName,
+                        channelNumber,
+                        $"0x{canId:X}",
+                        frameType,
+                        frameFormat,
+                        dataLength.ToString(),
+                        dataHex,
+                        analyzedata
+                    };
+
+                    // 写入CSV行
+                    string csvLine = string.Join(",", dataRow);
+                    _startupFileWriter.WriteLine(csvLine);
+                    _startupFileWriter.Flush();
+
+                    // 定期检查基础文件夹大小
+                    CheckBaseFolderPeriodically();
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"保存启动数据到文件失败: {ex.Message}");
+                }
             }
         }
 
@@ -3099,6 +3247,24 @@ namespace ChargeDebug.Form
             {
                 lock (_deviceFileLocks[_deviceKey])
                 {
+                    // 停止数据处理任务
+                    if (_startupDataCancellationTokenSource != null)
+                    {
+                        _startupDataCancellationTokenSource.Cancel();
+                        _startupDataEvent.Set(); // 唤醒处理线程以便它能够退出
+
+                        // 等待处理任务完成（最多等待5秒）
+                        if (_startupDataProcessingTask != null && !_startupDataProcessingTask.Wait(5000))
+                        {
+                            LogService.Log("启动数据处理任务停止超时");
+                        }
+
+                        _startupDataCancellationTokenSource.Dispose();
+                        _startupDataCancellationTokenSource = null;
+                        _startupDataProcessingTask = null;
+                    }
+
+                    // 关闭文件写入器
                     if (_isStartupSaving && _startupFileWriter != null)
                     {
                         _startupFileWriter.Close();
@@ -3107,7 +3273,7 @@ namespace ChargeDebug.Form
 
                         // 记录保存信息
                         TimeSpan saveDuration = DateTime.Now - _startupStartTime;
-                        LogService.Log($"数据保存结束: {_startupFilePath}, 持续时间: {saveDuration.TotalSeconds:F1}秒, 文件大小: {new FileInfo(_startupFilePath).Length}字节");
+                        LogService.Log($"启动数据保存结束: {_startupFilePath}, 持续时间: {saveDuration.TotalSeconds:F1}秒, 文件大小: {new FileInfo(_startupFilePath).Length}字节");
                     }
 
                     _isStartupSaving = false;
@@ -3281,10 +3447,6 @@ namespace ChargeDebug.Form
         /// </summary>
         public new void Dispose()
         {
-            //GC.SuppressFinalize(this);
-            //GC.Collect();
-            //GC.WaitForPendingFinalizers();
-
             if (_disposed) return;
             _disposed = true;
 
@@ -3293,6 +3455,7 @@ namespace ChargeDebug.Form
                 // 停止实时数据保存
                 StopRealTimeSave();
 
+                // 停止启动数据保存
                 StopStartupDataSave();
 
                 // 确保文件流完全关闭

@@ -91,7 +91,7 @@ namespace ChargeDebug.Service
                                         )";
             const string deleteMessagesSql = "DELETE FROM Messages WHERE DbcFileID = @fileId";
             const string deleteFileSql = "DELETE FROM DbcFile WHERE DbcFileID = @fileId";
-            
+
             using (var cmd = new SQLiteCommand(deleteReuseSignalsSql, conn, transaction))
             {
                 cmd.Parameters.AddWithValue("@fileId", fileId);
@@ -338,7 +338,7 @@ namespace ChargeDebug.Service
             {
                 cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
                 cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
-                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType); 
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
                 cmd.Parameters.AddWithValue("@CalibrationSignal", signal.CalibrationSignal);
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
@@ -364,7 +364,7 @@ namespace ChargeDebug.Service
             {
                 cmd.Parameters.AddWithValue("@DeviceName", signal.DeviceName);
                 cmd.Parameters.AddWithValue("@SignalName", signal.SignalName);
-                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType); 
+                cmd.Parameters.AddWithValue("@SignalType", signal.SignalType);
                 cmd.Parameters.AddWithValue("@CalibrationSignal", signal.CalibrationSignal);
                 cmd.Parameters.AddWithValue("@ReadTime", signal.ReadTime);
                 cmd.Parameters.AddWithValue("@RatingVoltageCurrent", signal.RatingVoltageCurrent);
@@ -450,10 +450,10 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 插入或更新Modbus寄存器
         /// </summary>
-        public static long UpsertModbusSignal(SQLiteConnection conn, 
-            long signalId, long dbcFileId,string signalName, string correspondenceAddress, string functionCode, string registerAddress,
-            int registerCount, string systemVariableName, string unit,string byteOrder, string signed, 
-            double factor, double offset,string valueRange, int orders, SQLiteTransaction transaction = null)
+        public static long UpsertModbusSignal(SQLiteConnection conn,
+            long signalId, long dbcFileId, string signalName, string correspondenceAddress, string functionCode, string registerAddress,
+            int registerCount, string systemVariableName, string unit, string byteOrder, string signed,
+            double factor, double offset, string valueRange, int orders, SQLiteTransaction transaction = null)
         {
             if (signalId < 0) // 新增
             {
@@ -474,7 +474,7 @@ namespace ChargeDebug.Service
                     cmd.Parameters.AddWithValue("@registerCount", registerCount);
                     cmd.Parameters.AddWithValue("@systemVariableName", systemVariableName);
                     cmd.Parameters.AddWithValue("@unit", unit);
-                    cmd.Parameters.AddWithValue("@byteOrder",byteOrder);
+                    cmd.Parameters.AddWithValue("@byteOrder", byteOrder);
                     cmd.Parameters.AddWithValue("@signed", signed);
                     cmd.Parameters.AddWithValue("@factor", factor);
                     cmd.Parameters.AddWithValue("@offset", offset);
@@ -501,7 +501,7 @@ namespace ChargeDebug.Service
                                            ValueRange = @valueRange, 
                                            Orders = @orders
                                            WHERE SignalID = @id";
-                
+
                 using (var cmd = new SQLiteCommand(updateSql, conn, transaction))
                 {
                     cmd.Parameters.AddWithValue("@id", signalId);
@@ -718,7 +718,7 @@ namespace ChargeDebug.Service
                                             WHERE MessageID = @id)";
             const string deleteSignalSql = "DELETE FROM Signals WHERE MessageID = @id";
             const string deleteMessageSql = "DELETE FROM Messages WHERE MessageID = @id";
-            
+
             using (var cmd = new SQLiteCommand(deleteReuseSignalSql, conn, transaction))
             {
                 cmd.Parameters.AddWithValue("@id", messageId);

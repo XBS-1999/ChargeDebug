@@ -101,42 +101,166 @@ namespace ChargeDebug.Form
         // 新增更新方法
         public void UpdateDcNumber(List<EquipmentModel> equipmentList)
         {
+            // 停止所有设备定时器
+            foreach (var timer in _deviceTimers.Values)
+            {
+                timer?.Change(Timeout.Infinite, Timeout.Infinite);
+                timer?.Dispose();
+            }
+            _deviceTimers.Clear();
+
             // 释放所有旧的 Module 控件资源
             DisposeOldModules();
+
+            // 释放布局相关资源
+            DisposeLayoutResources();
+
             DeviceConfig(equipmentList);
-            //清除所有旧布局
+
+            // 清除所有旧控件
             this.Controls.Clear();
+
+            // 重新创建布局和控件
             AddDynamicUserControls();
+        }
+
+        private void DisposeLayoutResources()
+        {
+            try
+            {
+                // 释放中间空白项
+                if (middleSpaceItem != null)
+                {
+                    middleSpaceItem.Dispose();
+                    middleSpaceItem = null;
+                }
+
+                // 释放左侧空白项
+                if (leftSpaceItem != null)
+                {
+                    leftSpaceItem.Dispose();
+                    leftSpaceItem = null;
+                }
+
+                // 释放顶部空白项
+                if (topSpaceItem != null)
+                {
+                    topSpaceItem.Dispose();
+                    topSpaceItem = null;
+                }
+
+                // 释放水平组及其子项
+                if (horizontalGroup != null)
+                {
+                    // 递归释放水平组中的所有项
+                    DisposeLayoutGroupItems(horizontalGroup);
+                    horizontalGroup.Dispose();
+                    horizontalGroup = null;
+                }
+
+                // 释放根组及其子项
+                if (rootGroup != null)
+                {
+                    // 递归释放根组中的所有项
+                    DisposeLayoutGroupItems(rootGroup);
+                    rootGroup.Dispose();
+                    rootGroup = null;
+                }
+
+                // 释放布局控件
+                if (layoutControl != null)
+                {
+                    layoutControl.Dispose();
+                    layoutControl = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"释放布局资源时出错: {ex.Message}");
+            }
+        }
+
+        // 递归释放布局组中的项目
+        private void DisposeLayoutGroupItems(LayoutControlGroup group)
+        {
+            if (group?.Items == null) return;
+
+            // 转换为数组避免在枚举时修改集合
+            var items = group.Items.ToArray();
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    if (item is LayoutControlItem layoutItem)
+                    {
+                        // 先释放控件
+                        if (layoutItem.Control != null)
+                        {
+                            // 如果是 Module 控件，确保已通过 DisposeOldModules 释放
+                            if (layoutItem.Control is Module module && !module.IsDisposed)
+                            {
+                                module.Dispose();
+                            }
+                            else
+                            {
+                                layoutItem.Control.Dispose();
+                            }
+                        }
+                        layoutItem.Dispose();
+                    }
+                    else if (item is EmptySpaceItem emptySpaceItem)
+                    {
+                        emptySpaceItem.Dispose();
+                    }
+                    else if (item is LayoutControlGroup subGroup)
+                    {
+                        // 递归释放子组
+                        DisposeLayoutGroupItems(subGroup);
+                        subGroup.Dispose();
+                    }
+                    else if (item is BaseLayoutItem baseItem)
+                    {
+                        baseItem.Dispose();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"释放布局项时出错: {ex.Message}");
+                }
+            }
+            // 清空项目集合
+            group.Items.Clear();
         }
 
         // 新增方法：释放旧的 Module 资源
         private void DisposeOldModules()
         {
-            // 先释放所有旧模块
-            foreach (var module in _modules)
+            try
             {
-                module.Dispose(); // 这会调用我们修改后的Dispose方法
+                // 先停止所有模块的发送
+                foreach (var module in _modules)
+                {
+                    try
+                    {
+                        if (module != null && !module.IsDisposed)
+                        {
+                            module.ModuleSendingEnabled = false;
+                            module.Dispose();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"释放模块时出错: {ex.Message}");
+                    }
+                }
+                _modules.Clear();
             }
-            _modules.Clear();
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DisposeOldModules 出错: {ex.Message}");
+            }
         }
-
-        // 辅助方法：递归释放布局组中的项目
-        //private void DisposeGroupItems(LayoutControlGroup group)
-        //{
-        //    foreach (var item in group.Items.ToArray())
-        //    {
-        //        if (item is LayoutControlItem layoutItem && layoutItem.Control is Module module)
-        //        {
-        //            module.Dispose();
-        //            group.Remove(item);
-        //            item.Dispose();
-        //        }
-        //        else if (item is LayoutControlGroup subGroup)
-        //        {
-        //            DisposeGroupItems(subGroup);
-        //        }
-        //    }
-        //}
 
         // 辅助方法：克隆信号对象
         private SignalInfo CloneSignal(SignalInfo original)
@@ -159,6 +283,13 @@ namespace ChargeDebug.Form
 
         private void AddDynamicUserControls()
         {
+            // 确保之前的资源已清理
+            if (layoutControl != null && !layoutControl.IsDisposed)
+            {
+                this.Controls.Remove(layoutControl);
+                layoutControl.Dispose();
+                layoutControl = null;
+            }
 
             //DeviceConfig();
             //重新布局
@@ -399,23 +530,28 @@ namespace ChargeDebug.Form
         // 在 Dispose 中释放定时器
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
-            {
-                components.Dispose();
-            }
-            base.Dispose(disposing);
-
             if (disposing)
             {
                 // 释放设备定时器
                 foreach (var timer in _deviceTimers.Values)
                 {
-                    timer?.Change(Timeout.Infinite, Timeout.Infinite);
-                    timer?.Dispose();
+                    try
+                    {
+                        timer?.Change(Timeout.Infinite, Timeout.Infinite);
+                        timer?.Dispose();
+                    }
+                    catch { }
                 }
                 _deviceTimers.Clear();
 
+                // 释放所有模块
                 DisposeOldModules();
+
+                // 释放布局资源
+                DisposeLayoutResources();
+
+                // 释放组件
+                components?.Dispose();
             }
             base.Dispose(disposing);
         }

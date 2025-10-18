@@ -190,7 +190,7 @@ namespace ChargeDebug.Form
             string cpuType = cbCpu.SelectedItem.ToString();
             // 4. 获取固件文件路径
             string filePath = btnSelectFile.Text;
-            
+
             if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
                 new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
                 "进入Bootloader指令", "进入Bootloader"))
@@ -428,7 +428,7 @@ namespace ChargeDebug.Form
                         HexRecord record = new HexRecord(fullAddress, data);
                         records.Add(record);
                         minAddr = Math.Min(minAddr, fullAddress);
-                        maxAddr = Math.Max(maxAddr, fullAddress + ((uint)dataLength)/2);
+                        maxAddr = Math.Max(maxAddr, fullAddress + ((uint)dataLength) / 2);
                         break;
                     case 0x04: // 扩展线性地址记录
                         upperAddress = (uint)((data[0] << 8) | data[1]);
@@ -632,7 +632,7 @@ namespace ChargeDebug.Form
                 // 直接使用解析时生成的块
                 for (int i = 0; i < hexData.Blocks.Count; i++)
                 {
-                    DataBlock block = hexData.Blocks[i] ;
+                    DataBlock block = hexData.Blocks[i];
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;

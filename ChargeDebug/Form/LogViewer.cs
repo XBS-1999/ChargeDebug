@@ -1,8 +1,5 @@
-﻿using ChargeDebug.Service;
-using DevExpress.XtraBars;
+﻿using DevExpress.XtraBars;
 using DevExpress.XtraEditors;
-using DevExpress.XtraTreeList;
-using Microsoft.VisualBasic;
 using System.Reflection;
 using System.Text;
 
@@ -66,7 +63,7 @@ namespace ChargeDebug.Form
             // 添加控件
             this.Controls.Add(logMemo);
 
-            if(this.components == null)
+            if (this.components == null)
                 this.components = new System.ComponentModel.Container();
             this.components.Add(barManager); // 确保工具栏可见
         }
@@ -99,7 +96,7 @@ namespace ChargeDebug.Form
                 }
             }
 
-            if(needsScroll)
+            if (needsScroll)
             {
                 logMemo.SelectionStart = logMemo.Text.Length;
                 logMemo.ScrollToCaret();

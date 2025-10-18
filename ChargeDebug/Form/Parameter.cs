@@ -418,6 +418,7 @@ namespace ChargeDebug.Form
 
             // ==================== 2. 创建主Tab控件 ====================
             // ==================== 初始化 mainTabControl ====================
+
             mainTabControl = new XtraTabControl
             {
                 Dock = DockStyle.Fill,
@@ -467,7 +468,7 @@ namespace ChargeDebug.Form
                     // AC TabPages
                     for (int b = 0; b < equipment.ACNumber; b++)
                     {
-                        acnum ++;
+                        acnum++;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
@@ -495,7 +496,7 @@ namespace ChargeDebug.Form
                     // DC TabPages
                     for (int c = 0; c < equipment.DCNumber; c++)
                     {
-                        dcnum ++;
+                        dcnum++;
                         totalWidth = 0;
                         var tabPageInfo = new TabPageInfo
                         {
@@ -506,7 +507,7 @@ namespace ChargeDebug.Form
                             CanIndex = equipment.CanIndex,
                             DeviceNumber = equipment.DeviceName
                         };
-                        
+
                         // 预加载信号数据
                         long signalId = SQLite_Service.GetSignalId(conn, messageid["调试DC写入"], "是", "MultiplexSignals");
                         var reuseSignals = SQLite_Service.GetReuseSignalsBySignals(conn, signalId);
@@ -525,7 +526,7 @@ namespace ChargeDebug.Form
         }
 
         private void AddTabPageWithPanels(XtraTabControl tabControl, string pageTitle,
-        List<ReuseSignal> reuseSignals, Dictionary<string, List<SignalInfo>> signalCache,TabPageInfo tabInfo)
+        List<ReuseSignal> reuseSignals, Dictionary<string, List<SignalInfo>> signalCache, TabPageInfo tabInfo)
         {
             // 创建Tab页面
             XtraTabPage tabPage = new XtraTabPage
@@ -562,9 +563,9 @@ namespace ChargeDebug.Form
             for (int i = 0; i < reuseSignals.Count; i++)
             {
                 // 每7个创建新的水平组
-                if((totalWidth > 1800) || (totalWidth == 0) || 
+                if ((totalWidth > 1800) || (totalWidth == 0) ||
                    (reuseSignals[i].Description.Remove(0, 3) == "调试模式设定"))
-                   //(reuseSignals[i].Description.Remove(0, 3) == "PI参数设置"))
+                //(reuseSignals[i].Description.Remove(0, 3) == "PI参数设置"))
                 {
                     totalWidth = 0;
                     currentHorizontalGroup = new LayoutControlGroup
@@ -609,7 +610,7 @@ namespace ChargeDebug.Form
             }
         }
 
-        private void AddGroupControl(LayoutControl layoutControl, LayoutControlGroup parentGroup, string panelTitle, List<SignalInfo> signals,TabPageInfo tabInfo)
+        private void AddGroupControl(LayoutControl layoutControl, LayoutControlGroup parentGroup, string panelTitle, List<SignalInfo> signals, TabPageInfo tabInfo)
         {
             /// ==================== 1. 外层GroupControl设置 ====================
             GroupControl group = new GroupControl
@@ -673,7 +674,7 @@ namespace ChargeDebug.Form
                     Appearance = { TextOptions = { HAlignment = DevExpress.Utils.HorzAlignment.Far } }
                 };
                 group.Controls.Add(labelControl);
-                
+
                 // 创建输入框
                 TextEdit textEdit = new TextEdit
                 {
@@ -687,7 +688,7 @@ namespace ChargeDebug.Form
                 LabelControl unitLabel = new LabelControl
                 {
                     Text = signals[i].Unit, // 使用信号中的单位
-                    Appearance = { TextOptions = { HAlignment = DevExpress.Utils.HorzAlignment.Far }},
+                    Appearance = { TextOptions = { HAlignment = DevExpress.Utils.HorzAlignment.Far } },
                     //AutoSizeMode = LabelAutoSizeMode.Vertical
                 };
                 group.Controls.Add(unitLabel);
@@ -721,7 +722,7 @@ namespace ChargeDebug.Form
                         // 设置单位标签位置（在输入框右侧）
                         unitLabel.Location = new Point(textEdit.Right + 2, labelControl.Location.Y);
                     }
-                    else if(i > 11)
+                    else if (i > 11)
                     {
                         int hight = (i - 11) * 33;
                         width = width + 3 * (14 * length + 6) + textEdit.Size.Width + 50;
@@ -745,7 +746,7 @@ namespace ChargeDebug.Form
                     width = width + (14 * length + 6) - 12;
                     // 设置标签位置
                     labelControl.Location = new Point(width - labelControl.Width, (i + 1) * 33);
-                    
+
                     // 设置输入框位置（在标签右侧）
                     textEdit.Location = new Point(width, labelControl.Location.Y - 5);
 
@@ -922,7 +923,7 @@ namespace ChargeDebug.Form
 
                     if (decimal.TryParse(textEdit.Text, out decimal physicalValue))
                     {
-                        if(signal.SignalName == "出厂日期")
+                        if (signal.SignalName == "出厂日期")
                         {
                             int bytenian = signal.StartBit / 8;
                             int bitnian = signal.Length / 8;
@@ -968,7 +969,7 @@ namespace ChargeDebug.Form
                 string channelKey = CANManager.GetChannelKey(tabInfo.DeviceIndex, tabInfo.CanIndex);
                 CANManager.Instance.ClearQueue(channelKey);
                 CANManager.Instance.SendCommand(tabInfo.DeviceIndex, tabInfo.CanIndex, readCANID, readData);
-                
+
                 // 等待并接收响应
                 var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCANID, 1000);
 
@@ -1048,9 +1049,168 @@ namespace ChargeDebug.Form
         public void UpdateParameters(List<EquipmentModel> equipmentList)
         {
             DeviceConfig(equipmentList);
-            //parequipmentList = equipmentList;
-            this.Controls.Clear(); // 清除当前控件
+            // 正确释放现有控件
+            CleanupExistingControls();
+
             InitializeUI();       // 重新生成界面
+        }
+
+        /// <summary>
+        /// 正确清理现有控件，避免内存泄漏
+        /// </summary>
+        private void CleanupExistingControls()
+        {
+            // 1. 首先移除所有控件的事件绑定
+            UnbindEvents();
+
+            // 2. 递归释放 mainTabControl 及其所有子控件
+            if (mainTabControl != null)
+            {
+                // 从后向前遍历，避免集合修改问题
+                for (int i = mainTabControl.TabPages.Count - 1; i >= 0; i--)
+                {
+                    var tabPage = mainTabControl.TabPages[i];
+                    CleanupTabPage(tabPage);
+                }
+
+                this.Controls.Remove(mainTabControl);
+                mainTabControl.Dispose();
+                mainTabControl = null;
+            }
+
+            // 3. 释放其他控件
+            if (toolStripPanel != null)
+            {
+                toolStripPanel.Dispose();
+                toolStripPanel = null;
+            }
+
+            if (btnExport != null)
+            {
+                btnExport.Dispose();
+                btnExport = null;
+            }
+
+            if (btnImport != null)
+            {
+                btnImport.Dispose();
+                btnImport = null;
+            }
+
+            if (contextMenu != null)
+            {
+                contextMenu.Dispose();
+                contextMenu = null;
+            }
+
+            // 4. 最后清空控件集合
+            this.Controls.Clear();
+        }
+
+        /// <summary>
+        /// 清理单个 TabPage 及其所有子控件
+        /// </summary>
+        private void CleanupTabPage(XtraTabPage tabPage)
+        {
+            if (tabPage == null) return;
+
+            // 查找并释放 LayoutControl
+            var layoutControl = tabPage.Controls.OfType<LayoutControl>().FirstOrDefault();
+            if (layoutControl != null)
+            {
+                // 先复制 GroupControls 到数组
+                var groupControls = layoutControl.Controls.OfType<GroupControl>().ToArray();
+
+                // 然后处理复制的数组
+                foreach (var groupControl in groupControls)
+                {
+                    CleanupGroupControl(groupControl);
+                }
+
+                layoutControl.Dispose();
+            }
+
+            tabPage.Dispose();
+        }
+
+        /// <summary>
+        /// 清理 GroupControl 及其所有子控件
+        /// </summary>
+        private void CleanupGroupControl(GroupControl groupControl)
+        {
+            if (groupControl == null) return;
+
+            // 解除事件绑定
+            var groupInfo = groupControl.Tag as GroupInfo;
+            if (groupInfo != null && groupInfo.TextEdits != null)
+            {
+                // 先复制 TextEdits 到数组
+                var textEdits = groupInfo.TextEdits.ToArray();
+
+                foreach (var textEdit in textEdits)
+                {
+                    textEdit.Dispose();
+                }
+                groupInfo.TextEdits.Clear();
+            }
+
+            // 先复制控件到数组
+            var buttons = groupControl.Controls.OfType<SimpleButton>().ToArray();
+            var labels = groupControl.Controls.OfType<LabelControl>().ToArray();
+
+            // 释放所有按钮
+            foreach (var button in buttons)
+            {
+                button.Dispose();
+            }
+
+            // 释放所有标签
+            foreach (var label in labels)
+            {
+                label.Dispose();
+            }
+
+            groupControl.Dispose();
+        }
+
+        /// <summary>
+        /// 解除事件绑定
+        /// </summary>
+        private void UnbindEvents()
+        {
+            // 解除按钮事件绑定
+            if (btnExport != null)
+            {
+                btnExport.Click -= BtnExport_Click;
+            }
+
+            if (btnImport != null)
+            {
+                btnImport.Click -= BtnImport_Click;
+            }
+
+            // 解除右键菜单事件绑定
+            if (contextMenu != null)
+            {
+                // 先复制菜单项到数组
+                var items = contextMenu.Items.Cast<ToolStripItem>().ToArray();
+
+                foreach (var item in items)
+                {
+                    if (item is ToolStripMenuItem menuItem)
+                    {
+                        menuItem.Click -= BtnImport_Click;
+                        menuItem.Click -= BtnExport_Click;
+                    }
+                }
+            }
+
+            // 清理其他可能的事件绑定
+            if (mainTabControl != null)
+            {
+                // 如果有 TabControl 的事件，在这里解除绑定
+                // mainTabControl.SelectedPageChanged -= OnTabSelectionChanged;
+            }
         }
     }
 }

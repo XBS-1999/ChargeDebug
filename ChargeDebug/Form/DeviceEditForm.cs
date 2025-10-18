@@ -1,12 +1,8 @@
 ﻿using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
-using System;
-using System.Collections.Generic;
 using System.Data;
 using System.Data.SQLite;
-using System.Drawing;
 using System.IO.Ports;
-using System.Windows.Forms;
 
 namespace ChargeDebug.Form
 {
@@ -91,7 +87,7 @@ namespace ChargeDebug.Form
         private string dbcPath = "";
 
         // 构造函数（新增模式）
-        public DeviceEditForm(string dbPath,int newDeviceNumber)
+        public DeviceEditForm(string dbPath, int newDeviceNumber)
         {
             dbcPath = dbPath;
             InitializeComponent();
@@ -157,7 +153,7 @@ namespace ChargeDebug.Form
             whether = new ComboBoxEdit { Location = new Point(450, 100), Width = 150 };
             whether.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             whether.Properties.Items.AddRange(new[] { "启用", "禁用" });
-            
+
             // 设备配置分组
             equipmentGroup = new GroupControl
             {
@@ -379,7 +375,7 @@ namespace ChargeDebug.Form
                     networkGroup.Location = new Point(0, 140);
                 }
             }
-            else if(cantype.Text == "ZCAN_USBCANFD_200U")
+            else if (cantype.Text == "ZCAN_USBCANFD_200U")
             {
                 // 显示网口配置，隐藏串口配置
                 //networkGroup.Visible = true;
@@ -444,7 +440,7 @@ namespace ChargeDebug.Form
                 {
                     buttonY = networkGroup.Bottom;
                 }
-                else if(cantype.Text == "ZCAN_USBCANFD_200U")
+                else if (cantype.Text == "ZCAN_USBCANFD_200U")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -465,7 +461,7 @@ namespace ChargeDebug.Form
                 {
                     buttonY = networkGroup.Bottom;
                 }
-                else if(cantype.Text == "ZCAN_USBCANFD_200U")
+                else if (cantype.Text == "ZCAN_USBCANFD_200U")
                 {
                     buttonY = networkGroup.Bottom;
                 }

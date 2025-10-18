@@ -1,11 +1,9 @@
 ﻿using DevExpress.Utils;
 using DevExpress.XtraEditors;
 using System.Data.SQLite;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using System.IO;
-using System.Configuration;
-using System.Security;
 
 #pragma warning disable
 namespace ChargeDebug.Form
