@@ -15,6 +15,7 @@ using System.Data.SQLite;
 using System.Globalization;
 using System.Text;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public class FaultRecord
@@ -804,6 +805,8 @@ namespace ChargeDebug.Form
                     uint requestCanId = 0x30A000 + (uint)(i * 0x100) + 0xCC;
                     byte[] data = new byte[8];
 
+                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
+
                     CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         selectedEquipment.DeviceIndex,
@@ -812,39 +815,12 @@ namespace ChargeDebug.Form
                         data
                     );
 
-                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
-
                     // 使用异步接收，支持取消
                     var receivedZcanFrames = await CANManager.Instance.ReceiveMultipleFramesAsync(
                         canChannelKey,
                         expectedCanIds,
                         15000
                     );
-
-                    var byteFrames = new Dictionary<uint, List<byte[]>>();
-                    foreach (var kv in receivedZcanFrames)
-                    {
-                        byteFrames[kv.Key] = kv.Value.Select(zcan => zcan.data).ToList();
-                    }
-                    _channelRawData[channelKey] = byteFrames;
-
-                    bool allReceived = true;
-                    LogService.Log($"通道 {channelKey} 接收帧数统计:");
-                    foreach (var canId in expectedCanIds)
-                    {
-                        int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
-                        if (count == 0)
-                        {
-                            allReceived = false;
-                        }
-                        LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
-                    }
-
-                    faultRecord.Add(new FaultRecord
-                    {
-                        Passage = $"AC{i + 1}",
-                        State = allReceived ? "成功" : "失败"
-                    });
 
                     // 报告进度
                     int progress = (int)((i + 1) * 100.0 / (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
@@ -899,35 +875,10 @@ namespace ChargeDebug.Form
                         15000
                     );
 
-                    var byteFrames = new Dictionary<uint, List<byte[]>>();
-
-                    foreach (var kv in receivedZcanFrames)
-                    {
-                        byteFrames[kv.Key] = kv.Value.Select(zcan => zcan.data).ToList();
-                    }
-                    _channelRawData[channelKey] = byteFrames;
-
-                    bool allReceived = true;
-                    LogService.Log($"通道 {channelKey} 接收帧数统计:");
-                    foreach (var canId in expectedCanIds)
-                    {
-                        int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
-                        if (count == 0)
-                        {
-                            allReceived = false;
-                        }
-                        LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
-                    }
-
-                    faultRecord.Add(new FaultRecord
-                    {
-                        Passage = $"DC{i + 1}",
-                        State = allReceived ? "成功" : "失败"
-                    });
-
                     // 报告进度
                     int progress = (int)((selectedEquipment.ACNumber + i + 1) * 100.0 /
                                         (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
+
                     worker.ReportProgress(progress);
                 }
 

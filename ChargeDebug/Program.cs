@@ -16,16 +16,6 @@ namespace ChargeDebug
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-
-            // 禁用Windows窗体的自动缩放，让DevExpress处理缩放
-            DevExpress.XtraEditors.WindowsFormsSettings.SetDPIAware();
-
-            ApplicationConfiguration.Initialize();
-
-            ApplicationConfiguration.Initialize();
-
             // ===== 初始化阶段 =====
             // 1. 必须在创建任何窗口之前设置兼容文本渲染
             Application.SetCompatibleTextRenderingDefault(false);
@@ -67,19 +57,7 @@ namespace ChargeDebug
         {
             try
             {
-                // 方法1：使用系统默认字体，避免字体无效问题
-                // DevExpress.XtraEditors.WindowsFormsSettings.DefaultFont = SystemFonts.DefaultFont;
-
-                // 方法2：使用安全的字体创建方式
-                using (var safeFont = GetSafeFont())
-                {
-                    if (safeFont != null)
-                    {
-                        DevExpress.XtraEditors.WindowsFormsSettings.DefaultFont = safeFont;
-                    }
-                }
-
-                // 设置皮肤样式
+                WindowsFormsSettings.DefaultFont = new Font("Tahoma", 10, FontStyle.Regular);
                 DevExpress.LookAndFeel.UserLookAndFeel.Default.SetSkinStyle("WXI");
 
                 Debug.WriteLine("DevExpress配置完成");

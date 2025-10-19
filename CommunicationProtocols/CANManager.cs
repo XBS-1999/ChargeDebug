@@ -987,59 +987,73 @@ namespace ChargeDebug.Service
             return receivedFrames;
         }
 
-        public async Task<Dictionary<uint, List<ZCAN_Receive_Data>>> ReceiveMultipleFramesAsync(
+        public async Task<List<ZCAN_Receive_Data>> ReceiveMultipleFramesAsync(
             string channelKey,
             List<uint> expectedCanIds,
             int timeoutMs)
         {
-            var results = new Dictionary<uint, List<ZCAN_Receive_Data>>();
-            var stopwatch = Stopwatch.StartNew();
-
-            // 预先初始化结果集
-            foreach (var canId in expectedCanIds)
-            {
-                results[canId] = new List<ZCAN_Receive_Data>();
-            }
-
-            // 使用HashSet提高查找效率
+            var receivedFrames = new List<ZCAN_Receive_Data>();
+            var startTime = DateTime.Now;
             var expectedIdsSet = new HashSet<uint>(expectedCanIds);
 
-            while (stopwatch.ElapsedMilliseconds < timeoutMs)
+            while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
             {
-                if (!_receiveQueues.TryGetValue(channelKey, out var queue))
+                if (_receiveQueues.TryGetValue(channelKey, out var queue) && queue.Count > 0)
                 {
-                    await Task.Delay(5);
-                    continue;
-                }
+                    var tempList = new List<ZCAN_Receive_Data>();
+                    bool foundFrame = false;
 
-                // 每次处理最大1000帧，避免阻塞
-                int processed = 0;
-                const int MAX_BATCH = 1000;
-
-                while (queue.TryDequeue(out var frame) && processed++ < MAX_BATCH)
-                {
-                    uint receivedId = frame.can_id & 0x1FFFFFFF;
-                    if (expectedIdsSet.Contains(receivedId))
+                    while (queue.TryDequeue(out var frame))
                     {
-                        results[receivedId].Add(frame);
+                        uint receivedId = frame.can_id & 0x1FFFFFFF;
+
+                        // 检查是否匹配任何一个预期的CAN ID
+                        if (expectedIdsSet.Contains(receivedId))
+                        {
+                            receivedFrames.Add(frame);
+                            foundFrame = true;
+
+                            // 可选：记录每帧数据
+                            // string hexData = BitConverter.ToString(frame.data).Replace("-", " ");
+                            // LogService.Log($"设备{channelKey} | 接收帧 | CAN ID: 0x{receivedId:X8} | 数据: {hexData}");
+                        }
+                        else
+                        {
+                            tempList.Add(frame);
+                        }
+                    }
+
+                    // 重新入队不匹配的帧
+                    foreach (var f in tempList)
+                    {
+                        queue.Enqueue(f);
+                    }
+
+                    // 如果本次处理找到了帧，重置延时；否则增加延时
+                    if (!foundFrame)
+                    {
+                        await Task.Delay(5); // 没有找到帧时增加延时
                     }
                 }
-
-                // 检查是否已完成所有帧的接收
-                bool allComplete = true;
-                foreach (var canId in expectedCanIds)
+                else
                 {
-                    if (results[canId].Count < 1000) // 假设每个ID期望1000帧
-                    {
-                        allComplete = false;
-                        break;
-                    }
+                    await Task.Delay(10); // 队列为空时增加延时
                 }
-
-                if (allComplete) break;
             }
 
-            return results;
+            // 统计每个CAN ID接收到的帧数
+            var frameCounts = receivedFrames
+                .GroupBy(f => f.can_id & 0x1FFFFFFF)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            string expectedIdsStr = string.Join(", ", expectedCanIds.Select(id => $"0x{id:X8}"));
+            string frameCountsStr = string.Join(", ", frameCounts.Select(kv => $"0x{kv.Key:X8}:{kv.Value}帧"));
+
+            LogService.Log($"设备{channelKey} | 接收完成 | 目标CAN IDs: [{expectedIdsStr}] | " +
+                   $"共接收 {receivedFrames.Count} 帧数据 | 分布: [{frameCountsStr}] | " +
+                   $"耗时: {(DateTime.Now - startTime).TotalMilliseconds:F2}ms");
+
+            return receivedFrames;
         }
 
 
