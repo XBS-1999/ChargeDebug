@@ -400,8 +400,6 @@ namespace ChargeDebug.Form
                         var userControl = new Module(title, equipment, channelSignals, _userPermissions);
                         _modules.Add(userControl); // 存储引用
 
-
-
                         userControl.Margin = new System.Windows.Forms.Padding(0);
                         userControl.MaximumSize = new Size(400, 700);
                         userControl.MinimumSize = new Size(400, 700);

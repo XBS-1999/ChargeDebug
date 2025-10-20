@@ -630,7 +630,7 @@ namespace ChargeDebug
 
             // 记录关闭信息并清理资源
             LogService.Log($"关闭时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
-            CleanupResources();
+            //CleanupResources();
 
             base.OnClosing(e);
         }
