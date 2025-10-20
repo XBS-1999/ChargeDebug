@@ -2,6 +2,7 @@
 using System.Data;
 using System.Data.SQLite;
 
+#pragma warning disable
 namespace ChargeDebug.Service
 {
     public class SQLite_Service
@@ -1282,9 +1283,9 @@ namespace ChargeDebug.Service
         #endregion
 
         #region FaultRecording表操作
-        public static List<FaultRecording> GetFaultRecording(SQLiteConnection conn)
+        public static List<FaultRecordingSignals> GetFaultRecording(SQLiteConnection conn)
         {
-            var faultRecordings = new List<FaultRecording>();
+            var faultRecordings = new List<FaultRecordingSignals>();
             const string sql = "SELECT * FROM FaultRecording";
 
             using (var cmd = new SQLiteCommand(sql, conn))
@@ -1293,7 +1294,7 @@ namespace ChargeDebug.Service
                 {
                     while (reader.Read())
                     {
-                        faultRecordings.Add(new FaultRecording
+                        faultRecordings.Add(new FaultRecordingSignals
                         {
                             SignalName = reader["SignalName"].ToString(),
                             CANID = reader["CANID"].ToString(),

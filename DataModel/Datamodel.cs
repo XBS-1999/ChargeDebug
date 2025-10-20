@@ -74,7 +74,7 @@ namespace DataModel
         public decimal Offset { get; set; }
     }
 
-    public class FaultRecording
+    public class FaultRecordingSignals
     {
         public string SignalName { get; set; }
         public string CANID { get; set; }
@@ -86,6 +86,8 @@ namespace DataModel
         public decimal Offset { get; set; }
         public string Unit { get; set; }
     }
+
+
 
     /// <summary>
     /// Modbus信号信息类
@@ -112,6 +114,13 @@ namespace DataModel
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }
     }
+
+    public class FaultRecord
+    {
+        public string Passage { get; set; }
+        public string State { get; set; }
+    }
+
 
     public class CalibrationSignals
     {

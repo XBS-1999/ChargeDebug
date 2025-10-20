@@ -173,7 +173,7 @@ namespace ChargeDebug
             if (updateParameters)
             {
                 UpdatePage<Parameter>(page => page.UpdateParameters(equipmentList), "参数管理");
-                UpdatePage<Faultrecording>(page => page.UpdateDcNumber(equipmentList), "故障录波");
+                UpdatePage<FaultRecording>(page => page.UpdateDcNumber(equipmentList), "故障录波");
                 UpdatePage<Upgradeonline>(page => page.UpdateDcNumber(equipmentList), "在线升级");
                 UpdatePage<CalibrationManagement>(page => page.UpdateDcNumber(equipmentList), "校准管理");
             }
@@ -397,7 +397,7 @@ namespace ChargeDebug
             buttonItem3.ItemClick += (s, e) => ShowPage(typeof(Equipment));
             buttonItem4.ItemClick += (s, e) => ShowPage(typeof(Agreement));
             buttonItem5.ItemClick += (s, e) => ShowPage(typeof(User));
-            buttonItem6.ItemClick += (s, e) => ShowPage(typeof(Faultrecording));
+            buttonItem6.ItemClick += (s, e) => ShowPage(typeof(FaultRecording));
             buttonItem7.ItemClick += (s, e) => ShowPage(typeof(Upgradeonline));
             buttonItem9.ItemClick += (s, e) => ShowPage(typeof(CalibrationManagement));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer));
@@ -433,7 +433,7 @@ namespace ChargeDebug
             RegisterPage(typeof(Equipment), new Equipment(dbPath));
             RegisterPage(typeof(Agreement), new Agreement(dbPath, equipmentList));
             RegisterPage(typeof(User), new User(dbPath));
-            RegisterPage(typeof(Faultrecording), new Faultrecording(dbPath, equipmentList));
+            RegisterPage(typeof(FaultRecording), new FaultRecording(dbPath, equipmentList));
             RegisterPage(typeof(Upgradeonline), new Upgradeonline(equipmentList));
             RegisterPage(typeof(LogViewer), logViewer);
             RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath, equipmentList));

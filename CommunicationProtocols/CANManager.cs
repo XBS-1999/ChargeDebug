@@ -1049,7 +1049,7 @@ namespace ChargeDebug.Service
             string expectedIdsStr = string.Join(", ", expectedCanIds.Select(id => $"0x{id:X8}"));
             string frameCountsStr = string.Join(", ", frameCounts.Select(kv => $"0x{kv.Key:X8}:{kv.Value}帧"));
 
-            LogService.Log($"设备{channelKey} | 接收完成 | 目标CAN IDs: [{expectedIdsStr}] | " +
+            LogService.Log($"设备{channelKey} | 接收完成 | 目标CAN ID: [{expectedIdsStr}] | " +
                    $"共接收 {receivedFrames.Count} 帧数据 | 分布: [{frameCountsStr}] | " +
                    $"耗时: {(DateTime.Now - startTime).TotalMilliseconds:F2}ms");
 
