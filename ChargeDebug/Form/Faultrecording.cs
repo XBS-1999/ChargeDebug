@@ -15,6 +15,7 @@ using System.Data.SQLite;
 using System.Globalization;
 using System.Text;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class FaultRecording : XtraUserControl
@@ -760,16 +761,20 @@ namespace ChargeDebug.Form
             EquipmentModel selectedEquipment = (EquipmentModel)e.Argument;
             CancellationToken cancellationToken = _cancellationTokenSource.Token;
 
-            string deviceLogPrefix = $"{selectedEquipment.DeviceName}";
-
             try
             {
+                // 初始进度报告
+                //worker.ReportProgress(0, "开始查询故障录波数据...");
+
                 // 查询AC通道
                 for (int i = 0; i < selectedEquipment.ACNumber; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    worker.ReportProgress(0, $"正在查询通道AC{i + 1}...");
+                    //string progressMessage = $"正在查询通道AC{i + 1} ({i + 1}/{selectedEquipment.ACNumber + selectedEquipment.DCNumber})...";
+                    //worker.ReportProgress(0, progressMessage);
+                    //await Task.Delay(50, cancellationToken);
+
                     string channelKey = $"AC{i + 1}";
                     List<FaultRecordingSignals> acSignals = new List<FaultRecordingSignals>();
 
@@ -798,6 +803,8 @@ namespace ChargeDebug.Form
                     uint requestCanId = 0x30A000 + (uint)(i * 0x100) + 0xCC;
                     byte[] data = new byte[8];
 
+
+                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
                     CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         selectedEquipment.DeviceIndex,
@@ -805,8 +812,6 @@ namespace ChargeDebug.Form
                         requestCanId,
                         data
                     );
-
-                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
 
                     // 使用异步接收，支持取消
                     var receivedZcanFrames = await CANManager.Instance.ReceiveMultipleFramesAsync(
@@ -823,16 +828,16 @@ namespace ChargeDebug.Form
                     _channelRawData[channelKey] = byteFrames;
 
                     bool allReceived = true;
-                    LogService.Log($"通道 {channelKey} 接收帧数统计:");
-                    foreach (var canId in expectedCanIds)
-                    {
-                        int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
-                        if (count == 0)
-                        {
-                            allReceived = false;
-                        }
-                        LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
-                    }
+                    //LogService.Log($"通道 {channelKey} 接收帧数统计:");
+                    //foreach (var canId in expectedCanIds)
+                    //{
+                    //    int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
+                    //    if (count == 0)
+                    //    {
+                    //        allReceived = false;
+                    //    }
+                    //    LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
+                    //}
 
                     faultRecord.Add(new FaultRecord
                     {
@@ -840,9 +845,9 @@ namespace ChargeDebug.Form
                         State = allReceived ? "成功" : "失败"
                     });
 
-                    // 报告进度
-                    int progress = (int)((i + 1) * 100.0 / (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
-                    worker.ReportProgress(progress);
+                    // 计算并报告更精确的进度
+                    //int progress = (int)((i + 1) * 100.0 / (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
+                    //worker.ReportProgress(progress);
                 }
 
                 // 查询DC通道
@@ -850,7 +855,10 @@ namespace ChargeDebug.Form
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    worker.ReportProgress(0, $"正在查询通道DC{i + 1}...");
+                    string progressMessage = $"正在查询通道DC{i + 1} ({selectedEquipment.ACNumber + i + 1}/{selectedEquipment.ACNumber + selectedEquipment.DCNumber})...";
+                    worker.ReportProgress(0, progressMessage);
+                    await Task.Delay(50, cancellationToken);
+
                     string channelKey = $"DC{i + 1}";
                     List<FaultRecordingSignals> dcSignals = new List<FaultRecordingSignals>();
                     foreach (var faultTemplates in _faultTemplates)
@@ -878,6 +886,7 @@ namespace ChargeDebug.Form
                     uint requestCanId = 0x302000 + (uint)(i * 0x100) + 0xCC;
                     byte[] data = new byte[8];
 
+                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
                     CANManager.Instance.ClearQueue(channelKey);
                     CANManager.Instance.SendCommand(
                         selectedEquipment.DeviceIndex,
@@ -886,7 +895,6 @@ namespace ChargeDebug.Form
                         data
                     );
 
-                    string canChannelKey = CANManager.GetChannelKey(selectedEquipment.DeviceIndex, selectedEquipment.CanIndex);
                     var receivedZcanFrames = await CANManager.Instance.ReceiveMultipleFramesAsync(
                         canChannelKey,
                         expectedCanIds,
@@ -902,16 +910,16 @@ namespace ChargeDebug.Form
                     _channelRawData[channelKey] = byteFrames;
 
                     bool allReceived = true;
-                    LogService.Log($"通道 {channelKey} 接收帧数统计:");
-                    foreach (var canId in expectedCanIds)
-                    {
-                        int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
-                        if (count == 0)
-                        {
-                            allReceived = false;
-                        }
-                        LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
-                    }
+                    //LogService.Log($"通道 {channelKey} 接收帧数统计:");
+                    //foreach (var canId in expectedCanIds)
+                    //{
+                    //    int count = receivedZcanFrames.TryGetValue(canId, out var frames) ? frames.Count : 0;
+                    //    if (count == 0)
+                    //    {
+                    //        allReceived = false;
+                    //    }
+                    //    LogService.Log($"  CAN ID: 0x{canId:X8}, 帧数: {count}");
+                    //}
 
                     faultRecord.Add(new FaultRecord
                     {
@@ -919,16 +927,12 @@ namespace ChargeDebug.Form
                         State = allReceived ? "成功" : "失败"
                     });
 
-                    // 报告进度
                     int progress = (int)((selectedEquipment.ACNumber + i + 1) * 100.0 /
-                                        (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
+                                (selectedEquipment.ACNumber + selectedEquipment.DCNumber));
                     worker.ReportProgress(progress);
                 }
 
-                LogService.Log($"{deviceLogPrefix}故障查询完成: " +
-                              $"AC成功数: {faultRecord.Count(r => r.Passage.StartsWith("AC") && r.State == "成功")}, " +
-                              $"DC成功数: {faultRecord.Count(r => r.Passage.StartsWith("DC") && r.State == "成功")}");
-
+                worker.ReportProgress(100, "查询完成！");
                 e.Result = true;
             }
             catch (OperationCanceledException)
@@ -994,14 +998,22 @@ namespace ChargeDebug.Form
         {
             CloseWaitDialog();
             waitDialog = new WaitDialogForm(caption, description);
+            // 强制立即显示
+            waitDialog.Show();
+            Application.DoEvents();
         }
 
         private void UpdateWaitDialog(string description)
         {
             if (waitDialog != null && !waitDialog.IsDisposed)
             {
-                CloseWaitDialog();
-                waitDialog = new WaitDialogForm("查询中", description);
+                // 使用反射调用SetDescription方法，避免重新创建对话框
+                var method = waitDialog.GetType().GetMethod("SetDescription",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (method != null)
+                {
+                    method.Invoke(waitDialog, new object[] { description });
+                }
                 Application.DoEvents();
             }
         }

@@ -987,12 +987,19 @@ namespace ChargeDebug.Service
             return receivedFrames;
         }
 
-        public async Task<List<ZCAN_Receive_Data>> ReceiveMultipleFramesAsync(
+        public async Task<Dictionary<uint, List<ZCAN_Receive_Data>>> ReceiveMultipleFramesAsync(
             string channelKey,
             List<uint> expectedCanIds,
             int timeoutMs)
         {
-            var receivedFrames = new List<ZCAN_Receive_Data>();
+            var receivedFramesDict = new Dictionary<uint, List<ZCAN_Receive_Data>>();
+
+            // 初始化字典，为每个预期的CAN ID创建空列表
+            foreach (var canId in expectedCanIds)
+            {
+                receivedFramesDict[canId] = new List<ZCAN_Receive_Data>();
+            }
+
             var startTime = DateTime.Now;
             var expectedIdsSet = new HashSet<uint>(expectedCanIds);
 
@@ -1010,7 +1017,15 @@ namespace ChargeDebug.Service
                         // 检查是否匹配任何一个预期的CAN ID
                         if (expectedIdsSet.Contains(receivedId))
                         {
-                            receivedFrames.Add(frame);
+                            // 将帧添加到对应CAN ID的列表中
+                            if (receivedFramesDict.ContainsKey(receivedId))
+                            {
+                                receivedFramesDict[receivedId].Add(frame);
+                            }
+                            else
+                            {
+                                receivedFramesDict[receivedId] = new List<ZCAN_Receive_Data> { frame };
+                            }
                             foundFrame = true;
 
                             // 可选：记录每帧数据
@@ -1042,18 +1057,20 @@ namespace ChargeDebug.Service
             }
 
             // 统计每个CAN ID接收到的帧数
-            var frameCounts = receivedFrames
-                .GroupBy(f => f.can_id & 0x1FFFFFFF)
-                .ToDictionary(g => g.Key, g => g.Count());
+            var frameCounts = receivedFramesDict
+                .Where(kv => kv.Value.Count > 0)
+                .ToDictionary(g => g.Key, g => g.Value.Count);
 
             string expectedIdsStr = string.Join(", ", expectedCanIds.Select(id => $"0x{id:X8}"));
             string frameCountsStr = string.Join(", ", frameCounts.Select(kv => $"0x{kv.Key:X8}:{kv.Value}帧"));
 
+            int totalFrames = receivedFramesDict.Values.Sum(list => list.Count);
+
             LogService.Log($"设备{channelKey} | 接收完成 | 目标CAN ID: [{expectedIdsStr}] | " +
-                   $"共接收 {receivedFrames.Count} 帧数据 | 分布: [{frameCountsStr}] | " +
+                   $"共接收 {totalFrames} 帧数据 | 分布: [{frameCountsStr}] | " +
                    $"耗时: {(DateTime.Now - startTime).TotalMilliseconds:F2}ms");
 
-            return receivedFrames;
+            return receivedFramesDict;
         }
 
 
