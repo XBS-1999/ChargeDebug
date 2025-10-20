@@ -27,9 +27,12 @@ namespace ChargeDebug.Form
         // ==================== 字段声明区域 ====================
         #region 数据保存字段
 
+        // ==================== 实时数据保存相关字段 ====================
         // 实时数据保存队列
-        private readonly ConcurrentQueue<StartupDataItem> _realtimesave = new ConcurrentQueue<StartupDataItem>();
+        private readonly ConcurrentQueue<StartupDataItem> _realtimeDataQueue = new ConcurrentQueue<StartupDataItem>();
         private readonly AutoResetEvent _realtimeDataEvent = new AutoResetEvent(false);
+        private CancellationTokenSource _realtimeDataCancellationTokenSource;
+        private Task _realtimeDataProcessingTask;
         // 启动数据保存队列
         private readonly ConcurrentQueue<StartupDataItem> _startupDataQueue = new ConcurrentQueue<StartupDataItem>();
         private readonly AutoResetEvent _startupDataEvent = new AutoResetEvent(false);
@@ -50,28 +53,23 @@ namespace ChargeDebug.Form
         private string _startupFilePath;
         private DateTime _startupStartTime;
 
-        // 保存目录管理
-        private static string _baseSaveDirectory;
-        private string _deviceSaveDirectory;
-
-        #endregion
-
-        #region 实时数据保存字段
-
-        // ==================== 实时数据保存相关字段 ====================
+        // 实时数据保存相关字段
+        private bool _isRealTimeSaving = false;
+        private StreamWriter _realtimeFileWriter;
+        private string _realtimeFilePath;
+        private DateTime _realtimeStartTime;
 
         // 静态字典，用于管理同一设备下的数据保存状态和文件写入器
         private static readonly ConcurrentDictionary<string, bool> _deviceSaveStatus = new ConcurrentDictionary<string, bool>();
         private static readonly ConcurrentDictionary<string, StreamWriter> _deviceFileWriters = new ConcurrentDictionary<string, StreamWriter>();
         private static readonly ConcurrentDictionary<string, object> _deviceFileLocks = new ConcurrentDictionary<string, object>();
         private static readonly ConcurrentDictionary<string, bool> _deviceHeaderWritten = new ConcurrentDictionary<string, bool>();
-
-        // 实例字段
         private CheckBox _chkRealTimeSave;
         private string _deviceKey; // 设备标识键
 
-        // 实时数据保存相关字段
-        private bool _isRealTimeSaving = false;
+        // 保存目录管理
+        private static string _baseSaveDirectory;
+        private string _deviceSaveDirectory;
 
         #endregion
 
@@ -545,6 +543,13 @@ namespace ChargeDebug.Form
         /// </summary>
         private void ChkRealTimeSave_CheckedChanged(object sender, EventArgs e)
         {
+            if (_acRunStatus == 0x01 || _acRunStatus == 0x02 || _dcRunStatus == 0x01 || _dcRunStatus == 0x02)
+            {
+                XtraMessageBox.Show($"设备运行中，数据已开启保存！", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             bool shouldSave = _chkRealTimeSave.Checked;
 
             // 更新设备级别的保存状态
@@ -553,12 +558,12 @@ namespace ChargeDebug.Form
             if (shouldSave)
             {
                 StartRealTimeSave();
-                LogService.Log($"{_title} 开始实时数据保存");
+                //LogService.Log($"{_title} 开始实时数据保存");
             }
             else
             {
                 StopRealTimeSave();
-                LogService.Log($"{_title} 停止实时数据保存");
+                //LogService.Log($"{_title} 停止实时数据保存");
             }
         }
 
@@ -756,20 +761,20 @@ namespace ChargeDebug.Form
                 }
 
                 // 实时保存数据（如果启用）- 使用新线程避免阻塞
-                //if (_isRealTimeSaving)
-                //{
-                //    var realtimesaveDataItem = new StartupDataItem
-                //    {
-                //        Frame = frame,
-                //        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
-                //        Timestamp = DateTime.Now
-                //    };
+                if (_isRealTimeSaving)
+                {
+                    var realtimesaveDataItem = new StartupDataItem
+                    {
+                        Frame = frame,
+                        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
+                        Timestamp = DateTime.Now
+                    };
 
-                //    _realtimesave.Enqueue(realtimesaveDataItem);
-                //    _realtimeDataEvent.Set(); // 通知处理线程有新的数据
-                //}
+                    _realtimeDataQueue.Enqueue(realtimesaveDataItem);
+                    _realtimeDataEvent.Set(); // 通知处理线程有新的数据
+                }
 
-                ////// 保存启动数据（如果启动保存启用）- 使用新线程避免阻塞
+                // 保存启动数据（如果启动保存启用）- 使用新线程避免阻塞
                 if (_isStartupSaving)
                 {
                     var startupDataItem = new StartupDataItem
@@ -1113,13 +1118,13 @@ namespace ChargeDebug.Form
 
                 // 启动定时器，每隔2秒发送一次读取故障指令
                 _readFaultTimer.Change(2000, 2000);
-                LogService.Log("检测到故障状态，启动故障读取定时器");
+                LogService.Log($"{_title} 检测到故障状态，启动故障读取定时器");
             }
             // 如果所有设备都恢复正常，停止定时器
             else if ((dcRecovered && _acRunStatus != 0xFF) || (acRecovered && _dcRunStatus != 0xFF))
             {
                 _readFaultTimer.Change(Timeout.Infinite, Timeout.Infinite);
-                LogService.Log("设备恢复正常，停止故障读取定时器");
+                LogService.Log($"{_title} 恢复正常，停止故障读取定时器");
 
                 // 清除故障显示
                 lock (_faultQueueLock)
@@ -1235,6 +1240,10 @@ namespace ChargeDebug.Form
                             bool success = await _startupManager.StopDeviceAsync();
                             if (success)
                             {
+                                // ============ 新增：停止启动数据保存 ============
+                                StopStartupDataSave();
+                                // ============ 新增结束 ============
+
                                 // 在停止设备时重置时间
                                 _startTime = DateTime.MinValue;
                                 _stepStartTime = DateTime.MinValue;
@@ -1251,6 +1260,10 @@ namespace ChargeDebug.Form
                             bool stopSuccess = await _startupManager.ACStopDeviceAsync();
                             if (stopSuccess)
                             {
+                                // ============ 新增：停止启动数据保存 ============
+                                StopStartupDataSave();
+                                // ============ 新增结束 ============
+
                                 // 在停止设备时重置时间
                                 _startTime = DateTime.MinValue;
                                 LogService.Log("AC停机指令发送成功");
@@ -1536,8 +1549,6 @@ namespace ChargeDebug.Form
                     return Task.FromResult(false);
                 }
             }
-
-
         }
 
         /// <summary>
@@ -1599,12 +1610,12 @@ namespace ChargeDebug.Form
                     {
                         _activeFaults[signalName] = name;
                         _faultDisplayQueue.Enqueue(name);
-                        LogService.Log($"检测到新故障: {signalName} → {name}");
+                        LogService.Log($"{_title} 检测到新故障: {signalName} → {name}");
                     }
                     else if (_activeFaults[signalName] != name)
                     {
                         _activeFaults[signalName] = name;
-                        LogService.Log($"故障更新: {signalName} → {name}");
+                        LogService.Log($"{_title} 故障更新: {signalName} → {name}");
                     }
                 }
             }
@@ -2034,9 +2045,6 @@ namespace ChargeDebug.Form
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
-                            // ============ 新增：开始启动数据保存 ============
-                            StartStartupDataSave();
-
                             // 获取用户设置的配置数据
                             _protectionParameters = configForm.Configuration;
 
@@ -2045,8 +2053,6 @@ namespace ChargeDebug.Form
                             {
                                 LogService.Log("启动前检查失败：关键信号超出阈值");
                                 XtraMessageBox.Show("启动前检查失败：关键信号超出阈值，请检查设备状态");
-                                // 停止启动数据保存
-                                StopStartupDataSave();
                                 return;
                             }
                             // ============ 新增结束 ============
@@ -2056,6 +2062,9 @@ namespace ChargeDebug.Form
 
                             if (run)
                             {
+                                // ============ 新增：开始启动数据保存 ============
+                                StartStartupDataSave();
+
                                 _stopCommandSent = true;
 
                                 // 检测设备状态变化
@@ -2070,14 +2079,13 @@ namespace ChargeDebug.Form
                                     bool stopSuccess = await _startupManager.StopDeviceAsync();
                                     if (!stopSuccess)
                                     {
-                                        // 停止启动数据保存
-                                        StopStartupDataSave();
                                         XtraMessageBox.Show("停机指令发送失败");
                                         return;
                                     }
 
                                     // 停止启动数据保存
                                     StopStartupDataSave();
+
                                     // 状态没有变化，启动失败
                                     LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     XtraMessageBox.Show($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
@@ -2137,10 +2145,6 @@ namespace ChargeDebug.Form
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
-                            // ============ 新增：开始启动数据保存 ============
-                            StartStartupDataSave();
-                            // ============ 新增结束 ============
-
                             var acConfig = configForm.ACConfiguration;
 
                             // 记录AC启动配置
@@ -2151,6 +2155,11 @@ namespace ChargeDebug.Form
 
                             if (success)
                             {
+
+                                // ============ 新增：开始启动数据保存 ============
+                                StartStartupDataSave();
+                                // ============ 新增结束 ============
+
                                 _stopCommandSent = true;
 
                                 // 检测设备状态变化
@@ -2166,8 +2175,6 @@ namespace ChargeDebug.Form
                                     if (!stopSuccess)
                                     {
                                         XtraMessageBox.Show("停机指令发送失败");
-                                        // 停止启动数据保存
-                                        StopStartupDataSave();
                                         return;
                                     }
 
@@ -2190,8 +2197,6 @@ namespace ChargeDebug.Form
                             {
                                 LogService.Log("AC通道控制失败!");
                                 XtraMessageBox.Show("AC通道控制失败!");
-                                // 停止启动数据保存
-                                StopStartupDataSave();
                             }
                         }
                     }
@@ -2366,10 +2371,6 @@ namespace ChargeDebug.Form
                 //任何状态下都可以停机
                 _stopCommandSent = true;
                 SendStopCommandIfNeeded();
-
-                // ============ 新增：停止启动数据保存 ============
-                StopStartupDataSave();
-                // ============ 新增结束 ============
             }
             catch (Exception ex)
             {
@@ -2476,17 +2477,19 @@ namespace ChargeDebug.Form
                     {
                         string filePath = saveFileDialog.FileName;
 
-                        // 先停止之前的保存（如果正在运行）
-                        //StopRealTimeSave();
-
                         // 初始化设备文件写入器
                         InitializeDeviceFileWriter(filePath);
+
+                        // 启动数据处理任务
+                        StartRealTimeDataProcessing();
 
                         //LogService.Log($"开始实时数据保存: {filePath}");
                         XtraMessageBox.Show($"开始实时数据保存到: {Path.GetFileName(filePath)}", "实时保存",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                         _isRealTimeSaving = true;
+
+                        LogService.Log($"开始实时数据保存: {_title} -> {filePath}");
                     }
                     else
                     {
@@ -2504,6 +2507,83 @@ namespace ChargeDebug.Form
                 _chkRealTimeSave.Checked = false;
                 _isRealTimeSaving = false;
             }
+        }
+
+        /// <summary>
+        /// 启动实时数据处理任务
+        /// </summary>
+        private void StartRealTimeDataProcessing()
+        {
+            try
+            {
+                // 如果已有处理任务，先停止
+                if (_realtimeDataCancellationTokenSource != null)
+                {
+                    _realtimeDataCancellationTokenSource.Cancel();
+                    _realtimeDataEvent.Set();
+
+                    if (_realtimeDataProcessingTask != null)
+                    {
+                        _realtimeDataProcessingTask.Wait(3000);
+                        _realtimeDataProcessingTask.Dispose();
+                    }
+                    _realtimeDataCancellationTokenSource.Dispose();
+                }
+
+                // 创建新的处理任务
+                _realtimeDataCancellationTokenSource = new CancellationTokenSource();
+                _realtimeDataProcessingTask = Task.Run(() => ProcessRealTimeDataQueue(_realtimeDataCancellationTokenSource.Token));
+
+                //LogService.Log("实时数据处理任务已启动");
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"启动实时数据处理任务失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 处理实时数据队列
+        /// </summary>
+        private void ProcessRealTimeDataQueue(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // 等待数据到达或取消请求
+                    if (_realtimeDataEvent.WaitOne(1000)) // 1秒超时，定期检查取消令牌
+                    {
+                        // 处理队列中的所有数据
+                        while (_realtimeDataQueue.TryDequeue(out var dataItem))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                                break;
+
+                            SaveSignalData(dataItem.Frame, dataItem.SignalValues);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // 任务被取消，正常退出
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"处理实时数据队列时出错: {ex.Message}");
+                    // 短暂延迟后继续处理
+                    Thread.Sleep(100);
+                }
+            }
+
+            // 任务取消后，处理队列中剩余的数据
+            //LogService.Log("实时数据处理任务结束，处理剩余数据...");
+            while (_realtimeDataQueue.TryDequeue(out var dataItem))
+            {
+                SaveSignalData(dataItem.Frame, dataItem.SignalValues);
+            }
+            //LogService.Log("实时数据处理任务已完全停止");
         }
 
         /// <summary>
@@ -2543,8 +2623,6 @@ namespace ChargeDebug.Form
                     _currentRealtimeFilePath = filePath;
                     _currentRealtimeFileSize = new FileInfo(filePath).Length;
                     _currentRealtimeFileCreateTime = DateTime.Now;
-
-                    LogService.Log($"初始化设备文件写入器: {_deviceKey} -> {filePath}, 初始大小: {_currentRealtimeFileSize}字节");
                 }
                 catch (Exception ex)
                 {
@@ -2881,6 +2959,23 @@ namespace ChargeDebug.Form
             {
                 _isRealTimeSaving = false;
 
+                // 停止数据处理任务
+                if (_realtimeDataCancellationTokenSource != null)
+                {
+                    _realtimeDataCancellationTokenSource.Cancel();
+                    _realtimeDataEvent.Set(); // 唤醒处理线程以便它能够退出
+
+                    // 等待处理任务完成（最多等待5秒）
+                    if (_realtimeDataProcessingTask != null && !_realtimeDataProcessingTask.Wait(5000))
+                    {
+                        LogService.Log("实时数据处理任务停止超时");
+                    }
+
+                    _realtimeDataCancellationTokenSource.Dispose();
+                    _realtimeDataCancellationTokenSource = null;
+                    _realtimeDataProcessingTask = null;
+                }
+
                 // 更新UI状态
                 if (this.InvokeRequired)
                 {
@@ -2896,14 +2991,14 @@ namespace ChargeDebug.Form
                         _chkRealTimeSave.Checked = false;
                 }
 
-                LogService.Log($"停止实时数据保存: {_deviceKey}, 最终文件大小: {_currentRealtimeFileSize / 1024 / 1024}MB");
-
                 // 立即关闭文件写入器
                 CloseDeviceFileWriterImmediately();
 
                 // 重置文件大小信息
                 _currentRealtimeFileSize = 0;
                 _currentRealtimeFilePath = null;
+
+                LogService.Log($"停止实时数据保存: {_title}");
             }
             catch (Exception ex)
             {
@@ -2935,7 +3030,7 @@ namespace ChargeDebug.Form
                         {
                             LogService.Log($"关闭文件写入器时出错: {ex.Message}");
                         }
-                        LogService.Log($"立即关闭设备文件写入器: {_deviceKey}");
+                        //LogService.Log($"立即关闭设备文件写入器: {_deviceKey}");
                     }
 
                     _deviceHeaderWritten.TryRemove(_deviceKey, out _);
@@ -3026,15 +3121,14 @@ namespace ChargeDebug.Form
                     // 写入CSV表头
                     WriteStartupDataHeader();
 
-                    _isStartupSaving = true;
-                    _startupStartTime = DateTime.Now;
-
                     // 检查基础文件夹大小
                     CheckAndCleanBaseFolder();
 
                     // 启动数据处理任务
                     StartStartupDataProcessing();
 
+                    _isStartupSaving = true;
+                    _startupStartTime = DateTime.Now;
                     LogService.Log($"启动数据保存开始: {_startupFilePath}");
                 }
             }
@@ -3052,7 +3146,7 @@ namespace ChargeDebug.Form
         {
             _startupDataCancellationTokenSource = new CancellationTokenSource();
             _startupDataProcessingTask = Task.Run(() => ProcessStartupDataQueue(_startupDataCancellationTokenSource.Token));
-            LogService.Log("启动数据处理任务已启动");
+            //LogService.Log("启动数据处理任务已启动");
         }
 
         /// <summary>
@@ -3091,12 +3185,12 @@ namespace ChargeDebug.Form
             }
 
             // 任务取消后，处理队列中剩余的数据
-            LogService.Log("启动数据处理任务结束，处理剩余数据...");
+            //LogService.Log("启动数据处理任务结束，处理剩余数据...");
             while (_startupDataQueue.TryDequeue(out var dataItem))
             {
                 SaveStartupDataToFile(dataItem);
             }
-            LogService.Log("启动数据处理任务已完全停止");
+            //LogService.Log("启动数据处理任务已完全停止");
         }
 
         /// <summary>
@@ -3247,6 +3341,8 @@ namespace ChargeDebug.Form
             {
                 lock (_deviceFileLocks[_deviceKey])
                 {
+                    Thread.Sleep(100);
+
                     // 停止数据处理任务
                     if (_startupDataCancellationTokenSource != null)
                     {

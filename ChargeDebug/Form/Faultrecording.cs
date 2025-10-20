@@ -761,10 +761,12 @@ namespace ChargeDebug.Form
             EquipmentModel selectedEquipment = (EquipmentModel)e.Argument;
             CancellationToken cancellationToken = _cancellationTokenSource.Token;
 
+            string deviceLogPrefix = $"{selectedEquipment.DeviceName}";
+
             try
             {
                 // 初始进度报告
-                worker.ReportProgress(0, "开始查询故障录波数据...");
+                //worker.ReportProgress(0, "开始查询故障录波数据...");
 
                 int acnum = Convert.ToInt32(selectedEquipment.ACAddress.Substring(selectedEquipment.ACAddress.Length - 1));
                 int dcnum = Convert.ToInt32(selectedEquipment.DCAddress.Substring(selectedEquipment.DCAddress.Length - 1));
@@ -775,8 +777,7 @@ namespace ChargeDebug.Form
                     cancellationToken.ThrowIfCancellationRequested();
 
                     acnum++;
-                    string progressMessage = $"正在查询通道AC{acnum}...";
-                    worker.ReportProgress(0, progressMessage);
+                    worker.ReportProgress(0, $"正在查询通道AC{acnum}...");
 
                     string channelKey = $"AC{acnum}";
                     List<FaultRecordingSignals> acSignals = new List<FaultRecordingSignals>();
@@ -855,8 +856,7 @@ namespace ChargeDebug.Form
                     cancellationToken.ThrowIfCancellationRequested();
 
                     dcnum++;
-                    string progressMessage = $"正在查询通道DC{dcnum}...";
-                    worker.ReportProgress(0, progressMessage);
+                    worker.ReportProgress(0, $"正在查询通道DC{dcnum}...");
 
                     string channelKey = $"DC{dcnum}";
                     List<FaultRecordingSignals> dcSignals = new List<FaultRecordingSignals>();
@@ -927,7 +927,10 @@ namespace ChargeDebug.Form
                     });
                 }
 
-                worker.ReportProgress(100, "查询完成！");
+                LogService.Log($"{deviceLogPrefix}故障查询完成: " +
+                             $"AC成功数: {faultRecord.Count(r => r.Passage.StartsWith("AC") && r.State == "成功")}, " +
+                             $"DC成功数: {faultRecord.Count(r => r.Passage.StartsWith("DC") && r.State == "成功")}");
+
                 e.Result = true;
             }
             catch (OperationCanceledException)
@@ -993,22 +996,14 @@ namespace ChargeDebug.Form
         {
             CloseWaitDialog();
             waitDialog = new WaitDialogForm(caption, description);
-            // 强制立即显示
-            waitDialog.Show();
-            Application.DoEvents();
         }
 
         private void UpdateWaitDialog(string description)
         {
             if (waitDialog != null && !waitDialog.IsDisposed)
             {
-                // 使用反射调用SetDescription方法，避免重新创建对话框
-                var method = waitDialog.GetType().GetMethod("SetDescription",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (method != null)
-                {
-                    method.Invoke(waitDialog, new object[] { description });
-                }
+                CloseWaitDialog();
+                waitDialog = new WaitDialogForm("查询中", description);
                 Application.DoEvents();
             }
         }
