@@ -238,7 +238,6 @@ namespace ChargeDebug.Form
             _uiUpdateTimer = new System.Threading.Timer(_ =>
             {
                 UpdateUIFromCache();
-                UpdateTimeDisplay();
             }, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
 
             // 初始化启动管理器
@@ -775,18 +774,18 @@ namespace ChargeDebug.Form
                 }
 
                 // 保存启动数据（如果启动保存启用）- 使用新线程避免阻塞
-                if (_isStartupSaving)
-                {
-                    var startupDataItem = new StartupDataItem
-                    {
-                        Frame = frame,
-                        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
-                        Timestamp = DateTime.Now
-                    };
+                //if (_isStartupSaving)
+                //{
+                //    var startupDataItem = new StartupDataItem
+                //    {
+                //        Frame = frame,
+                //        SignalValues = new Dictionary<string, double>(signalValue), // 创建副本避免后续修改
+                //        Timestamp = DateTime.Now
+                //    };
 
-                    _startupDataQueue.Enqueue(startupDataItem);
-                    _startupDataEvent.Set(); // 通知处理线程有新的数据
-                }
+                //    _startupDataQueue.Enqueue(startupDataItem);
+                //    _startupDataEvent.Set(); // 通知处理线程有新的数据
+                //}
             }
         }
 
@@ -1241,7 +1240,7 @@ namespace ChargeDebug.Form
                             if (success)
                             {
                                 // ============ 新增：停止启动数据保存 ============
-                                StopStartupDataSave();
+                                //StopStartupDataSave();
                                 // ============ 新增结束 ============
 
                                 // 在停止设备时重置时间
@@ -1261,7 +1260,7 @@ namespace ChargeDebug.Form
                             if (stopSuccess)
                             {
                                 // ============ 新增：停止启动数据保存 ============
-                                StopStartupDataSave();
+                                //StopStartupDataSave();
                                 // ============ 新增结束 ============
 
                                 // 在停止设备时重置时间
@@ -1595,16 +1594,16 @@ namespace ChargeDebug.Form
                 lock (_faultQueueLock)
                 {
                     string name = "";
-                    name = signalName.Remove(0, 3);
-                    //if (faultDescription == "故障")
-                    //{
-                    //    name = signalName.Remove(0, 3);
-                    //}
-                    //else
-                    //{
-                    //    //name = faultDescription;
-                    //    name = signalName.Remove(0, 3);
-                    //}
+                    //name = signalName.Remove(0, 3);
+                    if (faultDescription == "故障")
+                    {
+                        name = signalName.Remove(0, 3);
+                    }
+                    else
+                    {
+                        name = faultDescription;
+                        //name = signalName.Remove(0, 3);
+                    }
 
                     if (!_activeFaults.ContainsKey(signalName))
                     {
@@ -2063,7 +2062,7 @@ namespace ChargeDebug.Form
                             if (run)
                             {
                                 // ============ 新增：开始启动数据保存 ============
-                                StartStartupDataSave();
+                                //StartStartupDataSave();
 
                                 _stopCommandSent = true;
 
@@ -2084,7 +2083,7 @@ namespace ChargeDebug.Form
                                     }
 
                                     // 停止启动数据保存
-                                    StopStartupDataSave();
+                                    //StopStartupDataSave();
 
                                     // 状态没有变化，启动失败
                                     LogService.Log($"设备启动失败，运行状态{statusChanged} - 运行模式{runmode}");
@@ -2124,7 +2123,7 @@ namespace ChargeDebug.Form
             catch (Exception ex)
             {
                 // 停止启动数据保存
-                StopStartupDataSave();
+                //StopStartupDataSave();
                 LogService.Log($"设备启动失败:{ex.Message}");
                 XtraMessageBox.Show($"设备启动失败:{ex.Message}");
             }
@@ -2157,7 +2156,7 @@ namespace ChargeDebug.Form
                             {
 
                                 // ============ 新增：开始启动数据保存 ============
-                                StartStartupDataSave();
+                                //StartStartupDataSave();
                                 // ============ 新增结束 ============
 
                                 _stopCommandSent = true;
@@ -2182,7 +2181,7 @@ namespace ChargeDebug.Form
                                     LogService.Log($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     XtraMessageBox.Show($"设备控制失败，运行状态{statusChanged} - 运行模式{runmode}");
                                     // 停止启动数据保存
-                                    StopStartupDataSave();
+                                    //StopStartupDataSave();
                                     return;
                                 }
 
@@ -2212,7 +2211,7 @@ namespace ChargeDebug.Form
                 LogService.Log($"AC通道控制失败:{ex.Message}");
                 XtraMessageBox.Show($"AC通道控制失败:{ex.Message}");
                 // 停止启动数据保存
-                StopStartupDataSave();
+                //StopStartupDataSave();
             }
         }
 
@@ -3552,7 +3551,7 @@ namespace ChargeDebug.Form
                 StopRealTimeSave();
 
                 // 停止启动数据保存
-                StopStartupDataSave();
+                //StopStartupDataSave();
 
                 // 确保文件流完全关闭
                 CloseDeviceFileWriterImmediately();

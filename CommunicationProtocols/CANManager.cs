@@ -1087,7 +1087,7 @@ namespace ChargeDebug.Service
             foreach (var kvp in _receiveQueues)
             {
                 var queue = kvp.Value;
-                const int MAX_QUEUE_SIZE = 3000;
+                const int MAX_QUEUE_SIZE = 500;
 
                 // 如果队列过大，清理旧数据
                 while (queue.Count > MAX_QUEUE_SIZE)
