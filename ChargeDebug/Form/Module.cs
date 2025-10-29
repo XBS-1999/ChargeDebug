@@ -1083,7 +1083,7 @@ namespace ChargeDebug.Form
                 {
                     string faultMessage = "DC设备故障状态检测";
                     FaultDetected?.Invoke(faultMessage);
-                    LogService.Log(faultMessage);
+                    //LogService.Log(faultMessage);
                 }
             }
 
@@ -1614,6 +1614,7 @@ namespace ChargeDebug.Form
                     else if (_activeFaults[signalName] != name)
                     {
                         _activeFaults[signalName] = name;
+                        //_faultDisplayQueue.Enqueue(name);
                         LogService.Log($"{_title} 故障更新: {signalName} → {name}");
                     }
                 }
@@ -1625,7 +1626,7 @@ namespace ChargeDebug.Form
                     if (_activeFaults.Remove(signalName))
                     {
                         RemoveFaultFromDisplayQueue(signalName);
-                        LogService.Log($"故障清除: {signalName}");
+                        LogService.Log($"{_title} 故障清除: {signalName}");
                     }
                 }
             }

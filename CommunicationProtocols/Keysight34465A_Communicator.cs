@@ -1,4 +1,5 @@
-﻿using NationalInstruments.Visa;
+﻿using Log;
+using NationalInstruments.Visa;
 
 #pragma warning disable
 namespace CommunicationProtocols
@@ -432,6 +433,8 @@ namespace CommunicationProtocols
                     // 格式化并重新解析以确保精度
                     string formatted = result.ToString("F3");
                     double finalValue = double.Parse(formatted);
+
+                    //LogService.Log($"电压表测量值: { finalValue }V");
                     return finalValue;
                 }
                 else

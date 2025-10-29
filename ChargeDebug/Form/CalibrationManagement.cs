@@ -11,6 +11,7 @@ using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraTreeList;
 using DevExpress.XtraTreeList.Columns;
 using DevExpress.XtraTreeList.Nodes;
+using DocumentFormat.OpenXml.Bibliography;
 using Log;
 using System.Data;
 using System.Data.SQLite;
@@ -1050,13 +1051,29 @@ namespace ChargeDebug.Form
 
                     case "USB-SCPI":
                         // 使用USB-SCPI管理器启动设备
-                        bool usbscpi = Keysight34465A_Communicator.Instance.Connect();
-                        if (!usbscpi)
+                        if (equipment.DeviceName == "GVM-9102")
+                        {
+                            bool usbscpi = GwinstekGVM9102_Communicator.Instance.Connect();
+                            if (!usbscpi)
+                            {
+                                return false;
+                            }
+                            return true;
+                        }
+                        else if (equipment.DeviceName == "KEYSIGHT-34465A")
+                        {
+                            bool usbscpi = Keysight34465A_Communicator.Instance.Connect();
+                            if (!usbscpi)
+                            {
+                                return false;
+                            }
+                            return true;
+                        }
+                        else
                         {
                             return false;
                         }
-                        return true;
-
+                        
                     case "RS232":
                         bool rs232 = RS232Manager.Instance.RegisterChannel(equipment);
                         if (!rs232)
@@ -1567,7 +1584,7 @@ namespace ChargeDebug.Form
                 if (!voltageSourceStarted || !voltmeterStarted)
                 {
                     LogService.Log("设备启动失败，请检查设备连接!");
-                    //return false;
+                    return false;
                 }
                 LogService.Log("所有校准设备启动成功，开始电压校准流程!");
 
@@ -1581,7 +1598,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("设置设备模式失败!");
                     LogService.Log("设置设备模式失败!");
-                    //return false;
+                    return false;
                 }
 
                 // 7. 设置初始电压值（从0开始）
@@ -1591,7 +1608,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("设置初始电压失败!");
                     LogService.Log("设置初始电压失败!");
-                    //return false;
+                    return false;
                 }
 
                 // 8. 开机/启用输出
@@ -1601,7 +1618,7 @@ namespace ChargeDebug.Form
                 {
                     //XtraMessageBox.Show("启用输出失败!");
                     LogService.Log("启用输出失败!");
-                    //return false;
+                    return false;
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -2286,7 +2303,7 @@ namespace ChargeDebug.Form
                                 firstPoint.SignalInfo,
                                 treeSignals);
 
-                            LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+                            //LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
 
                             // 保存测量数据
                             measuredValues.Add(deviceVoltage);
@@ -2775,7 +2792,7 @@ namespace ChargeDebug.Form
                                 firstPoint.SignalInfo,
                                 treeSignals);
 
-                            LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+                            //LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
 
                             // 计算精度: (采样电压 - 测量电压) / 额定电压
                             double accuracy = (deviceVoltage - actualVoltage) / ratingVoltage;
@@ -2857,7 +2874,7 @@ namespace ChargeDebug.Form
         /// </summary>
         private async Task<double> ReadVoltmeterValueAsync(EquipmentModel voltmeter, List<ModbusSignal> voltmeterSignals)
         {
-            LogService.Log("开始异步执行ReadVoltmeterValue");
+            //LogService.Log("开始异步执行ReadVoltmeterValue");
             try
             {
                 // 根据电压表类型选择不同的读取方式
@@ -2885,7 +2902,7 @@ namespace ChargeDebug.Form
         /// </summary>
         private async Task<double> ReadDeviceVoltageSampleAsync(string deviceName, SignalInfo signalInfo, List<SignalInfo> treeSignals)
         {
-            LogService.Log("开始异步执行ReadDeviceVoltageSample");
+            //LogService.Log("开始异步执行ReadDeviceVoltageSample");
             try
             {
                 // 根据设备类型选择不同的读取方式
@@ -2908,6 +2925,7 @@ namespace ChargeDebug.Form
                         throw new Exception($"不支持的设备类型: {equipment.CanType}");
                 }
 
+                LogService.Log($"设备采样电压值: {result}");
                 return result;
             }
             catch (Exception ex)
@@ -2927,10 +2945,22 @@ namespace ChargeDebug.Form
                 // 使用Task.Run将同步方法包装为异步，避免阻塞
                 return await Task.Run(() =>
                 {
-                    // 发送查询命令并读取响应
-                    double voltageValue = Keysight34465A_Communicator.Instance.MeasureDCVoltage(aperture: 0.5);
+                    double voltageValue = 0.0;
+                    if (voltmeter.DeviceName == "GVM-9102")
+                    {
+                        voltageValue = GwinstekGVM9102_Communicator.Instance.MeasureDCVoltage(0,"MEDIUM");
+                    }
+                    else if (voltmeter.DeviceName == "KEYSIGHT-34465A")
+                    {
+                        // 发送查询命令并读取响应
+                        voltageValue = Keysight34465A_Communicator.Instance.MeasureDCVoltage(aperture: 1);
+                    }
+                    else
+                    {
+                        throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
+                    }
 
-                    //LogService.Log($"读取实际电压值: {voltageValue}");
+                    LogService.Log($"电压表测量值: {voltageValue}V");
                     return voltageValue;
                 });
             }
@@ -2961,13 +2991,14 @@ namespace ChargeDebug.Form
                 try
                 {
                     // 接收指定CAN ID的帧
-                    var frames = await CANManager.Instance.ReceiveAllFramesAsync(channelKey, canId, 1000);
+                    var frames = await CANManager.Instance.ReceiveAllFramesAsync(channelKey, canId, 2000);
 
                     foreach (var frame in frames)
                     {
                         // 解析帧中的数据
                         ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalInfo);
                         double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
+                        
                         values.Add(physicalValue);
                     }
                 }
@@ -2980,19 +3011,20 @@ namespace ChargeDebug.Form
                 // 检查是否读取到数据
                 if (values.Count == 0)
                 {
-                    throw new Exception($"在500ms内未接收到任何CAN帧，CAN ID: 0x{canId:X}");
+                    throw new Exception($"在2000ms内未接收到任何CAN帧，CAN ID: 0x{canId:X}");
                 }
 
                 // 计算平均值
-                double averageValue = values.Average();
-                //LogService.Log($"读取到采样电压值: {averageValue}");
+                double aveValue = values.Average();
+                int decimalPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(signalInfo.Factor);
+                double averageValue = Math.Round(aveValue, decimalPlaces);
 
                 return averageValue;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 //LogService.Log($"读取CAN设备值失败: {ex.Message}");
-                throw;
+                throw new Exception(ex.Message);
             }
         }
 
@@ -4131,7 +4163,7 @@ namespace ChargeDebug.Form
                     // 创建子节点名称
                     string childNodeName = $"校准点 {calibrationPointIndex}";
 
-                    // 格式化值为"采样值/测量值"格式，保留4位小数
+                    // 格式化值为"采样值/测量值"格式
                     string valueDisplay = $"{deviceValue}/{actualValue}";
 
                     // 检查是否已经存在该校准点的子节点

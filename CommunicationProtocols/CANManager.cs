@@ -936,7 +936,6 @@ namespace ChargeDebug.Service
         {
             var receivedFrames = new List<ZCAN_Receive_Data>();
             var startTime = DateTime.Now;
-            var lastProcessTime = startTime;
 
             while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
             {
@@ -1084,17 +1083,20 @@ namespace ChargeDebug.Service
 
         private void CleanupQueues()
         {
-            foreach (var kvp in _receiveQueues)
+            Task.Run(() =>
             {
-                var queue = kvp.Value;
-                const int MAX_QUEUE_SIZE = 500;
-
-                // 如果队列过大，清理旧数据
-                while (queue.Count > MAX_QUEUE_SIZE)
+                foreach (var kvp in _receiveQueues)
                 {
-                    queue.TryDequeue(out _);
+                    var queue = kvp.Value;
+                    const int MAX_QUEUE_SIZE = 1000;
+
+                    // 如果队列过大，清理旧数据
+                    while (queue.Count > MAX_QUEUE_SIZE)
+                    {
+                        queue.TryDequeue(out _);
+                    }
                 }
-            }
+            });
         }
         #endregion
 

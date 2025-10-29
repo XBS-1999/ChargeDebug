@@ -5,6 +5,7 @@ using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using System.IO;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class Upgradeonline : XtraUserControl
@@ -233,16 +234,22 @@ namespace ChargeDebug.Form
             // 获取当前选中的设备
             var selectedDevice = deviceMap[cbDevice.SelectedItem.ToString()];
             AppendInfo($"已选择设备: {selectedDevice.DeviceName}");
+
+            int acnum = Convert.ToInt32(selectedDevice.ACAddress.Substring(selectedDevice.ACAddress.Length - 1));
+            int dcnum = Convert.ToInt32(selectedDevice.DCAddress.Substring(selectedDevice.DCAddress.Length - 1));
+
             // 添加AC通道
             for (int i = 0; i < selectedDevice.ACNumber; i++)
             {
-                cbChannel.Properties.Items.Add($"AC{i + 1}");
+                acnum++;
+                cbChannel.Properties.Items.Add($"AC{acnum}");
             }
 
             // 添加DC通道
             for (int i = 0; i < selectedDevice.DCNumber; i++)
             {
-                cbChannel.Properties.Items.Add($"DC{i + 1}");
+                dcnum++;
+                cbChannel.Properties.Items.Add($"DC{dcnum}");
             }
 
             // 默认选择第一个通道
