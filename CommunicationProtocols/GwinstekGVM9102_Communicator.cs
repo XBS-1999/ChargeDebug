@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 #pragma warning disable
 namespace CommunicationProtocols
@@ -89,7 +90,7 @@ namespace CommunicationProtocols
                     _mbSession.RawIO.Write("*IDN?\n");
                     string response = _mbSession.RawIO.ReadString().Trim();
 
-                    if (response.Contains("GVM-9102") || response.Contains("GWINSTEK"))
+                    if (response.Contains("GVM9102") || response.Contains("GWInstek"))
                     {
                         _isConnected = true;
                         InitializeMeter();
@@ -150,20 +151,20 @@ namespace CommunicationProtocols
                 SendCommand("*RST");
                 System.Threading.Thread.Sleep(1500); // 等待重置完成
 
+                // 清除状态
+                SendCommand("*CLS");
+
                 // 设置ASCII格式数据
                 SendCommand(":FORMAT:DATA ASCII");
 
                 // 设置显示模式
                 SendCommand(":DISPLAY:MODE DIGITAL");
 
-                // 设置采样率（10k/s 是GVM-9102的最大能力）
-                SetSampleRate(1000); // 默认设置为1000次/秒
+                SetRange(0);
 
-                // 清除状态
-                SendCommand("*CLS");
+                SetResolution("HIGH");
 
-                // 设置高精度模式
-                SendCommand(":SENSE:VOLTAGE:RESOLUTION HIGH");
+                SetSampleRate(5);
             }
             catch (Exception ex)
             {
@@ -248,7 +249,7 @@ namespace CommunicationProtocols
         /// <summary>
         /// 设置采样率
         /// </summary>
-        /// <param name="rate">采样率（次/秒），GVM-9102最高支持10000次/秒</param>
+        /// <param name="rate">采样率（次/秒），GVM-9102最高支持400次/秒</param>
         public void SetSampleRate(int rate)
         {
             if (!IsConnected)
@@ -326,36 +327,145 @@ namespace CommunicationProtocols
 
         /// <summary>
         /// 测量直流电压（GVM-9102的主要功能）
+        /// 在指定时间内进行多次测量并取平均值以提高精度
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率模式</param>
+        /// <param name="measurementTimeMs">总测量时间（毫秒），默认1000ms</param>
+        /// <param name="minMeasurements">最小测量次数，默认5次</param>
+        /// <param name="maxMeasurements">最大测量次数，默认100次</param>
         /// <returns>电压值（伏特）</returns>
-        public double MeasureDCVoltage(double range = 0, string resolution = "HIGH")
+        public double MeasureDCVoltage(double range = 0, string resolution = "HIGH", int rate = 5,
+                                      int measurementTimeMs = 1000, int minMeasurements = 5, int maxMeasurements = 100)
         {
+            if (!IsConnected)
+                throw new Exception("未连接到高压表");
+
             try
             {
-                // 设置量程
-                SetRange(range);
+                // 参数验证
+                if (measurementTimeMs < 100)
+                    throw new Exception("测量时间不能小于100ms");
+                if (minMeasurements < 1)
+                    throw new Exception("最小测量次数不能小于1");
+                if (maxMeasurements < minMeasurements)
+                    throw new Exception("最大测量次数不能小于最小测量次数");
 
-                // 设置分辨率
-                SetResolution(resolution);
+                // 设置量程和分辨率
+                if (range != 0)
+                    SetRange(range);
 
-                // 触发单次测量并读取结果
-                SendCommand(":READ?");
-                System.Threading.Thread.Sleep(100);
+                if (resolution != "HIGH")
+                    SetResolution(resolution);
 
-                string response = _mbSession.RawIO.ReadString().Trim();
-                if (double.TryParse(response, out double result))
+                if (rate != 5)
+                    SetSampleRate(rate);
+
+                List<double> measurements = new List<double>();
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                int measurementCount = 0;
+
+                // 计算每次测量之间的间隔（基于最大测量次数）
+                int intervalMs = Math.Max(10, measurementTimeMs / maxMeasurements);
+
+                // 在指定时间内进行多次测量
+                while (stopwatch.ElapsedMilliseconds < measurementTimeMs &&
+                       measurementCount < maxMeasurements)
                 {
-                    return result;
+                    try
+                    {
+                        // 发送查询命令
+                        SendCommand(":READ?");
+
+                        // 读取响应
+                        string response = _mbSession.RawIO.ReadString().Trim();
+
+                        if (double.TryParse(response, out double result))
+                        {
+                            measurements.Add(result);
+                            measurementCount++;
+                        }
+                        else
+                        {
+                            throw new Exception($"警告: 无效的响应格式: {response}");
+                        }
+
+                        // 如果不是最后一次测量，等待间隔时间
+                        if (stopwatch.ElapsedMilliseconds + intervalMs < measurementTimeMs &&
+                            measurementCount < maxMeasurements)
+                        {
+                            System.Threading.Thread.Sleep(intervalMs);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new Exception($"单次测量失败: {ex.Message}");
+                        // 继续尝试下一次测量
+                    }
                 }
-                else
-                    throw new Exception($"无效的响应格式: {response}");
+
+                stopwatch.Stop();
+
+                // 检查是否收集到足够的测量数据
+                if (measurements.Count < minMeasurements)
+                {
+                    throw new Exception($"测量数据不足。期望至少{minMeasurements}次测量，实际只获得{measurements.Count}次");
+                }
+
+                // 数据处理：去除异常值（使用Tukey's fences方法）
+                //double[] processedMeasurements = RemoveOutliers(measurements.ToArray());
+
+                // 计算平均值
+                double average = measurements.Average();
+
+                // 格式化输出（保留合适的小数位数）
+                double finalValue = Math.Round(average, 5); // 保留6位小数
+
+                // 可选：输出统计信息用于调试
+                //if (measurements.Count > 1)
+                //{
+                //    double stdDev = CalculateStandardDeviation(processedMeasurements);
+                //}
+
+                return finalValue;
             }
             catch (Exception ex)
             {
                 throw new Exception($"直流电压测量失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 使用Tukey's fences方法去除异常值
+        /// </summary>
+        private double[] RemoveOutliers(double[] data)
+        {
+            if (data.Length < 4) return data; // 数据太少时不处理异常值
+
+            // 计算四分位数
+            var sortedData = data.OrderBy(x => x).ToArray();
+            int n = sortedData.Length;
+
+            double Q1 = sortedData[n / 4];
+            double Q3 = sortedData[3 * n / 4];
+            double IQR = Q3 - Q1;
+
+            // 计算异常值边界
+            double lowerBound = Q1 - 1.5 * IQR;
+            double upperBound = Q3 + 1.5 * IQR;
+
+            // 过滤异常值
+            return data.Where(x => x >= lowerBound && x <= upperBound).ToArray();
+        }
+
+        /// <summary>
+        /// 计算标准差
+        /// </summary>
+        private double CalculateStandardDeviation(double[] data)
+        {
+            double average = data.Average();
+            double sumOfSquares = data.Sum(x => Math.Pow(x - average, 2));
+            return Math.Sqrt(sumOfSquares / data.Length);
         }
 
         /// <summary>

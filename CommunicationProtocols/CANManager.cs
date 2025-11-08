@@ -394,7 +394,7 @@ namespace ChargeDebug.Service
                     if (!taskCompleted || !startCompleted || startResult != Define.STATUS_OK)
                     {
                         ZCAN_CloseDevice(deviceHandle);
-                        LogService.Log($"{equipment.DeviceName}启动失败,已关闭");
+                        //LogService.Log($"{equipment.DeviceName}启动失败,已关闭");
                         return;
                     }
 
@@ -531,7 +531,7 @@ namespace ChargeDebug.Service
                     Priority = ThreadPriority.Highest
                 };
                 _receiveThread.Start();
-                LogService.Log("CAN接收线程已重启");
+                //LogService.Log("CAN接收线程已重启");
             }
         }
 

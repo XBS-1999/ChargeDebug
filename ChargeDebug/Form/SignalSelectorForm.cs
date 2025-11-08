@@ -7,6 +7,7 @@ using DevExpress.XtraGrid.Views.Grid.ViewInfo;
 using System.ComponentModel;
 using System.Data;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class SignalSelectorForm : XtraForm
@@ -17,13 +18,60 @@ namespace ChargeDebug.Form
         private GridView gridView;
         public List<Showdata> SelectedSignals { get; private set; } = new List<Showdata>();
 
+        // 添加自动滚动相关变量
+        private System.Windows.Forms.Timer scrollTimer;
+        private const int SCROLL_MARGIN = 30; // 滚动触发边界
+        private const int SCROLL_STEP = 20;   // 每次滚动的像素数
+
         public SignalSelectorForm(List<Showdata> allSignals, List<Showdata> currentSignals)
         {
             this.allSignals = allSignals;
             this.currentSignals = currentSignals;
             InitializeComponent();
             InitializeUI();
+            InitializeAutoScroll(); // 初始化自动滚动
             this.Load += SignalSelectorForm_Load;
+        }
+
+        private void InitializeAutoScroll()
+        {
+            scrollTimer = new System.Windows.Forms.Timer();
+            scrollTimer.Interval = 50; // 50毫秒间隔
+            scrollTimer.Tick += ScrollTimer_Tick;
+        }
+
+        private void ScrollTimer_Tick(object? sender, EventArgs e)
+        {
+            if (!gridControl.IsHandleCreated) return;
+
+            Point clientPos = gridControl.PointToClient(Control.MousePosition);
+            if (!gridControl.ClientRectangle.Contains(clientPos)) return;
+
+            // 计算滚动方向和距离
+            int scrollDelta = 0;
+            if (clientPos.Y < SCROLL_MARGIN)
+            {
+                // 向上滚动
+                scrollDelta = -Math.Min(SCROLL_STEP, SCROLL_MARGIN - clientPos.Y);
+            }
+            else if (clientPos.Y > gridControl.Height - SCROLL_MARGIN)
+            {
+                // 向下滚动
+                scrollDelta = Math.Min(SCROLL_STEP, clientPos.Y - (gridControl.Height - SCROLL_MARGIN));
+            }
+
+            if (scrollDelta != 0)
+            {
+                // 执行滚动
+                gridView.TopRowIndex = Math.Max(0, gridView.TopRowIndex + (scrollDelta > 0 ? 1 : -1));
+
+                // 更新拖拽视觉效果
+                GridHitInfo hitInfo = gridView.CalcHitInfo(clientPos);
+                if (hitInfo.RowHandle != GridControl.InvalidRowHandle)
+                {
+                    gridView.FocusedRowHandle = hitInfo.RowHandle;
+                }
+            }
         }
 
         private void SignalSelectorForm_Load(object? sender, EventArgs e)
@@ -109,13 +157,22 @@ namespace ChargeDebug.Form
             //gridView.CustomDrawColumnHeader += gridView_CustomDrawColumnHeader;
         }
 
+        private void GridControl_QueryContinueDrag(object? sender, QueryContinueDragEventArgs e)
+        {
+            // 当拖拽结束时停止滚动计时器
+            if (e.Action == DragAction.Cancel || e.Action == DragAction.Drop)
+            {
+                scrollTimer.Stop();
+            }
+        }
+
         private void BtnCounterSelection_Click(object? sender, EventArgs e)
         {
             if (gridControl.DataSource is BindingList<Showdata> src)
             {
                 foreach (var item in src)
                 {
-                    item.IsSelected = false;
+                    item.IsSelected = !item.IsSelected; // 修正：应该是反选，不是全不选
                 }
                 gridView.RefreshData();
             }
@@ -168,34 +225,44 @@ namespace ChargeDebug.Form
         // 拖拽过程中更新视觉效果
         private void GridControl_DragOver(object? sender, DragEventArgs e)
         {
-            // 显示移动光标
             e.Effect = DragDropEffects.Move;
 
-            // 可选：高亮目标行
             Point dropPoint = gridControl.PointToClient(new Point(e.X, e.Y));
+
+            // 检查是否需要启动自动滚动
+            if (dropPoint.Y < SCROLL_MARGIN || dropPoint.Y > gridControl.Height - SCROLL_MARGIN)
+            {
+                if (!scrollTimer.Enabled)
+                    scrollTimer.Start();
+            }
+            else
+            {
+                scrollTimer.Stop();
+            }
+
+            // 更新焦点行
             GridHitInfo hitInfo = gridView.CalcHitInfo(dropPoint);
             if (hitInfo.RowHandle != GridControl.InvalidRowHandle)
             {
                 gridView.FocusedRowHandle = hitInfo.RowHandle;
             }
-
         }
 
         // 处理拖拽完成后的行交换
         private void GridControl_DragDrop(object? sender, DragEventArgs e)
         {
+            // 拖拽结束时停止计时器
+            scrollTimer.Stop();
+
             try
             {
-                // 获取拖拽数据
                 var draggedItem = e.Data.GetData(typeof(Showdata)) as Showdata;
                 if (draggedItem == null) return;
 
-                // 获取目标位置
                 Point dropPoint = gridControl.PointToClient(new Point(e.X, e.Y));
                 GridHitInfo hitInfo = gridView.CalcHitInfo(dropPoint);
                 int targetRowHandle = hitInfo.RowHandle;
 
-                // 执行数据交换
                 if (sourceRowHandle != GridControl.InvalidRowHandle &&
                     targetRowHandle != GridControl.InvalidRowHandle &&
                     sourceRowHandle != targetRowHandle)
@@ -203,25 +270,20 @@ namespace ChargeDebug.Form
                     var dataSource = gridControl.DataSource as BindingList<Showdata>;
                     if (dataSource == null) return;
 
-                    // 计算实际数据索引
                     int sourceIndex = gridView.GetDataSourceRowIndex(sourceRowHandle);
                     int targetIndex = gridView.GetDataSourceRowIndex(targetRowHandle);
 
-                    // 执行数据移动
                     dataSource.RemoveAt(sourceIndex);
                     dataSource.Insert(targetIndex, draggedItem);
 
-                    // 刷新界面焦点
                     gridView.FocusedRowHandle = targetRowHandle;
                 }
             }
             finally
             {
-                // 重置状态
                 sourceRowHandle = GridControl.InvalidRowHandle;
                 mouseDownPoint = Point.Empty;
             }
-
         }
 
         private void SetDefaultSelections()
@@ -256,6 +318,14 @@ namespace ChargeDebug.Form
         {
             DialogResult = DialogResult.Cancel;
             this.Close();
+        }
+
+        // 窗体关闭时释放资源
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            scrollTimer?.Stop();
+            scrollTimer?.Dispose();
+            base.OnFormClosed(e);
         }
     }
 }

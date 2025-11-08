@@ -1,5 +1,7 @@
 ﻿using Log;
 using NationalInstruments.Visa;
+using NLog;
+using System;
 
 #pragma warning disable
 namespace CommunicationProtocols
@@ -143,8 +145,10 @@ namespace CommunicationProtocols
                 // 设置ASCII格式数据
                 SendCommand("FORM:DATA ASCII");
 
-                // 设置Aperture为500ms
-                SetAperture(0.5);
+                // 设置Aperture为200ms
+                SetAperture(0.2);
+
+                SendCommand($"CONF:VOLT:DC {0},{0.001}");
 
                 // 清除状态
                 SendCommand("*CLS");
@@ -295,64 +299,6 @@ namespace CommunicationProtocols
         }
 
         /// <summary>
-        /// 设置Aperture为500ms（0.5秒）
-        /// 注意：34465A的最大Aperture时间为0.2秒，此方法会设置为最大值
-        /// </summary>
-        public void SetApertureTo500ms()
-        {
-            SetAperture(0.2); // 设置为最大允许值0.2秒
-        }
-
-        /// <summary>
-        /// 查询当前Aperture设置
-        /// </summary>
-        /// <param name="measurementType">测量类型</param>
-        /// <returns>Aperture时间（秒）</returns>
-        public double GetAperture(string measurementType = "DCV")
-        {
-            if (!IsConnected)
-                throw new Exception("未连接到万用表");
-
-            try
-            {
-                string query;
-                switch (measurementType.ToUpper())
-                {
-                    case "DCV":
-                        query = "SENS:VOLT:DC:APER?";
-                        break;
-                    case "ACV":
-                        query = "SENS:VOLT:AC:APER?";
-                        break;
-                    case "DCI":
-                        query = "SENS:CURR:DC:APER?";
-                        break;
-                    case "ACI":
-                        query = "SENS:CURR:AC:APER?";
-                        break;
-                    case "RES":
-                        query = "SENS:RES:APER?";
-                        break;
-                    case "FREQ":
-                        query = "SENS:FREQ:APER?";
-                        break;
-                    default:
-                        throw new ArgumentException($"不支持的测量类型: {measurementType}");
-                }
-
-                string response = Query(query);
-                if (double.TryParse(response, out double result))
-                    return result;
-                else
-                    throw new Exception($"无效的Aperture响应: {response}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"查询Aperture失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// 设置NPLC（电源线周期数）代替Aperture时间
         /// </summary>
         /// <param name="nplc">NPLC值，最小0.02，最大100</param>
@@ -402,48 +348,128 @@ namespace CommunicationProtocols
         #region 测量命令
 
         /// <summary>
-        /// 测量直流电压
+        /// 测量直流电压（在指定时间内进行多次测量并取平均值以提高精度）
         /// </summary>
         /// <param name="range">量程，0表示自动量程</param>
         /// <param name="resolution">分辨率</param>
         /// <param name="aperture">Aperture时间，如果为0则使用当前设置</param>
+        /// <param name="measurementTimeMs">总测量时间（毫秒），默认1000ms</param>
+        /// <param name="minMeasurements">最小测量次数，默认5次</param>
+        /// <param name="maxMeasurements">最大测量次数，默认200次</param>
         /// <returns>电压值（伏特）</returns>
-        public double MeasureDCVoltage(double range = 0, double resolution = 0.001, double aperture = 0)
+        public double MeasureDCVoltage(double range = 0, double resolution = 0.001, double aperture = 0.2,
+                                      int measurementTimeMs = 1000,
+                                      int minMeasurements = 5,
+                                      int maxMeasurements = 200)
         {
+            if (!IsConnected)
+                throw new Exception("未连接到万用表");
+
             try
             {
-                if (range > 0)
+                // 参数验证
+                if (measurementTimeMs < 100)
+                    throw new Exception("测量时间不能小于100ms");
+                if (minMeasurements < 1)
+                    throw new Exception("最小测量次数不能小于1");
+                if (maxMeasurements < minMeasurements)
+                    throw new Exception("最大测量次数不能小于最小测量次数");
+
+                // 配置测量参数
+                if (range != 0 || resolution != 0.001)
                     SendCommand($"CONF:VOLT:DC {range},{resolution}");
-                else
-                    SendCommand("CONF:VOLT:DC AUTO");
 
                 // 如果指定了aperture，则设置
-                if (aperture > 0)
-                {
+                if (aperture != 0.2)
                     SetAperture(aperture, "DCV");
-                }
 
-                // 触发并读取测量值
-                SendCommand("READ?");
-                System.Threading.Thread.Sleep(100);
+                List<double> measurements = new List<double>();
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                int measurementCount = 0;
 
-                string response = _mbSession.RawIO.ReadString().Trim();
-                if (double.TryParse(response, out double result))
+                // 在指定时间内进行多次测量
+                while (stopwatch.ElapsedMilliseconds < measurementTimeMs &&
+                       measurementCount < maxMeasurements)
                 {
-                    // 格式化并重新解析以确保精度
-                    string formatted = result.ToString("F3");
-                    double finalValue = double.Parse(formatted);
+                    try
+                    {
+                        // 发送查询命令
+                        SendCommand("READ?");
 
-                    //LogService.Log($"电压表测量值: { finalValue }V");
-                    return finalValue;
+                        // 读取响应
+                        string response = _mbSession.RawIO.ReadString().Trim();
+
+                        if (double.TryParse(response, out double result))
+                        {
+                            measurements.Add(result);
+                            measurementCount++;
+                        }
+                        else
+                        {
+                            throw new Exception($"警告: 无效的响应格式: {response}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // 继续尝试下一次测量
+                    }
                 }
-                else
-                    throw new Exception($"无效的响应格式: {response}");
+
+                stopwatch.Stop();
+
+                // 检查是否收集到足够的测量数据
+                if (measurements.Count < minMeasurements)
+                {
+                    throw new Exception($"测量数据不足。期望至少{minMeasurements}次测量，实际只获得{measurements.Count}次");
+                }
+
+                // 数据处理：去除异常值（使用Tukey's fences方法）
+                //double[] processedMeasurements = RemoveOutliers(measurements.ToArray());
+
+                // 计算平均值
+                double average = measurements.Average();
+
+                // 格式化输出（保留合适的小数位数）
+                double finalValue = Math.Round(average, 5); // 保留6位小数
+
+                // 输出统计信息
+                //if (measurements.Count > 1)
+                //{
+                //    double stdDev = CalculateStandardDeviation(processedMeasurements);
+                //    double rangeValue = processedMeasurements.Max() - processedMeasurements.Min();
+                //}
+
+                return finalValue;
             }
             catch (Exception ex)
             {
                 throw new Exception($"直流电压测量失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 快速直流电压测量（适用于实时监控）
+        /// </summary>
+        public double MeasureDCVoltageQuick(double range = 0, double resolution = 0.001)
+        {
+            return MeasureDCVoltage(range, resolution, 0, 200, 3, 10);
+        }
+
+        /// <summary>
+        /// 高精度直流电压测量（适用于校准和精确测量）
+        /// </summary>
+        public double MeasureDCVoltageHighPrecision(double range = 0, double resolution = 0.001)
+        {
+            // 设置较长的aperture时间以提高精度
+            return MeasureDCVoltage(range, resolution, 0.1, 2000, 20, 100);
+        }
+
+        /// <summary>
+        /// 稳定直流电压测量（平衡精度和速度）
+        /// </summary>
+        public double MeasureDCVoltageStable(double range = 0, double resolution = 0.001)
+        {
+            return MeasureDCVoltage(range, resolution, 0, 1000, 10, 50);
         }
 
         /// <summary>
@@ -625,6 +651,58 @@ namespace CommunicationProtocols
             {
                 throw new Exception($"频率测量失败: {ex.Message}");
             }
+        }
+
+        #endregion
+
+        #region 辅助方法
+
+        /// <summary>
+        /// 使用Tukey's fences方法去除异常值
+        /// </summary>
+        private double[] RemoveOutliers(double[] data)
+        {
+            if (data.Length < 4) return data; // 数据太少时不处理异常值
+
+            // 计算四分位数
+            var sortedData = data.OrderBy(x => x).ToArray();
+            int n = sortedData.Length;
+
+            double Q1 = sortedData[n / 4];
+            double Q3 = sortedData[3 * n / 4];
+            double IQR = Q3 - Q1;
+
+            // 计算异常值边界
+            double lowerBound = Q1 - 1.5 * IQR;
+            double upperBound = Q3 + 1.5 * IQR;
+
+            // 过滤异常值
+            return data.Where(x => x >= lowerBound && x <= upperBound).ToArray();
+        }
+
+        /// <summary>
+        /// 计算标准差
+        /// </summary>
+        private double CalculateStandardDeviation(double[] data)
+        {
+            if (data.Length <= 1) return 0;
+
+            double average = data.Average();
+            double sumOfSquares = data.Sum(x => Math.Pow(x - average, 2));
+            return Math.Sqrt(sumOfSquares / (data.Length - 1)); // 样本标准差
+        }
+
+        /// <summary>
+        /// 计算相对标准差（变异系数）
+        /// </summary>
+        private double CalculateRelativeStandardDeviation(double[] data)
+        {
+            if (data.Length <= 1) return 0;
+
+            double average = data.Average();
+            double stdDev = CalculateStandardDeviation(data);
+
+            return average != 0 ? (stdDev / Math.Abs(average)) * 100 : 0;
         }
 
         #endregion

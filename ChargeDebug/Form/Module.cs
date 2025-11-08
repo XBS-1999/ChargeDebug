@@ -97,7 +97,7 @@ namespace ChargeDebug.Form
         private uint _dcRunStatus;
         private uint _acRunMode;
         private uint _dcRunMode;
-        private uint softwareprotection = 0x00;
+        private bool softwareprotection = false;
 
         // 时间管理字段
         private DateTime _startTime;
@@ -455,7 +455,7 @@ namespace ChargeDebug.Form
                 _hasDCChannel = signals.Any(s => s.SystemName == "DC运行状态" || s.SystemName == "DC运行模式");
             }
 
-            LogService.Log($"模块 '{title}' 通道检测: AC={_hasACChannel}, DC={_hasDCChannel}");
+            //LogService.Log($"模块 '{title}' 通道检测: AC={_hasACChannel}, DC={_hasDCChannel}");
         }
 
         /// <summary>
@@ -956,7 +956,7 @@ namespace ChargeDebug.Form
             }
 
             // 新增故障信号统计
-            LogService.Log($"共发现 {_faultSignalDefinitions.Count} 个故障信号");
+            //LogService.Log($"共发现 {_faultSignalDefinitions.Count} 个故障信号");
 
             // 加载默认全部信号到表格
             gridControl.DataSource = signalData;
@@ -1152,18 +1152,22 @@ namespace ChargeDebug.Form
                         value > overVoltage)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x01;
-                        _faultDisplayQueue.Enqueue($"过压保护: {value} > {overVoltage}");
-                        LogService.Log($"电压异常: {value} > {overVoltage} (过压保护值)");
+                        softwareprotection = true;
+                        string name = $"过压保护: {value} > {overVoltage}";
+                        _activeFaults["过压"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
                              value < underVoltage)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x02;
-                        _faultDisplayQueue.Enqueue($"欠压保护: {value} > {underVoltage}");
-                        LogService.Log($"电压异常: {value} < {underVoltage} (欠压保护值)");
+                        softwareprotection = true;
+                        string name = $"欠压保护: {value} > {underVoltage}";
+                        _activeFaults["欠压"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
                     }
                 }
@@ -1175,18 +1179,22 @@ namespace ChargeDebug.Form
                         value > overCurrent)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x03;
-                        _faultDisplayQueue.Enqueue($"过流保护: {value} > {overCurrent}");
-                        LogService.Log($"电流异常: {value} > {overCurrent} (过流保护值)");
+                        softwareprotection = true;
+                        string name = $"充电过流保护: {value} > {overCurrent}";
+                        _activeFaults["充电过流"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderCurrent, out double underCurrent) &&
                              value < underCurrent)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x04;
-                        _faultDisplayQueue.Enqueue($"过流保护: {value} > {underCurrent}");
-                        LogService.Log($"电流异常: {value} < {underCurrent} (欠流保护值)");
+                        softwareprotection = true;
+                        string name = $"放电过流保护: {value} > {underCurrent}";
+                        _activeFaults["放电过流"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
                     }
                 }
@@ -1198,18 +1206,22 @@ namespace ChargeDebug.Form
                         value > overPower)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x05;
-                        _faultDisplayQueue.Enqueue($"过功率保护: {value} > {overPower}");
-                        LogService.Log($"功率异常: {value} > {overPower} (过功率保护值)");
+                        softwareprotection = true;
+                        string name = $"充电过功率保护: {value} > {overPower}";
+                        _activeFaults["充电过功率"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
                     }
                     else if (double.TryParse(_protectionParameters.UnderPower, out double underPower) &&
                              value < underPower)
                     {
                         SendStopCommandIfNeeded();
-                        softwareprotection = 0x06;
-                        _faultDisplayQueue.Enqueue($"欠功率保护: {value} > {underPower}");
-                        LogService.Log($"功率异常: {value} < {underPower} (欠功率保护值)");
+                        softwareprotection = true;
+                        string name = $"放电过功率保护: {value} > {overPower}";
+                        _activeFaults["放电过功率"] = name;
+                        _faultDisplayQueue.Enqueue(name);
+                        LogService.Log(name);
                         //XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
                     }
                 }
@@ -1742,8 +1754,6 @@ namespace ChargeDebug.Form
         /// </summary>
         private void UpdateUIFromCache()
         {
-            //if (!_uiMode) return; // 无UI模式不更新界面
-
             if (_disposed || this.IsDisposed || !this.IsHandleCreated) return;
 
             // 切换到UI线程
@@ -1759,13 +1769,7 @@ namespace ChargeDebug.Form
                 UpdateTimeDisplay();
 
                 // 2. 获取故障显示内容
-                string faultDisplay = string.Empty;
-                bool isFaultMode = (_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF) || (softwareprotection != 0x00);
-                if (isFaultMode)
-                {
-                    faultDisplay = GetNextFaultToDisplay();
-                }
-
+                
                 // 3. 创建信号值的快照
                 var snapshot = _signalValues.ToArray();
 
@@ -1790,13 +1794,11 @@ namespace ChargeDebug.Form
                 }
 
                 // 5. 更新状态显示（整合故障显示）
-                if (!string.IsNullOrEmpty(faultDisplay))
+                string faultDisplay = string.Empty;
+                bool isFaultMode = (_acRunStatus == 0xFF || _dcRunStatus == 0xFF || softwareprotection);
+               
+                if (isFaultMode)
                 {
-                    UpdateConnectionStatusUI(faultDisplay, Color.Red);
-                }
-                else if (isFaultMode && _activeFaults.Count > 0)
-                {
-                    // 有活跃故障但没有获取到显示内容，立即重试一次
                     faultDisplay = GetNextFaultToDisplay();
                     if (!string.IsNullOrEmpty(faultDisplay))
                     {
@@ -2409,6 +2411,9 @@ namespace ChargeDebug.Form
                     data
                 );
             }
+
+            _activeFaults.Clear();
+            _faultDisplayQueue.Clear();
 
             XtraMessageBox.Show("清除故障成功");
             LogService.Log("清除故障成功");
