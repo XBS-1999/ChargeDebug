@@ -3179,10 +3179,10 @@ namespace ChargeDebug.Form
                     var signalData = new SignalImportData();
 
                     string[] parts = channelValue.Split('-');
-                    if (parts.Length >= 2)
+                    if (parts.Length >= 3)
                     {
-                        signalData.DeviceName = parts[0]; // 完整设备名称
-                        signalData.SignalName = parts[1]; // 信号名称
+                        signalData.DeviceName = $"{parts[0]}-{ parts[1]} "; // 完整设备名称带通道
+                        signalData.SignalName = parts[2]; // 信号名称
 
                         // 判断信号类型（根据信号名称或设备名称）
                         if (signalData.SignalName.Contains("电压") || channelValue.Contains("电压"))
@@ -3193,11 +3193,6 @@ namespace ChargeDebug.Form
                         {
                             signalData.SignalType = "电流";
                         }
-                    }
-                    else
-                    {
-                        signalData.DeviceName = channelValue;
-                        signalData.SignalName = channelValue;
                     }
 
                     // 解析额定值 (第2行第5列)

@@ -35,7 +35,7 @@ namespace ChargeDebug
 
         // 功能按钮
         private BarButtonItem buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem5;
-        private BarButtonItem buttonItem6, buttonItem7, buttonItem8, buttonItem9;
+        private BarButtonItem buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10;
         private BarButtonItem logButton, skinButton;
 
         // 页面缓存字典
@@ -341,6 +341,7 @@ namespace ChargeDebug
             buttonItem7 = new BarButtonItem { Caption = "在线升级" };
             buttonItem8 = new BarButtonItem { Caption = "用户切换" };
             buttonItem9 = new BarButtonItem { Caption = "校准管理" };
+            buttonItem10 = new BarButtonItem { Caption = "测试管理" };
             logButton = new BarButtonItem { Caption = "系统日志" };
         }
 
@@ -350,7 +351,7 @@ namespace ChargeDebug
         private void ConfigureButtonStyles()
         {
             BarButtonItem[] buttons = { buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem5,
-                                      buttonItem6, buttonItem7, buttonItem8, buttonItem9, logButton };
+                                      buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, logButton };
 
             foreach (var button in buttons)
             {
@@ -372,6 +373,7 @@ namespace ChargeDebug
             buttonItem7.ImageOptions.Image = Properties.Resources.在线升级;
             buttonItem8.ImageOptions.Image = Properties.Resources.用户切换;
             buttonItem9.ImageOptions.Image = Properties.Resources.校准管理;
+            buttonItem10.ImageOptions.Image = Properties.Resources.校准管理;
             logButton.ImageOptions.Image = Properties.Resources.日志管理;
         }
 
@@ -400,6 +402,7 @@ namespace ChargeDebug
             buttonItem6.ItemClick += (s, e) => ShowPage(typeof(FaultRecording));
             buttonItem7.ItemClick += (s, e) => ShowPage(typeof(Upgradeonline));
             buttonItem9.ItemClick += (s, e) => ShowPage(typeof(CalibrationManagement));
+            buttonItem10.ItemClick += (s, e) => ShowPage(typeof(TestManagement));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer));
             buttonItem8.ItemClick += (s, e) => SwitchUser();
         }
@@ -437,6 +440,7 @@ namespace ChargeDebug
             RegisterPage(typeof(Upgradeonline), new Upgradeonline(equipmentList));
             RegisterPage(typeof(LogViewer), logViewer);
             RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath, equipmentList));
+            RegisterPage(typeof(TestManagement), new TestManagement());
         }
         #endregion
 
@@ -584,6 +588,7 @@ namespace ChargeDebug
             buttonItem7.Visibility = BarItemVisibility.Never;  // 在线升级
             buttonItem8.Visibility = BarItemVisibility.Never;  // 用户切换
             buttonItem9.Visibility = BarItemVisibility.Never;  // 校准管理
+            buttonItem10.Visibility = BarItemVisibility.Never;  // 测试管理
         }
 
         /// <summary>

@@ -19,6 +19,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using ZLGAPI;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     /// <summary>
@@ -540,6 +541,24 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 插入项按钮触发事件 - 在当前选中项之前插入新项
+        /// </summary>
+        private void InsertItem()
+        {
+            // 使用协议处理器在当前选中项之前插入新项
+            _currentProtocolHandler.InsertItem(treeList, dbcPath);
+        }
+
+        /// <summary>
+        /// 插入子项按钮触发事件 - 在当前选中子项之前插入新子项
+        /// </summary>
+        private void InsertChildItem()
+        {
+            // 使用协议处理器在当前选中子项之前插入新子项
+            _currentProtocolHandler.InsertChildItem(treeList, dbcPath);
+        }
+
+        /// <summary>
         /// 导入Excel按钮触发事件
         /// </summary>
         private void ImportExcelDBC()
@@ -977,12 +996,19 @@ namespace ChargeDebug.Form
                 Height = 30,
                 Location = new Point(10, btnImportExcel.Bottom + 20)
             };
+            var btnInsertItem = new SimpleButton
+            {
+                Text = "插入项",
+                Width = 100,
+                Height = 30,
+                Location = new Point(10, btnAddMessage.Bottom + 20)
+            };
             var btnDeleteMessage = new SimpleButton
             {
                 Text = "删除项",
                 Width = 100,
                 Height = 30,
-                Location = new Point(10, btnAddMessage.Bottom + 20)
+                Location = new Point(10, btnInsertItem.Bottom + 20)
             };
             var btnAddSignal = new SimpleButton
             {
@@ -991,12 +1017,19 @@ namespace ChargeDebug.Form
                 Height = 30,
                 Location = new Point(10, btnDeleteMessage.Bottom + 20)
             };
+            var btnInsertChildItem = new SimpleButton
+            {
+                Text = "插入子项",
+                Width = 100,
+                Height = 30,
+                Location = new Point(10, btnAddSignal.Bottom + 20)
+            };
             var btnDeleteSignal = new SimpleButton
             {
                 Text = "删除子项",
                 Width = 100,
                 Height = 30,
-                Location = new Point(10, btnAddSignal.Bottom + 20)
+                Location = new Point(10, btnInsertChildItem.Bottom + 20)
             };
             var btnSave = new SimpleButton
             {
@@ -1039,9 +1072,12 @@ namespace ChargeDebug.Form
             btnSave.Click += (s, e) => SaveDBC();
             btnExport.Click += (s, e) => ExportExcel();
             btnMoveUp.Click += (s, e) => MoveUp();
-            btnMoveDown.Click += (s, e) => MoveDown(); ;
+            btnMoveDown.Click += (s, e) => MoveDown();
 
-            panel.Controls.AddRange(new Control[] { btnMoveUp, btnMoveDown, btnexpand, btnfold, btnImport, btnImportExcel, btnAddMessage, btnDeleteMessage, btnAddSignal, btnDeleteSignal, btnSave, btnExport });
+            btnInsertItem.Click += (s, e) => InsertItem();
+            btnInsertChildItem.Click += (s, e) => InsertChildItem();
+
+            panel.Controls.AddRange(new Control[] { btnMoveUp, btnMoveDown, btnexpand, btnfold, btnImport, btnImportExcel, btnAddMessage, btnInsertItem, btnDeleteMessage, btnAddSignal, btnInsertChildItem, btnDeleteSignal, btnSave, btnExport });
             return panel;
         }
 
@@ -1312,6 +1348,9 @@ namespace ChargeDebug.Form
             void UpdateOrder(SQLiteConnection conn, TreeListNode node, int order, SQLiteTransaction transaction);
             void CopyData(SQLiteConnection conn, long sourceFileId, long newFileId, SQLiteTransaction transaction);
             void WriteNodeToExcel(IXLWorksheet ws, TreeListNode node, ref int rowIndex, string dbcPath);
+
+            void InsertItem(TreeList treeList, string dbcPath);
+            void InsertChildItem(TreeList treeList, string dbcPath);
         }
 
         /// <summary>
@@ -1672,11 +1711,11 @@ namespace ChargeDebug.Form
 
                         var newNode = treeList.AppendNode(new object[]
                         {
-                        "0x", // CAN ID
-                        "扩展帧", // 帧类型
-                        "",
-                        8,      // 数据长度
-                        "", "", "", "", "", "", "", "", "","",""// 信号相关字段
+                            "0x", // CAN ID
+                            "扩展帧", // 帧类型
+                            "",
+                            8,      // 数据长度
+                            "", "", "", "", "", "", "", "", "","",""// 信号相关字段
                         }, null);
 
                         // 设置初始排序值
@@ -1688,6 +1727,70 @@ namespace ChargeDebug.Form
                         newNode.Expanded = true;
                         treeList.FocusedNode = newNode;
                     }
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+
+            /// <summary>
+            /// 在当前选中项之前插入新项
+            /// </summary>
+            public void InsertItem(TreeList treeList, string dbcPath)
+            {
+                try
+                {
+                    TreeListNode focusedNode = treeList.FocusedNode;
+
+                    // 验证选中的是父节点或者没有选中任何节点
+                    if (focusedNode != null && focusedNode.ParentNode != null)
+                    {
+                        XtraMessageBox.Show("请选择报文节点进行插入操作");
+                        return;
+                    }
+
+                    treeList.BeginUnboundLoad();
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "Messages") + 1;
+
+                        // 创建新节点（先添加到末尾）
+                        TreeListNode newNode = treeList.AppendNode(new object[]
+                        {
+                            "0x", // CAN ID
+                            "扩展帧", // 帧类型
+                            "",
+                            8,      // 数据长度
+                            "", "", "", "", "", "", "", "", "","",""// 信号相关字段
+                        }, null);
+
+                        // 设置初始排序值
+                        newNode.Tag = -1; // 临时标记为新节点
+                        newNode.SetValue("Orders", maxSortOrder);
+
+                        // 如果有选中的节点，将新节点移动到选中节点之前
+                        if (focusedNode != null)
+                        {
+                            int targetIndex = treeList.GetNodeIndex(focusedNode);
+                            treeList.SetNodeIndex(newNode, targetIndex);
+                        }
+
+                        // 设置初始复选框状态
+                        newNode.StateImageIndex = 1; // 默认未选中
+                        newNode.Expanded = true;
+                        treeList.FocusedNode = newNode;
+
+                        // 重新排序所有节点
+                        ReorderAllNodes(treeList);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"插入项失败：{ex.Message}");
                 }
                 finally
                 {
@@ -1813,6 +1916,101 @@ namespace ChargeDebug.Form
                 finally
                 {
                     treeList.EndUnboundLoad();
+                }
+            }
+
+            /// <summary>
+            /// 在当前选中子项之前插入新子项
+            /// </summary>
+            public void InsertChildItem(TreeList treeList, string dbcPath)
+            {
+                try
+                {
+                    TreeListNode focusedNode = treeList.FocusedNode;
+
+                    // 验证选中的是子节点
+                    if (focusedNode == null || focusedNode.ParentNode == null)
+                    {
+                        XtraMessageBox.Show("请选择要插入位置的信号节点");
+                        return;
+                    }
+
+                    TreeListNode parentNode = focusedNode.ParentNode;
+
+                    treeList.BeginUnboundLoad();
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+
+                        // 获取当前报文ID
+                        long messageId = Convert.ToInt64(parentNode.Tag);
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "Signals", messageId) + 1;
+
+                        // 创建新信号节点（先添加到父节点末尾）
+                        TreeListNode newNode = treeList.AppendNode(new object[]
+                        {
+                            "", "", "","",
+                            "",             // 信号名称
+                            "否",
+                            "",             // 系统变量名称
+                            "",             // 单位
+                            0,              // 起始位
+                            8,              // 长度
+                            "Inter",     // 字节顺序
+                            "Unsigned",     // 符号
+                            1,            // 系数
+                            0,            // 偏移
+                            ""        // 范围
+                        }, parentNode);
+
+                        // 设置初始排序值
+                        newNode.Tag = -1; // 临时标记为新节点
+                        newNode.SetValue("Orders", maxSortOrder);
+
+                        // 将新节点移动到选中子节点之前
+                        int targetIndex = parentNode.Nodes.IndexOf(focusedNode);
+                        if (targetIndex >= 0)
+                        {
+                            treeList.SetNodeIndex(newNode, targetIndex);
+                        }
+
+                        parentNode.Expanded = true;
+                        treeList.FocusedNode = newNode;
+
+                        // 重新排序父节点下的所有子节点
+                        ReorderChildNodes(parentNode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"插入子项失败：{ex.Message}");
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+
+            /// <summary>
+            /// 重新排序所有节点
+            /// </summary>
+            private void ReorderAllNodes(TreeList treeList)
+            {
+                for (int i = 0; i < treeList.Nodes.Count; i++)
+                {
+                    treeList.Nodes[i].SetValue("Orders", i);
+                }
+            }
+
+            /// <summary>
+            /// 重新排序父节点下的所有子节点
+            /// </summary>
+            private void ReorderChildNodes(TreeListNode parentNode)
+            {
+                for (int i = 0; i < parentNode.Nodes.Count; i++)
+                {
+                    parentNode.Nodes[i].SetValue("Orders", i);
                 }
             }
 
@@ -2645,6 +2843,67 @@ namespace ChargeDebug.Form
                 }
             }
 
+            /// <summary>
+            /// 在当前选中项之前插入新项
+            /// </summary>
+            public void InsertItem(TreeList treeList, string dbcPath)
+            {
+                try
+                {
+                    TreeListNode focusedNode = treeList.FocusedNode;
+
+                    treeList.BeginUnboundLoad();
+                    using (var conn = new SQLiteConnection($"Data Source={dbcPath};Version=3;"))
+                    {
+                        conn.Open();
+
+                        // 获取最大排序值
+                        int maxSortOrder = SQLite_Service.GetMaxSortOrder(conn, "ModbusSignals") + 1;
+
+                        // 创建新节点（先添加到末尾）
+                        TreeListNode newNode = treeList.AppendNode(new object[]
+                        {
+                            "",       // 信号名称
+                            "0x00",   // 地址码
+                            "0x00",   // 功能码
+                            "0x0001", // 寄存器地址
+                            "1",      // 寄存器个数
+                            "",       // 关联系统变量名称
+                            "",       // 单位
+                            "Inter",       // 字节顺序
+                            "Signed",       // 符号
+                            "1",       // 系数
+                            "0",       // 偏移
+                            "",       // 范围
+                            maxSortOrder // 排序
+                        }, null);
+
+                        newNode.Tag = -1; // 临时标记为新节点
+
+                        // 如果有选中的节点，将新节点移动到选中节点之前
+                        if (focusedNode != null)
+                        {
+                            int targetIndex = treeList.GetNodeIndex(focusedNode);
+                            treeList.SetNodeIndex(newNode, targetIndex);
+                        }
+
+                        treeList.FocusedNode = newNode;
+
+                        // 重新排序所有节点
+                        ReorderAllNodes(treeList);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"插入项失败：{ex.Message}");
+                }
+                finally
+                {
+                    treeList.EndUnboundLoad();
+                }
+            }
+
+
             public void DeleteSelectedItems(TreeList treeList, string dbcPath, Action callback)
             {
                 // 获取所有选中的节点
@@ -2705,6 +2964,25 @@ namespace ChargeDebug.Form
             {
                 // Modbus协议没有子项概念
                 XtraMessageBox.Show("RS485-Modbus协议不支持添加子项");
+            }
+
+            /// <summary>
+            /// 插入子项 - Modbus协议不支持子项
+            /// </summary>
+            public void InsertChildItem(TreeList treeList, string dbcPath)
+            {
+                XtraMessageBox.Show("RS485-Modbus协议不支持插入子项");
+            }
+
+            /// <summary>
+            /// 重新排序所有节点
+            /// </summary>
+            private void ReorderAllNodes(TreeList treeList)
+            {
+                for (int i = 0; i < treeList.Nodes.Count; i++)
+                {
+                    treeList.Nodes[i].SetValue("Orders", i);
+                }
             }
 
             public void DeleteSelectedChildItems(TreeList treeList, string dbcPath, Action callback)
