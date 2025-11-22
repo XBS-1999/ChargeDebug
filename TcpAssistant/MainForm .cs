@@ -24,11 +24,14 @@ namespace TcpAssistant
         private TextEdit txtPort;
         private ComboBoxEdit cbBaudRate; // 新增波特率输入框
         private SimpleButton btnOpenAndClose;
+        private TextEdit txtBaseAddress;
+        private LayoutControlItem baseAddressItem;
 
         private ComboBoxEdit cbFirmwareModel;
         private ComboBoxEdit cbSystemModell;
         private ButtonEdit btnSelectFile;
         private SimpleButton btnUpgrade;
+
         // 右侧控件声明
         private Panel rightPanel;
         private MemoEdit txtInfoDisplay;
@@ -109,6 +112,8 @@ namespace TcpAssistant
             txtPort = new TextEdit();
             cbBaudRate = new ComboBoxEdit(); // 修改：改为下拉框
             btnOpenAndClose = new SimpleButton();
+            txtBaseAddress = new TextEdit();
+            txtBaseAddress.Text = "0x80000000";
 
             cbFirmwareModel = new ComboBoxEdit();
             cbSystemModell = new ComboBoxEdit();
@@ -169,6 +174,10 @@ namespace TcpAssistant
 
             LayoutControlItem fileItem = leftLayout.AddItem("选择文件:", btnSelectFile);
             fileItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
+
+            baseAddressItem = leftLayout.AddItem("起始地址:", txtBaseAddress);
+            baseAddressItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
+            baseAddressItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never; // 初始隐藏
 
             // 修复：添加按钮时指定标签文本（可以设置为空字符串）
             leftLayout.AddItem("", btnUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 20);
@@ -567,6 +576,7 @@ namespace TcpAssistant
                 string filePath = btnSelectFile.Text;
                 if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
                 {
+                    return false;
                     string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
                     hexData = HexFile.ParseHexFile(filePath, firmwareModel);
                     hexFileCache[filePath] = hexData;
@@ -1463,6 +1473,21 @@ namespace TcpAssistant
                 return false;
             }
 
+            // 检查文件格式
+            string fileExtension = Path.GetExtension(filePath).ToLower();
+            if (fileExtension != ".hex" && fileExtension != ".bin")
+            {
+                errorMessage = "❌ 不支持的文件格式，请选择.hex或.bin文件";
+                return false;
+            }
+
+            // 如果是BIN文件，验证起始地址
+            if (fileExtension == ".bin" && !ValidateBaseAddress())
+            {
+                errorMessage = "❌ BIN文件起始地址格式错误";
+                return false;
+            }
+
             // 获取当前选中的通道和CPU型号
             string? systemmodell = cbSystemModell.SelectedItem?.ToString();
             string? firmwaremodel = cbFirmwareModel.SelectedItem?.ToString();
@@ -1477,8 +1502,8 @@ namespace TcpAssistant
             if (!hasChannel || !hasCpu)
             {
                 errorMessage = "❌ 文件验证失败:";
-                if (!hasChannel) errorMessage += $" 缺少通道标识 '{systemmodell}'";
-                if (!hasCpu) errorMessage += $" 缺少CPU型号 '{firmwaremodel}'";
+                if (!hasChannel) errorMessage += $" 缺少固件型号 '{systemmodell}'";
+                if (!hasCpu) errorMessage += $" 缺少系统型号 '{firmwaremodel}'";
                 return false;
             }
 
@@ -1489,11 +1514,23 @@ namespace TcpAssistant
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Filter = "固件文件|*.hex";
+                dialog.Filter = "固件文件 (*.hex, *.bin)|*.hex;*.bin|Hex文件 (*.hex)|*.hex|Bin文件 (*.bin)|*.bin|所有文件 (*.*)|*.*";
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     string filePath = dialog.FileName;
                     btnSelectFile.Text = filePath;
+
+                    // 根据文件类型显示/隐藏起始地址输入框
+                    string fileExtension = Path.GetExtension(filePath).ToLower();
+                    if (fileExtension == ".bin")
+                    {
+                        baseAddressItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Always;
+                        AppendInfo("📝 请确认BIN文件的起始地址");
+                    }
+                    else
+                    {
+                        baseAddressItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
+                    }
 
                     // 使用统一的验证方法
                     if (!ValidateFile(out string errorMessage))
@@ -1511,21 +1548,34 @@ namespace TcpAssistant
                         AppendInfo($"✅ 文件验证通过: {filePath}");
                         try
                         {
-                            // 解析HEX文件并缓存
                             string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
-                            HexFileData hexData = HexFile.ParseHexFile(filePath, firmwareModel);
-                            hexFileCache[filePath] = hexData;
+                            HexFileData fileData;
 
-                            // 计算总字节数 (MaxAddress - MinAddress + 1)
-                            uint totalBytes = hexData.MaxAddress - hexData.MinAddress + 1;
+                            if (fileExtension == ".hex")
+                            {
+                                // 解析HEX文件
+                                fileData = HexFile.ParseHexFile(filePath, firmwareModel);
+                                AppendInfo($"✅ HEX解析成功: 起始地址 0x{fileData.MinAddress:X8}, " +
+                                           $"结束地址 0x{fileData.MaxAddress:X8}, " +
+                                           $"总长度 {fileData.MaxAddress - fileData.MinAddress + 1} 字节, " +
+                                           $"共分为 {fileData.Blocks.Count} 个数据块");
+                            }
+                            else if (fileExtension == ".bin")
+                            {
+                                // 解析BIN文件 - 需要基地址
+                                uint baseAddress = GetBaseAddressForBinFile(); 
+                                fileData = HexFile.ParseBinFile(filePath, firmwareModel, baseAddress);
+                                AppendInfo($"✅ BIN解析成功: 起始地址 0x{fileData.MinAddress:X8}, " +
+                                           $"结束地址 0x{fileData.MaxAddress:X8}, " +
+                                           $"总长度 {fileData.MaxAddress - fileData.MinAddress + 1} 字节, " +
+                                           $"共分为 {fileData.Blocks.Count} 个数据块");
+                            }
+                            else
+                            {
+                                throw new Exception("不支持的文件格式");
+                            }
 
-                            // +++ 新增：显示总块数 +++
-                            int totalBlocks = hexData.Blocks.Count;
-
-                            AppendInfo($"✅ HEX解析成功: 起始地址 0x{hexData.MinAddress:X8}, " +
-                                       $"结束地址 0x{hexData.MaxAddress:X8}, " +
-                                       $"总长度 {totalBytes} 字节, " +
-                                       $"共分为 {totalBlocks} 个数据块"); // 新增块数提示
+                            hexFileCache[filePath] = fileData;
                         }
                         catch (Exception ex)
                         {
@@ -1538,6 +1588,58 @@ namespace TcpAssistant
                     }
                 }
             }
+        }
+
+        // 新增方法：获取BIN文件的基地址
+        private uint GetBaseAddressForBinFile()
+        {
+            string addressText = txtBaseAddress.Text.Trim();
+
+            // 移除可能的前缀
+            if (addressText.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                addressText = addressText.Substring(2);
+            }
+
+            if (uint.TryParse(addressText, System.Globalization.NumberStyles.HexNumber, null, out uint address))
+            {
+                return address;
+            }
+            else
+            {
+                // 如果解析失败，使用默认值并提示用户
+                AppendInfo("⚠ 起始地址格式错误，使用默认地址 0x08000000");
+                txtBaseAddress.Text = "0x08000000";
+                return 0x08000000;
+            }
+        }
+
+        // 验证起始地址格式
+        private bool ValidateBaseAddress()
+        {
+            string addressText = txtBaseAddress.Text.Trim();
+
+            if (string.IsNullOrEmpty(addressText))
+            {
+                AppendInfo("❌ 请输入BIN文件的起始地址");
+                return false;
+            }
+
+            // 检查格式
+            if (!addressText.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendInfo("❌ 起始地址格式错误，请使用0x前缀");
+                return false;
+            }
+
+            string hexPart = addressText.Substring(2);
+            if (string.IsNullOrEmpty(hexPart) || !System.Text.RegularExpressions.Regex.IsMatch(hexPart, "^[0-9A-Fa-f]{8,8}$"))
+            {
+                //AppendInfo("❌ 起始地址格式错误，请输入8位十六进制数");
+                return false;
+            }
+
+            return true;
         }
 
         private void ConfigureComboBox(ComboBoxEdit combo, params string[] items)
@@ -1581,6 +1683,37 @@ namespace TcpAssistant
 
             // 修改：波特率变化事件改为下拉框的选择变化事件
             cbBaudRate.SelectedIndexChanged += CbBaudRate_SelectedIndexChanged;
+
+            txtBaseAddress.TextChanged += TxtBaseAddress_TextChanged;
+        }
+
+        private void TxtBaseAddress_TextChanged(object? sender, EventArgs e)
+        {
+            string filePath = btnSelectFile.Text;
+            string fileExtension = Path.GetExtension(filePath).ToLower();
+
+            if (fileExtension == ".bin" && ValidateBaseAddress())
+            {
+                AppendInfo($"📝 BIN文件起始地址已更新: {txtBaseAddress.Text}");
+
+                // 如果文件已经解析过，重新解析并更新缓存
+                if (hexFileCache.ContainsKey(filePath))
+                {
+                    try
+                    {
+                        string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
+                        uint baseAddress = GetBaseAddressForBinFile();
+                        HexFileData fileData = HexFile.ParseBinFile(filePath, firmwareModel, baseAddress);
+                        hexFileCache[filePath] = fileData;
+
+                        AppendInfo($"🔄 BIN文件已重新解析，起始地址: 0x{baseAddress:X8}");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendInfo($"❌ 重新解析BIN文件失败: {ex.Message}");
+                    }
+                }
+            }
         }
 
         private void CbBaudRate_SelectedIndexChanged(object? sender, EventArgs e)

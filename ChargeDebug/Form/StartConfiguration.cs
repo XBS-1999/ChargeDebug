@@ -221,6 +221,8 @@ namespace ChargeDebug.Form
 
         private void RangeValidation(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            return;
+
             TextEdit? textEdit = sender as TextEdit;
             if (textEdit == null) return;
 

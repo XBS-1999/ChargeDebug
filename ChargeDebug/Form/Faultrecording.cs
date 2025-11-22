@@ -29,7 +29,7 @@ namespace ChargeDebug.Form
         private SimpleButton btnExport;
         private WaitDialogForm waitDialog;
 
-        private List<EquipmentModel> faultrecordingList;
+        private List<EquipmentModel> faultrecordingList = new List<EquipmentModel>();
         private List<FaultRecordingSignals> _faultTemplates = new List<FaultRecordingSignals>();
         private string dbcPath = "";
         private List<FaultSignals> acfaultTemplate;
@@ -47,11 +47,24 @@ namespace ChargeDebug.Form
         public FaultRecording(string dbPath, List<EquipmentModel> equipmentList)
         {
             dbcPath = dbPath;
-            faultrecordingList = equipmentList;
+            DeviceConfig(equipmentList);
+            //faultrecordingList = equipmentList;
             InitializeComponent();
             LoadFaultTemplates();
             InitializeUI();
             InitializeBackgroundWorker();
+        }
+
+        private void DeviceConfig(List<EquipmentModel> equipmentList)
+        {
+            faultrecordingList.Clear();
+            foreach (var equipmentLists in equipmentList)
+            {
+                if (equipmentLists.DeviceType == "充放电设备")
+                {
+                    faultrecordingList.Add(equipmentLists);
+                }
+            }
         }
 
         public void UpdateDcNumber(List<EquipmentModel> equipmentList)

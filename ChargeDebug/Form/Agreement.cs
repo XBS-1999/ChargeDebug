@@ -62,10 +62,23 @@ namespace ChargeDebug.Form
         public Agreement(string dbPath, List<EquipmentModel> equipmentList)
         {
             dbcPath = dbPath;
+            //DeviceConfig(equipmentList);
             agreementList = new List<EquipmentModel>(equipmentList);
             InitializeComponent();
             InitializeUI();
             this.Load += Agreement_Load;
+        }
+
+        private void DeviceConfig(List<EquipmentModel> equipmentList)
+        {
+            agreementList.Clear();
+            foreach (var equipmentLists in equipmentList)
+            {
+                if (equipmentLists.DeviceType == "充放电设备")
+                {
+                    agreementList.Add(equipmentLists);
+                }
+            }
         }
 
         /// <summary>

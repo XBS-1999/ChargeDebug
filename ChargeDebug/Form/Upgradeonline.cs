@@ -25,7 +25,7 @@ namespace ChargeDebug.Form
 
         private Dictionary<string, EquipmentModel> deviceMap = new Dictionary<string, EquipmentModel>();
 
-        private List<EquipmentModel> upgradeonlineList;
+        private List<EquipmentModel> upgradeonlineList = new List<EquipmentModel>();
 
         // 在类级别添加以下字段
         private Dictionary<string, HexFileData> hexFileCache = new Dictionary<string, HexFileData>();
@@ -34,14 +34,27 @@ namespace ChargeDebug.Form
 
         public Upgradeonline(List<EquipmentModel> equipmentList)
         {
-            upgradeonlineList = equipmentList;
+            DeviceConfig(equipmentList);
+            //upgradeonlineList = equipmentList;
             InitializeComponent();
             InitializeUI();
         }
 
+        private void DeviceConfig(List<EquipmentModel> equipmentList)
+        {
+            upgradeonlineList.Clear();
+            foreach (var equipmentLists in equipmentList)
+            {
+                if (equipmentLists.DeviceType == "充放电设备")
+                {
+                    upgradeonlineList.Add(equipmentLists);
+                }
+            }
+        }
+
         public void UpdateDcNumber(List<EquipmentModel> equipmentList)
         {
-            upgradeonlineList = equipmentList;
+            DeviceConfig(equipmentList);
             //清除所有旧布局
             this.Controls.Clear();
             InitializeUI();

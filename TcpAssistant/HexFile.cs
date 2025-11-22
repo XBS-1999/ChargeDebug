@@ -1,5 +1,6 @@
 ﻿using System.IO;
 
+#pragma warning disable
 namespace TcpAssistant
 {
     public class HexFileData
@@ -139,6 +140,50 @@ namespace TcpAssistant
             return new HexFileData
             {
                 Records = records,
+                Blocks = blocks,
+                MinAddress = minAddr,
+                MaxAddress = maxAddr
+            };
+        }
+
+        // 新增BIN文件解析方法
+        public static HexFileData ParseBinFile(string filePath, string firmwareModel, uint baseAddress = 0x08000000)
+        {
+            List<DataBlock> blocks = new List<DataBlock>();
+
+            // 读取整个BIN文件
+            byte[] fileData = File.ReadAllBytes(filePath);
+
+            uint minAddr = baseAddress;
+            uint maxAddr = baseAddress + (uint)fileData.Length;
+
+            // 按256字节分块
+            int blockSize = 256;
+            int totalBlocks = (fileData.Length + blockSize - 1) / blockSize; // 向上取整
+
+            for (int i = 0; i < totalBlocks; i++)
+            {
+                int startIndex = i * blockSize;
+                int currentBlockSize = Math.Min(blockSize, fileData.Length - startIndex);
+
+                // 复制当前块的数据
+                byte[] blockData = new byte[currentBlockSize];
+                Array.Copy(fileData, startIndex, blockData, 0, currentBlockSize);
+
+                // 计算当前块的起始地址
+                uint blockStartAddress = baseAddress + (uint)startIndex;
+
+                blocks.Add(new DataBlock
+                {
+                    StartAddress = blockStartAddress,
+                    Data = blockData,
+                    BlockIndex = i + 1
+                });
+            }
+
+            return new HexFileData
+            {
+                Records = new List<HexRecord>(), // BIN文件没有记录，返回空列表
                 Blocks = blocks,
                 MinAddress = minAddr,
                 MaxAddress = maxAddr

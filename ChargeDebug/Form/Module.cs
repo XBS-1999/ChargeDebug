@@ -83,7 +83,6 @@ namespace ChargeDebug.Form
         private volatile bool _disposed = false;
         private bool _isConnected;
         private bool _stopCommandSent = false;
-        private bool _isFaultDisplayActive;
 
         // CAN通信相关字段
         private uint _dcfaultCanId;
@@ -743,20 +742,20 @@ namespace ChargeDebug.Form
                     _signalValues[signal.SystemName] = physicalValue;
                     signalValue[signal.SystemName] = physicalValue;
 
-                    // 5. 实时处理故障信号（不等待UI更新）
-                    if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
-                    {
-                        ProcessFaultSignal(signal.SystemName, physicalValue);
-                    }
-
+                    // 5. 实时更新运行状态
+                    UpdateDeviceStatus(signal.SystemName, physicalValue);
+                    
                     // 6. 实时监控关键信号（电压、电流、功率）
                     if (_protectionParameters != null && _stopCommandSent)
                     {
                         CheckCriticalSignals(signal.SystemName, physicalValue);
                     }
 
-                    // 7. 实时更新运行状态
-                    UpdateDeviceStatus(signal.SystemName, physicalValue);
+                    // 7. 实时处理故障信号（不等待UI更新）
+                    if (_faultSignalDefinitions.ContainsKey(signal.SystemName))
+                    {
+                        ProcessFaultSignal(signal.SystemName, physicalValue);
+                    }
                 }
 
                 // 实时保存数据（如果启用）- 使用新线程避免阻塞
@@ -845,31 +844,22 @@ namespace ChargeDebug.Form
 
             try
             {
-                // 查找"/DC"的位置
-                int dcIndex = deviceName.IndexOf("/DC");
+                string devicePrefix = deviceName.Split("-")[0];
+                string dcPart = deviceName.Split("-")[1];
+
+                // 查找"DC"的位置
+                int dcIndex = dcPart.IndexOf("DC");
                 if (dcIndex < 0)
                 {
-                    // 如果没有找到"/DC"，尝试查找"DC"（可能没有斜杠）
-                    dcIndex = deviceName.IndexOf("DC");
-                    if (dcIndex < 0)
-                    {
-                        // 如果连"DC"都找不到，返回原始名称
-                        return deviceName;
-                    }
-
-                    // 提取设备前缀和DC部分
-                    string devicePrefix = deviceName.Substring(0, deviceName.IndexOf('-') + 1);
-                    string dcPart = deviceName.Substring(dcIndex);
-                    return $"{devicePrefix}{dcPart}";
+                    return deviceName;
+                }
+                else
+                {
+                    // 提取DC部分
+                    dcPart = dcPart.Substring(dcIndex); // 去掉斜杠
                 }
 
-                // 提取设备前缀（"设备1-"部分）
-                string prefix = deviceName.Substring(0, deviceName.IndexOf('-') + 1);
-
-                // 提取DC部分（"DCn"部分）
-                string dcPartWithSlash = deviceName.Substring(dcIndex + 1); // 去掉斜杠
-
-                return $"{prefix}{dcPartWithSlash}";
+                return $"{devicePrefix}-{dcPart}";
             }
             catch (Exception ex)
             {
@@ -1075,6 +1065,12 @@ namespace ChargeDebug.Form
                     break;
             }
 
+            if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
+            {
+                // 触发停机指令，只发一次
+                SendStopCommandIfNeeded();
+            }
+
             // 检查状态变化并通知
             if (signalName == "DC运行状态" && oldDcRunStatus != _dcRunStatus)
             {
@@ -1085,12 +1081,6 @@ namespace ChargeDebug.Form
                     FaultDetected?.Invoke(faultMessage);
                     //LogService.Log(faultMessage);
                 }
-            }
-
-            if ((_acRunStatus == 0xFF) || (_dcRunStatus == 0xFF))
-            {
-                // 触发停机指令，只发一次
-                SendStopCommandIfNeeded();
             }
 
             CheckAndControlFaultTimer(oldDcRunStatus, oldAcRunStatus);
@@ -1131,10 +1121,6 @@ namespace ChargeDebug.Form
                     _activeFaults.Clear();
                     _faultDisplayQueue.Clear();
                 }
-
-                // 恢复正常状态显示
-                //UpdateConnectionStatusUI("已连接", Color.White);
-                _isFaultDisplayActive = false;
             }
         }
 
@@ -1154,7 +1140,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"过压保护: {value} > {overVoltage}";
-                        _activeFaults["过压"] = name;
+                        _activeFaults["软件_过压"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"电压异常: {value} > {overVoltage} (过压保护值)");
@@ -1165,7 +1151,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"欠压保护: {value} > {underVoltage}";
-                        _activeFaults["欠压"] = name;
+                        _activeFaults["软件_欠压"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
@@ -1181,7 +1167,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"充电过流保护: {value} > {overCurrent}";
-                        _activeFaults["充电过流"] = name;
+                        _activeFaults["软件_充电过流"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"电流异常: {value} > {overCurrent} (过流保护值)");
@@ -1192,7 +1178,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"放电过流保护: {value} > {underCurrent}";
-                        _activeFaults["放电过流"] = name;
+                        _activeFaults["软件_放电过流"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"电流异常: {value} < {underCurrent} (欠流保护值)");
@@ -1208,7 +1194,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"充电过功率保护: {value} > {overPower}";
-                        _activeFaults["充电过功率"] = name;
+                        _activeFaults["软件_充电过功率"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"功率异常: {value} > {overPower} (过功率保护值)");
@@ -1219,7 +1205,7 @@ namespace ChargeDebug.Form
                         SendStopCommandIfNeeded();
                         softwareprotection = true;
                         string name = $"放电过功率保护: {value} > {overPower}";
-                        _activeFaults["放电过功率"] = name;
+                        _activeFaults["软件_放电过功率"] = name;
                         _faultDisplayQueue.Enqueue(name);
                         LogService.Log(name);
                         //XtraMessageBox.Show($"功率异常: {value} < {underPower} (欠功率保护值)");
@@ -1709,7 +1695,6 @@ namespace ChargeDebug.Form
                     {
                         _faultDisplayQueue.Clear();
                     }
-                    _isFaultDisplayActive = false;
                     return string.Empty;
                 }
 
@@ -1729,7 +1714,6 @@ namespace ChargeDebug.Form
                     {
                         // 放回队列尾部实现循环
                         _faultDisplayQueue.Enqueue(nextFault);
-                        _isFaultDisplayActive = true;
                         return nextFault;
                     }
                     else
@@ -2412,11 +2396,47 @@ namespace ChargeDebug.Form
                 );
             }
 
-            _activeFaults.Clear();
-            _faultDisplayQueue.Clear();
+            // 清除软件保护故障
+            ClearSoftwareProtectionFaults();
+
+            // 清除故障显示
+            //lock (_faultQueueLock)
+            //{
+            //    _activeFaults.Clear();
+            //    _faultDisplayQueue.Clear();
+            //}
+
+            softwareprotection = false; // 重置软件保护标志
 
             XtraMessageBox.Show("清除故障成功");
             LogService.Log("清除故障成功");
+        }
+
+        /// <summary>
+        /// 清除软件保护故障（由CheckCriticalSignals方法检测的故障）
+        /// </summary>
+        private void ClearSoftwareProtectionFaults()
+        {
+            try
+            {
+                lock (_faultQueueLock)
+                {
+                    // 移除所有以"软件_"开头的故障
+                    var softwareFaults = _activeFaults.Where(kv => kv.Key.StartsWith("软件_")).ToList();
+                    foreach (var fault in softwareFaults)
+                    {
+                        _activeFaults.Remove(fault.Key);
+                        LogService.Log($"清除软件保护故障: {fault.Key}");
+                    }
+
+                    // 重建显示队列，确保只包含当前活跃故障
+                    RebuildFaultDisplayQueue();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"清除软件保护故障时出错: {ex.Message}");
+            }
         }
 
         /// <summary>
