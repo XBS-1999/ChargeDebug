@@ -441,9 +441,9 @@ namespace ChargeDebug.Service
                     {
                         deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
                     }
-                    else if (equipment.CanType == "USBCANFD_200U")
+                    else if (equipment.CanType == "CANFDNET_200U_TCP")
                     {
-                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_USBCANFD_200U, (uint)deviceIndex, 0);
+                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANFDNET_200U_TCP, (uint)deviceIndex, 0);
                     }
                     else
                     {

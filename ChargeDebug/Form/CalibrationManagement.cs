@@ -41,6 +41,8 @@ namespace ChargeDebug.Form
 
         private SimpleButton btnVoltageCalibration;
         private SimpleButton btnCurrentCalibration;
+        private SimpleButton btnVoltageMeasurement;
+        private SimpleButton btnCurrentMeasurement;
         private SimpleButton btnStopCalibration;
         private SimpleButton btnQueryData;
         private SimpleButton btnClearQuery;
@@ -656,6 +658,182 @@ namespace ChargeDebug.Form
                     // 恢复所有信号显示
                     ShowAllSignals();
                 }
+            }
+        }
+
+        /// <summary>
+        /// 电压计量按钮点击事件
+        /// </summary>
+        private async void BtnVoltageMeasurement_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 先过滤出电压信号
+                FilterSignalsByType("电压");
+
+                // 检查是否正在进行校准
+                if (_isCalibrating)
+                {
+                    XtraMessageBox.Show("当前正在进行校准，请先完成或停止当前校准操作!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 获取选中的设备
+                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
+                string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(voltageSourceName) || string.IsNullOrEmpty(voltmeterName))
+                {
+                    XtraMessageBox.Show("请先选择电压源和电压表设备!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 获取选中的信号
+                var selectedSignals = GetSelectedVoltageSignals();
+                if (selectedSignals.Count == 0)
+                {
+                    XtraMessageBox.Show("请先勾选至少一个电压信号进行计量!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 确认是否开始电压计量
+                if (XtraMessageBox.Show("确认开始电压计量？", "电压计量确认",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 设置计量状态
+                _isCalibrating = true;
+
+                // 禁用相关按钮
+                btnVoltageMeasurement.Enabled = false;
+                btnStopCalibration.Enabled = true;
+
+                try
+                {
+                    // 执行电压计量
+                    bool success = await ExecuteVoltageMeasurement(selectedSignals);
+
+                    if (success)
+                    {
+                        XtraMessageBox.Show("电压计量完成!");
+                    }
+                    else
+                    {
+                        XtraMessageBox.Show("电压计量失败，请查看日志!");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"电压计量失败: {ex.Message}");
+                }
+                finally
+                {
+                    // 恢复按钮状态
+                    btnVoltageMeasurement.Enabled = true;
+                    btnStopCalibration.Enabled = false;
+                    _isCalibrating = false;
+
+                    // 恢复所有信号显示
+                    ShowAllSignals();
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"电压计量失败: {ex.Message}");
+                ShowAllSignals();
+            }
+        }
+
+        /// <summary>
+        /// 电流计量按钮点击事件
+        /// </summary>
+        private async void BtnCurrentMeasurement_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 先过滤出电流信号
+                FilterSignalsByType("电流");
+
+                // 检查是否正在进行校准
+                if (_isCalibrating)
+                {
+                    XtraMessageBox.Show("当前正在进行校准，请先完成或停止当前校准操作!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 获取选中的设备
+                string? currentSourceName = InitializeCurrentSourceModule();
+                string? ammeterName = cbAmmeter.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(currentSourceName) || string.IsNullOrEmpty(ammeterName))
+                {
+                    XtraMessageBox.Show("请先选择电流源和电流表设备!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 获取选中的信号
+                var selectedSignals = GetSelectedCurrentSignals();
+                if (selectedSignals.Count == 0)
+                {
+                    XtraMessageBox.Show("请先勾选至少一个电流信号进行计量!");
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 确认是否开始电流计量
+                if (XtraMessageBox.Show("确认开始电流计量？", "电流计量确认",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    ShowAllSignals();
+                    return;
+                }
+
+                // 设置计量状态
+                _isCalibrating = true;
+
+                // 禁用相关按钮
+                btnCurrentMeasurement.Enabled = false;
+                btnStopCalibration.Enabled = true;
+
+                try
+                {
+                    // 执行电流计量
+                    bool success = await ExecuteCurrentMeasurement(selectedSignals, currentSourceName);
+
+                    if (success)
+                    {
+                        XtraMessageBox.Show("电流计量完成!");
+                    }
+                    else
+                    {
+                        XtraMessageBox.Show("电流计量失败，请查看日志!");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"电流计量失败: {ex.Message}");
+                }
+                finally
+                {
+                    // 恢复按钮状态
+                    btnCurrentMeasurement.Enabled = true;
+                    btnStopCalibration.Enabled = false;
+                    _isCalibrating = false;
+
+                    // 恢复所有信号显示
+                    ShowAllSignals();
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"电流计量失败: {ex.Message}");
+                ShowAllSignals();
             }
         }
 
@@ -2833,6 +3011,1124 @@ namespace ChargeDebug.Form
 
         #endregion
 
+        #region 计量流程封装方法
+
+        /// <summary>
+        /// 获取选中的电压信号
+        /// </summary>
+        private List<(string DeviceName, string SignalName, string SignalType)> GetSelectedVoltageSignals()
+        {
+            var selectedSignals = new List<(string, string, string)>();
+
+            foreach (TreeListNode node in treeList.Nodes)
+            {
+                if (node.Checked && node.Visible)
+                {
+                    string deviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                    string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                    string signalType = node.GetValue("SignalType")?.ToString() ?? "";
+
+                    if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName) &&
+                        signalType.Contains("电压"))
+                    {
+                        selectedSignals.Add((deviceName, signalName, signalType));
+                    }
+                }
+            }
+
+            return selectedSignals;
+        }
+
+        /// <summary>
+        /// 获取选中的电流信号
+        /// </summary>
+        private List<(string DeviceName, string SignalName, string SignalType)> GetSelectedCurrentSignals()
+        {
+            var selectedSignals = new List<(string, string, string)>();
+
+            foreach (TreeListNode node in treeList.Nodes)
+            {
+                if (node.Checked && node.Visible)
+                {
+                    string deviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                    string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                    string signalType = node.GetValue("SignalType")?.ToString() ?? "";
+
+                    if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(signalName) &&
+                        signalType.Contains("电流"))
+                    {
+                        selectedSignals.Add((deviceName, signalName, signalType));
+                    }
+                }
+            }
+
+            return selectedSignals;
+        }
+
+        /// <summary>
+        /// 执行电压计量流程
+        /// </summary>
+        private async Task<bool> ExecuteVoltageMeasurement(List<(string DeviceName, string SignalName, string SignalType)> selectedSignals)
+        {
+            EquipmentModel voltageSource = null;
+            EquipmentModel voltmeter = null;
+
+            try
+            {
+                // 1. 从设备列表中查找设备信息
+                string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
+                string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
+
+                voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName);
+                voltmeter = equipmentList.FirstOrDefault(e => e.DeviceName == voltmeterName);
+                if (voltageSource == null || voltmeter == null)
+                {
+                    XtraMessageBox.Show("未找到选定的设备配置信息!");
+                    return false;
+                }
+
+                // 2. 加载校准设备指令协议
+                var protocols = await LoadProtocolsAsync(voltageSource, voltmeter);
+                voltageSourceProtocols = protocols.Where(p => p.DeviceName == voltageSource.DeviceName).ToList();
+                voltmeterProtocols = protocols.Where(p => p.DeviceName == voltmeter.DeviceName).ToList();
+
+                // 3. 加载树形图信号名称协议
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
+                if (treeSignalProtocols.Count == 0)
+                {
+                    XtraMessageBox.Show("没有找到选中的电压信号协议!");
+                    return false;
+                }
+
+                // 4. 启动设备
+                bool voltageSourceStarted = await StartEquipment(voltageSource, "");
+                bool voltmeterStarted = await StartEquipment(voltmeter, "");
+                if (!voltageSourceStarted || !voltmeterStarted)
+                {
+                    XtraMessageBox.Show("设备启动失败，请检查设备连接!");
+                    return false;
+                }
+
+                LogService.Log("所有计量设备启动成功，开始电压计量流程!");
+
+                // 5. 设置设备参数
+                LogService.Log("设置电压源为程控模式...");
+                bool modeSet = await SendEquipmentCommand(CommandType.SetMode, voltageSource, voltageSourceProtocols, 0x01);
+                if (!modeSet)
+                {
+                    XtraMessageBox.Show("设置设备模式失败!");
+                    return false;
+                }
+
+                // 6. 设置初始电压值为0
+                LogService.Log("设置初始电压值...");
+                bool voltageSet = await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceProtocols, 0.0);
+                if (!voltageSet)
+                {
+                    XtraMessageBox.Show("设置初始电压失败!");
+                    return false;
+                }
+
+                // 7. 启用输出
+                LogService.Log("启用电压源输出...");
+                bool outputEnabled = await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceProtocols, 0x01);
+                if (!outputEnabled)
+                {
+                    XtraMessageBox.Show("启用输出失败!");
+                    return false;
+                }
+
+                // 8. 获取校准点信息（只获取选中信号的校准点）
+                var calibrationPoints = await GetCalibrationPointsForMeasurement("电压", selectedSignals);
+
+                // 9. 执行计量操作
+                bool measurementSuccess = await ProcessVoltageMeasurement(
+                    calibrationPoints,
+                    voltageSource,
+                    voltmeter,
+                    treeSignalProtocols,
+                    voltageSourceProtocols,
+                    voltmeterProtocols);
+
+                if (!measurementSuccess)
+                {
+                    XtraMessageBox.Show("电压计量失败!");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"电压计量失败: {ex.Message}");
+                XtraMessageBox.Show($"电压计量失败: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                // 关闭设备输出
+                if (voltageSource != null)
+                {
+                    LogService.Log("关闭电压源输出...");
+                    bool voltageSet = await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceProtocols, 0.0);
+                    bool outputDisabled = await SendEquipmentCommand(CommandType.EnableOutput, voltageSource, voltageSourceProtocols, 0x00);
+
+                    await SafeShutdownEquipment(voltageSource, voltmeter);
+                }
+
+                UpdateProgress(ProgressStage.Completed, "电压计量完成!");
+            }
+        }
+
+        /// <summary>
+        /// 执行电流计量流程
+        /// </summary>
+        private async Task<bool> ExecuteCurrentMeasurement(
+            List<(string DeviceName, string SignalName, string SignalType)> selectedSignals,
+            string currentSourceName)
+        {
+            EquipmentModel currentSource = null;
+            EquipmentModel ammeter = null;
+
+            try
+            {
+                // 1. 查找启动管理器
+                startupManager = FindStartupManager(currentSourceName);
+                if (startupManager == null)
+                {
+                    LogService.Log($"找不到设备 {currentSourceName} 的启动管理器");
+                    return false;
+                }
+
+                // 2. 从设备列表中查找设备信息
+                string? ammeterName = cbAmmeter.SelectedItem?.ToString();
+                currentSource = equipmentList.FirstOrDefault(e => e.DeviceName == currentSourceName.Split("-")[0]);
+                ammeter = equipmentList.FirstOrDefault(e => e.DeviceName == ammeterName);
+                if (currentSource == null || ammeter == null)
+                {
+                    XtraMessageBox.Show("未找到选定的设备配置信息!");
+                    return false;
+                }
+
+                // 3. 加载树形图信号名称协议
+                treeSignalProtocols = await LoadTreeSignalsProtocolAsync();
+                if (treeSignalProtocols.Count == 0)
+                {
+                    XtraMessageBox.Show("没有找到选中的电流信号协议!");
+                    return false;
+                }
+
+                // 4. 启动设备
+                bool ammeterStarted = await StartEquipment(ammeter, "");
+                if (!ammeterStarted)
+                {
+                    LogService.Log("电流表启动失败，请检查设备连接!");
+                    return false;
+                }
+
+                LogService.Log("所有计量设备启动成功，开始电流计量流程!");
+
+                // 5. 设置电流表参数
+                LogService.Log("设置电流表参数...");
+                bool setParam1 = await SetPparameters("设置远程控制帧", ammeter);
+                bool setParam2 = await SetPparameters("设置交直流帧", ammeter);
+                bool setParam3 = await SetPparameters("设置采样速度帧", ammeter);
+                bool setParam4 = await SetPparameters("设置显示位数帧", ammeter);
+                bool setParam5 = await SetPparameters("设置 NULL 开关帧", ammeter);
+
+                if (!setParam1 || !setParam2 || !setParam3 || !setParam4 || !setParam5)
+                {
+                    XtraMessageBox.Show("设置电流表参数失败!");
+                    return false;
+                }
+
+                // 6. 获取校准点信息（只获取选中信号的校准点）
+                var calibrationPoints = await GetCalibrationPointsForMeasurement("电流", selectedSignals);
+
+                // 7. 执行计量操作
+                bool measurementSuccess = await ProcessCurrentMeasurement(
+                    calibrationPoints,
+                    currentSource,
+                    ammeter,
+                    treeSignalProtocols,
+                    currentSourceName);
+
+                if (!measurementSuccess)
+                {
+                    XtraMessageBox.Show("电流计量失败!");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"电流计量失败: {ex.Message}");
+                XtraMessageBox.Show($"电流计量失败: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                // 关闭电流源输出
+                if (startupManager != null)
+                {
+                    LogService.Log("关闭电流源输出...");
+                    await startupManager.SetParameters(0x00, 0.0, 0.0);
+                }
+
+                UpdateProgress(ProgressStage.Completed, "电流计量完成!");
+            }
+        }
+
+        /// <summary>
+        /// 获取选中的信号的校准点信息
+        /// </summary>
+        private async Task<Dictionary<string, List<CalibrationPoint>>> GetCalibrationPointsForMeasurement(
+            string type,
+            List<(string DeviceName, string SignalName, string SignalType)> selectedSignals)
+        {
+            var calibrationPoints = new Dictionary<string, List<CalibrationPoint>>();
+
+            try
+            {
+                // 获取所有树节点
+                var messageNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+
+                foreach (var node in messageNodes)
+                {
+                    // 只处理被勾选的节点
+                    if (!node.Checked || !node.Visible)
+                        continue;
+
+                    // 获取设备名称和信号名称
+                    string deviceName = node.GetValue("DeviceName")?.ToString() ?? "";
+                    string signalName = node.GetValue("SignalName")?.ToString() ?? "";
+                    string signalType = node.GetValue("SignalType")?.ToString() ?? "";
+
+                    // 检查是否在选中的信号列表中
+                    if (!selectedSignals.Any(s => s.DeviceName == deviceName && s.SignalName == signalName))
+                        continue;
+
+                    // 只处理指定类型的信号
+                    if (!signalType.Contains(type, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // 获取校准点个数
+                    string calibrationNumberStr = node.GetValue("CalibrationNumber")?.ToString() ?? "";
+                    if (!int.TryParse(calibrationNumberStr, out int calibrationNumber) || calibrationNumber <= 0)
+                        continue;
+
+                    // 获取校准范围值
+                    string calibrationRangeStr = node.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(calibrationRangeStr))
+                        continue;
+
+                    // 解析校准范围
+                    var rangeParts = calibrationRangeStr.Split('-');
+                    if (rangeParts.Length != 2 ||
+                        !double.TryParse(rangeParts[0], out double minValue) ||
+                        !double.TryParse(rangeParts[1], out double maxValue) ||
+                        minValue >= maxValue)
+                    {
+                        continue;
+                    }
+
+                    // 获取稳定读取时间
+                    string readTimeStr = node.GetValue("ReadTime")?.ToString() ?? "";
+                    if (!int.TryParse(readTimeStr, out int readTimeMs))
+                        readTimeMs = 1000;
+
+                    // 查找对应的信号信息
+                    var signalInfo = treeSignalProtocols.FirstOrDefault(s =>
+                        s.SignalName.Equals($"{deviceName}-{signalName}", StringComparison.OrdinalIgnoreCase));
+
+                    if (signalInfo == null)
+                        continue;
+
+                    // 获取校准信号名称
+                    string calibrationSignal = node.GetValue("CalibrationSignal")?.ToString() ?? "";
+
+                    // 生成校准点
+                    var points = GenerateCalibrationPoints(signalType, minValue, maxValue, calibrationNumber,
+                        readTimeMs, signalInfo, deviceName, signalName, calibrationSignal);
+
+                    // 添加到字典
+                    string key = $"{deviceName}-{signalName}";
+                    calibrationPoints[key] = points;
+                }
+
+                return calibrationPoints;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"获取计量校准点失败: {ex.Message}");
+                return new Dictionary<string, List<CalibrationPoint>>();
+            }
+        }
+
+        /// <summary>
+        /// 处理电压计量
+        /// </summary>
+        private async Task<bool> ProcessVoltageMeasurement(
+            Dictionary<string, List<CalibrationPoint>> calibrationPoints,
+            EquipmentModel voltageSource,
+            EquipmentModel voltmeter,
+            List<SignalInfo> treeSignals,
+            List<ModbusSignal> voltageSourceSignals,
+            List<ModbusSignal> voltmeterSignals)
+        {
+            try
+            {
+                LogService.Log("开始电压计量...");
+
+                // 创建计量结果集合
+                var measurementResults = new List<MeasurementResult>();
+
+                int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
+                int globalPointIndex = 0;
+
+                foreach (var signalKey in calibrationPoints.Keys)
+                {
+                    var points = calibrationPoints[signalKey];
+                    var firstPoint = points.FirstOrDefault();
+
+                    if (firstPoint == null)
+                        continue;
+
+                    LogService.Log($"开始计量信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个计量点");
+
+                    // 获取额定电压和精度范围
+                    var (ratingVoltage, precisionRange) = GetRatingVoltageAndPrecision(
+                        firstPoint.DeviceName, firstPoint.SignalName);
+
+                    int signalPointIndex = 0;
+
+                    foreach (var point in points)
+                    {
+                        globalPointIndex++;
+                        signalPointIndex++;
+
+                        LogService.Log($"设置计量点 {globalPointIndex}/{totalPoints}: {point.Voltage}V");
+
+                        // 设置电压源输出到当前点电压
+                        bool voltageSet = await SendEquipmentCommand(
+                            CommandType.SetVoltage,
+                            voltageSource,
+                            voltageSourceSignals,
+                            point.Voltage);
+
+                        if (!voltageSet)
+                        {
+                            LogService.Log($"设置电压 {point.Voltage}V 失败，跳过此计量点");
+                            continue;
+                        }
+
+                        // 等待电压稳定
+                        LogService.Log($"等待 {point.ReadTimeMs}ms 使电压稳定...");
+                        await Task.Delay(point.ReadTimeMs);
+
+                        // 读取电压表测量值和设备采样值
+                        var (actualVoltage, deviceVoltage) = await ReadVoltageValuesSync(
+                            voltmeter,
+                            voltmeterSignals,
+                            firstPoint.DeviceName,
+                            firstPoint.SignalInfo,
+                            treeSignals);
+
+                        LogService.Log($"电压表测量值: {actualVoltage}V, 设备电压采样值: {deviceVoltage}V");
+
+                        // 计算精度
+                        double accuracy = (deviceVoltage - actualVoltage) / ratingVoltage;
+                        double accuracyPercentage = accuracy * 100;
+
+                        // 判断是否在精度范围内
+                        bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                        LogService.Log($"计量精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                        // 创建测量结果
+                        var result = new MeasurementResult
+                        {
+                            DeviceName = firstPoint.DeviceName,
+                            SignalName = firstPoint.SignalName,
+                            SignalType = "电压",
+                            PointIndex = signalPointIndex,
+                            TargetValue = point.Voltage,
+                            DeviceValue = deviceVoltage,
+                            ActualValue = actualVoltage,
+                            AccuracyPercentage = accuracyPercentage,
+                            IsQualified = withinPrecision,
+                            RatingValue = ratingVoltage,
+                            PrecisionRange = precisionRange,
+                            MeasurementTime = DateTime.Now
+                        };
+
+                        measurementResults.Add(result);
+
+                        // 更新UI显示计量值和精度
+                        UpdateTreeNodeMeasurementValue(firstPoint.DeviceName, firstPoint.SignalName,
+                            actualVoltage, deviceVoltage, signalPointIndex,
+                            accuracyPercentage, withinPrecision, "电压");
+
+                        // 更新进度
+                        int progress = (int)((double)globalPointIndex / totalPoints * 100);
+                        UpdateProgress(ProgressStage.HandlePoint,
+                            $"处理计量点 {globalPointIndex}/{totalPoints}",
+                            progress);
+                    }
+
+                    // 设置回零电压
+                    LogService.Log("设置电压回零...");
+                    await SendEquipmentCommand(CommandType.SetVoltage, voltageSource, voltageSourceSignals, 0.0);
+                    await Task.Delay(500);
+                }
+
+                // 生成计量报告
+                if (measurementResults.Count > 0)
+                {
+                    bool reportGenerated = GenerateMeasurementReport(measurementResults, "电压计量");
+                    if (reportGenerated)
+                    {
+                        LogService.Log("电压计量报告生成成功");
+                    }
+                    else
+                    {
+                        LogService.Log("电压计量报告生成失败");
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"处理电压计量点时发生错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 处理电流计量
+        /// </summary>
+        private async Task<bool> ProcessCurrentMeasurement(
+            Dictionary<string, List<CalibrationPoint>> calibrationPoints,
+            EquipmentModel currentSource,
+            EquipmentModel ammeter,
+            List<SignalInfo> treeSignals,
+            string currentSourceName)
+        {
+            try
+            {
+                LogService.Log("开始电流计量...");
+
+                // 创建计量结果集合
+                var measurementResults = new List<MeasurementResult>();
+
+                int totalPoints = calibrationPoints.Values.Sum(points => points.Count);
+                int globalPointIndex = 0;
+
+                // 启动电流源
+                LogService.Log("启用电流源输出...");
+                bool outputEnabled = await StartEquipment(currentSource, currentSourceName);
+                if (!outputEnabled)
+                {
+                    LogService.Log("启用电流源输出失败!");
+                    return false;
+                }
+
+                foreach (var signalKey in calibrationPoints.Keys)
+                {
+                    var points = calibrationPoints[signalKey];
+                    var firstPoint = points.FirstOrDefault();
+
+                    if (firstPoint == null)
+                        continue;
+
+                    LogService.Log($"开始计量信号: {firstPoint.DeviceName} - {firstPoint.SignalName}, 共 {points.Count} 个计量点");
+
+                    // 获取额定电流和精度范围
+                    var (ratingCurrent, precisionRange) = GetRatingVoltageAndPrecision(
+                        firstPoint.DeviceName, firstPoint.SignalName);
+
+                    // 分离负电流和正电流点
+                    var negativePoints = points.Where(p => p.Voltage < 0).OrderByDescending(p => p.Voltage).ToList();
+                    var positivePoints = points.Where(p => p.Voltage > 0).OrderBy(p => p.Voltage).ToList();
+
+                    int signalPointIndex = 0;
+                    double currentValue = 0;
+
+                    // 处理负电流部分
+                    LogService.Log("开始负电流计量...");
+                    foreach (var point in negativePoints)
+                    {
+                        globalPointIndex++;
+                        signalPointIndex++;
+
+                        // 逐步增加到目标负电流值
+                        while (currentValue > point.Voltage)
+                        {
+                            double stepValue = Math.Max(currentValue - 20, point.Voltage);
+                            LogService.Log($"设置电流 {stepValue}A");
+
+                            bool setCurrent = await startupManager.SetParameters(0x23, stepValue, 0.0);
+                            if (!setCurrent)
+                            {
+                                LogService.Log($"设置电流 {stepValue}A 失败，跳过此计量点");
+                                break;
+                            }
+
+                            currentValue = stepValue;
+                            await Task.Delay(1000);
+                        }
+
+                        // 等待电流稳定
+                        LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
+                        await Task.Delay(point.ReadTimeMs);
+
+                        // 读取电流表测量值
+                        var actualCurrent = await ReadCurrentValue(ammeter);
+                        LogService.Log($"电流表测量值: {actualCurrent}A, 设备电流采样值: {point.Voltage}A");
+
+                        // 计算精度
+                        double accuracy = (point.Voltage - actualCurrent) / ratingCurrent;
+                        double accuracyPercentage = accuracy * 100;
+
+                        // 判断是否在精度范围内
+                        bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                        LogService.Log($"计量精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                        // 创建测量结果
+                        var result = new MeasurementResult
+                        {
+                            DeviceName = firstPoint.DeviceName,
+                            SignalName = firstPoint.SignalName,
+                            SignalType = "电流",
+                            PointIndex = signalPointIndex,
+                            TargetValue = point.Voltage,
+                            DeviceValue = point.Voltage,
+                            ActualValue = actualCurrent,
+                            AccuracyPercentage = accuracyPercentage,
+                            IsQualified = withinPrecision,
+                            RatingValue = ratingCurrent,
+                            PrecisionRange = precisionRange,
+                            MeasurementTime = DateTime.Now
+                        };
+
+                        measurementResults.Add(result);
+
+                        // 更新UI显示计量值和精度
+                        UpdateTreeNodeMeasurementValue(firstPoint.DeviceName, firstPoint.SignalName,
+                            actualCurrent, point.Voltage, signalPointIndex,
+                            accuracyPercentage, withinPrecision, "电流");
+
+                        // 更新进度
+                        int progress = (int)((double)globalPointIndex / totalPoints * 100);
+                        UpdateProgress(ProgressStage.HandlePoint,
+                            $"处理计量点 {globalPointIndex}/{totalPoints}",
+                            progress);
+                    }
+
+                    // 负电流回零
+                    LogService.Log("负电流回零...");
+                    while (currentValue < 0)
+                    {
+                        double stepValue = Math.Min(currentValue + 20, 0);
+                        await startupManager.SetParameters(0x23, stepValue, 0.0);
+                        currentValue = stepValue;
+                        await Task.Delay(500);
+                    }
+
+                    // 处理正电流部分
+                    LogService.Log("开始正电流计量...");
+                    foreach (var point in positivePoints)
+                    {
+                        globalPointIndex++;
+                        signalPointIndex++;
+
+                        // 逐步增加到目标正电流值
+                        while (currentValue < point.Voltage)
+                        {
+                            double stepValue = Math.Min(currentValue + 20, point.Voltage);
+                            LogService.Log($"设置电流 {stepValue}A");
+
+                            bool setCurrent = await startupManager.SetParameters(0x03, stepValue, 0.0);
+                            if (!setCurrent)
+                            {
+                                LogService.Log($"设置电流 {stepValue}A 失败，跳过此计量点");
+                                break;
+                            }
+
+                            currentValue = stepValue;
+                            await Task.Delay(1000);
+                        }
+
+                        // 等待电流稳定
+                        LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
+                        await Task.Delay(point.ReadTimeMs);
+
+                        // 读取电流表测量值
+                        var actualCurrent = await ReadCurrentValue(ammeter);
+                        LogService.Log($"电流表测量值: {actualCurrent}A, 设备电流采样值: {point.Voltage}A");
+
+                        // 计算精度
+                        double accuracy = (point.Voltage - actualCurrent) / ratingCurrent;
+                        double accuracyPercentage = accuracy * 100;
+
+                        // 判断是否在精度范围内
+                        bool withinPrecision = Math.Abs(accuracyPercentage) <= precisionRange;
+
+                        LogService.Log($"计量精度: {accuracyPercentage:F4}%, 精度范围: ±{precisionRange}%, 是否合格: {(withinPrecision ? "是" : "否")}");
+
+                        // 创建测量结果
+                        var result = new MeasurementResult
+                        {
+                            DeviceName = firstPoint.DeviceName,
+                            SignalName = firstPoint.SignalName,
+                            SignalType = "电流",
+                            PointIndex = signalPointIndex,
+                            TargetValue = point.Voltage,
+                            DeviceValue = point.Voltage,
+                            ActualValue = actualCurrent,
+                            AccuracyPercentage = accuracyPercentage,
+                            IsQualified = withinPrecision,
+                            RatingValue = ratingCurrent,
+                            PrecisionRange = precisionRange,
+                            MeasurementTime = DateTime.Now
+                        };
+
+                        measurementResults.Add(result);
+
+                        // 更新UI显示计量值和精度
+                        UpdateTreeNodeMeasurementValue(firstPoint.DeviceName, firstPoint.SignalName,
+                            actualCurrent, point.Voltage, signalPointIndex,
+                            accuracyPercentage, withinPrecision, "电流");
+
+                        // 更新进度
+                        int progress = (int)((double)globalPointIndex / totalPoints * 100);
+                        UpdateProgress(ProgressStage.HandlePoint,
+                            $"处理计量点 {globalPointIndex}/{totalPoints}",
+                            progress);
+                    }
+
+                    // 正电流回零
+                    LogService.Log("正电流回零...");
+                    while (currentValue > 0)
+                    {
+                        double stepValue = Math.Max(currentValue - 20, 0);
+                        await startupManager.SetParameters(0x03, stepValue, 0.0);
+                        currentValue = stepValue;
+                        await Task.Delay(500);
+                    }
+                }
+
+                // 关闭电流源输出
+                LogService.Log("关闭电流源输出...");
+                await startupManager.SetParameters(0x00, 0.0, 0.0);
+
+                // 生成计量报告
+                if (measurementResults.Count > 0)
+                {
+                    bool reportGenerated = GenerateMeasurementReport(measurementResults, "电流计量");
+                    if (reportGenerated)
+                    {
+                        LogService.Log("电流计量报告生成成功");
+                    }
+                    else
+                    {
+                        LogService.Log("电流计量报告生成失败");
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"处理电流计量点时发生错误: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 更新树节点的计量值（添加精度显示）
+        /// </summary>
+        private void UpdateTreeNodeMeasurementValue(string deviceName, string signalName,
+            double actualValue, double deviceValue, int pointIndex,
+            double accuracy, bool isQualified, string type)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => UpdateTreeNodeMeasurementValue(
+                    deviceName, signalName, actualValue, deviceValue, pointIndex,
+                    accuracy, isQualified, type)));
+                return;
+            }
+
+            // 查找匹配的父节点
+            foreach (TreeListNode parentNode in treeList.Nodes)
+            {
+                string nodeDeviceName = parentNode.GetValue("DeviceName")?.ToString() ?? "";
+                string nodeSignalName = parentNode.GetValue("SignalName")?.ToString() ?? "";
+
+                if (nodeDeviceName == deviceName && nodeSignalName == signalName)
+                {
+                    // 创建子节点名称
+                    string childNodeName = $"计量点 {pointIndex}";
+
+                    // 格式化值为"采样值/测量值"格式
+                    string valueDisplay = $"{deviceValue}/{actualValue}";
+
+                    // 检查是否已经存在该校准点的子节点
+                    TreeListNode measurementNode = null;
+                    if (parentNode.HasChildren)
+                    {
+                        foreach (TreeListNode childNode in parentNode.Nodes)
+                        {
+                            if (childNode.GetValue("DeviceName")?.ToString() == childNodeName)
+                            {
+                                measurementNode = childNode;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 如果不存在，创建新的子节点
+                    if (measurementNode == null)
+                    {
+                        measurementNode = parentNode.Nodes.Add(new object[]
+                        {
+                            childNodeName, // 设备名称列显示计量点名称
+                            "", "", "", "", "", "", "","","",
+                            valueDisplay,  // 校准前列显示计量值
+                            "", // 校准后列为空
+                            $"{Math.Abs(accuracy):F4}%", // 精度
+                            isQualified ? "合格" : "不合格" // 结果
+                        });
+
+                        // 展开父节点
+                        parentNode.Expanded = true;
+                    }
+                    else
+                    {
+                        // 更新校准前列的值
+                        measurementNode.SetValue("BeforeCalibration", valueDisplay);
+                        measurementNode.SetValue("CalibrationAccuracy", $"{Math.Abs(accuracy):F4}%");
+                        measurementNode.SetValue("CalibrationResult", isQualified ? "合格" : "不合格");
+                    }
+
+                    // 刷新节点显示
+                    treeList.RefreshNode(measurementNode);
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 生成计量报告
+        /// </summary>
+        private bool GenerateMeasurementReport(List<MeasurementResult> results, string reportType)
+        {
+            try
+            {
+                // 创建报告目录
+                string reportDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Measurement Report");
+                if (!Directory.Exists(reportDirectory))
+                {
+                    Directory.CreateDirectory(reportDirectory);
+                }
+
+                // 生成报告文件名
+                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string fileName = $"{reportType}_{timestamp}.xlsx";
+                string filePath = Path.Combine(reportDirectory, fileName);
+
+                using (var workbook = new XLWorkbook())
+                {
+                    // 创建汇总工作表
+                    var summaryWorksheet = workbook.Worksheets.Add("计量汇总");
+
+                    // 设置样式
+                    summaryWorksheet.Style.Font.FontName = "宋体";
+                    summaryWorksheet.Style.Font.FontSize = 11;
+
+                    // 标题
+                    summaryWorksheet.Cell(1, 1).Value = $"{reportType}报告";
+                    summaryWorksheet.Range(1, 1, 1, 8).Merge();
+                    summaryWorksheet.Row(1).Height = 30;
+                    summaryWorksheet.Row(1).Style.Font.FontSize = 16;
+                    summaryWorksheet.Row(1).Style.Font.Bold = true;
+                    summaryWorksheet.Row(1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                    // 报告信息
+                    summaryWorksheet.Cell(2, 1).Value = "生成时间：";
+                    summaryWorksheet.Cell(2, 2).Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    summaryWorksheet.Cell(3, 1).Value = "报告类型：";
+                    summaryWorksheet.Cell(3, 2).Value = reportType;
+
+                    // 统计信息
+                    int qualifiedCount = results.Count(r => r.IsQualified);
+                    int totalCount = results.Count;
+                    double qualifiedRate = totalCount > 0 ? (double)qualifiedCount / totalCount * 100 : 0;
+
+                    summaryWorksheet.Cell(4, 1).Value = "总计量点数：";
+                    summaryWorksheet.Cell(4, 2).Value = totalCount;
+                    summaryWorksheet.Cell(5, 1).Value = "合格点数：";
+                    summaryWorksheet.Cell(5, 2).Value = qualifiedCount;
+                    summaryWorksheet.Cell(6, 1).Value = "合格率：";
+                    summaryWorksheet.Cell(6, 2).Value = $"{qualifiedRate:F2}%";
+
+                    // 表头
+                    int row = 8;
+                    summaryWorksheet.Cell(row, 1).Value = "序号";
+                    summaryWorksheet.Cell(row, 2).Value = "设备名称";
+                    summaryWorksheet.Cell(row, 3).Value = "信号名称";
+                    summaryWorksheet.Cell(row, 4).Value = "信号类型";
+                    summaryWorksheet.Cell(row, 5).Value = "额定值";
+                    summaryWorksheet.Cell(row, 6).Value = "精度范围";
+                    summaryWorksheet.Cell(row, 7).Value = "合格点数/总点数";
+                    summaryWorksheet.Cell(row, 8).Value = "合格率";
+
+                    // 设置表头样式
+                    var headerRange = summaryWorksheet.Range(row, 1, row, 8);
+                    headerRange.Style.Font.Bold = true;
+                    headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
+                    headerRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+                    // 按设备信号分组统计
+                    var groupedResults = results.GroupBy(r => new { r.DeviceName, r.SignalName, r.SignalType });
+                    int index = 1;
+
+                    foreach (var group in groupedResults)
+                    {
+                        row++;
+                        var signalResults = group.ToList();
+                        int signalQualifiedCount = signalResults.Count(r => r.IsQualified);
+                        int signalTotalCount = signalResults.Count;
+                        double signalQualifiedRate = signalTotalCount > 0 ? (double)signalQualifiedCount / signalTotalCount * 100 : 0;
+
+                        summaryWorksheet.Cell(row, 1).Value = index++;
+                        summaryWorksheet.Cell(row, 2).Value = group.Key.DeviceName;
+                        summaryWorksheet.Cell(row, 3).Value = group.Key.SignalName;
+                        summaryWorksheet.Cell(row, 4).Value = group.Key.SignalType;
+                        summaryWorksheet.Cell(row, 5).Value = signalResults.First().RatingValue;
+                        summaryWorksheet.Cell(row, 6).Value = $"±{signalResults.First().PrecisionRange}%";
+                        summaryWorksheet.Cell(row, 7).Value = $"{signalQualifiedCount}/{signalTotalCount}";
+                        summaryWorksheet.Cell(row, 8).Value = $"{signalQualifiedRate:F2}%";
+
+                        // 根据合格率设置颜色
+                        if (signalQualifiedRate >= 95)
+                            summaryWorksheet.Cell(row, 8).Style.Fill.BackgroundColor = XLColor.LightGreen;
+                        else if (signalQualifiedRate >= 80)
+                            summaryWorksheet.Cell(row, 8).Style.Fill.BackgroundColor = XLColor.LightYellow;
+                        else
+                            summaryWorksheet.Cell(row, 8).Style.Fill.BackgroundColor = XLColor.LightCoral;
+                    }
+
+                    // 创建详细信息工作表
+                    var detailWorksheet = workbook.Worksheets.Add("计量详情");
+
+                    // 详细信息表头
+                    detailWorksheet.Cell(1, 1).Value = "设备名称";
+                    detailWorksheet.Cell(1, 2).Value = "信号名称";
+                    detailWorksheet.Cell(1, 3).Value = "信号类型";
+                    detailWorksheet.Cell(1, 4).Value = "计量点";
+                    detailWorksheet.Cell(1, 5).Value = "目标值";
+                    detailWorksheet.Cell(1, 6).Value = "设备采样值";
+                    detailWorksheet.Cell(1, 7).Value = "实际测量值";
+                    detailWorksheet.Cell(1, 8).Value = "精度(%)";
+                    detailWorksheet.Cell(1, 9).Value = "是否合格";
+                    detailWorksheet.Cell(1, 10).Value = "额定值";
+                    detailWorksheet.Cell(1, 11).Value = "精度范围";
+                    detailWorksheet.Cell(1, 12).Value = "计量时间";
+
+                    // 设置表头样式
+                    var detailHeaderRange = detailWorksheet.Range(1, 1, 1, 12);
+                    detailHeaderRange.Style.Font.Bold = true;
+                    detailHeaderRange.Style.Fill.BackgroundColor = XLColor.LightGray;
+                    detailHeaderRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+                    // 填充详细信息
+                    row = 2;
+                    foreach (var result in results)
+                    {
+                        detailWorksheet.Cell(row, 1).Value = result.DeviceName;
+                        detailWorksheet.Cell(row, 2).Value = result.SignalName;
+                        detailWorksheet.Cell(row, 3).Value = result.SignalType;
+                        detailWorksheet.Cell(row, 4).Value = result.PointIndex;
+                        detailWorksheet.Cell(row, 5).Value = result.TargetValue;
+                        detailWorksheet.Cell(row, 6).Value = result.DeviceValue;
+                        detailWorksheet.Cell(row, 7).Value = result.ActualValue;
+                        detailWorksheet.Cell(row, 8).Value = Math.Abs(result.AccuracyPercentage);
+
+                        // 根据精度是否合格设置颜色
+                        if (result.IsQualified)
+                        {
+                            detailWorksheet.Cell(row, 8).Style.Fill.BackgroundColor = XLColor.LightGreen;
+                            detailWorksheet.Cell(row, 9).Value = "合格";
+                            detailWorksheet.Cell(row, 9).Style.Fill.BackgroundColor = XLColor.LightGreen;
+                        }
+                        else
+                        {
+                            detailWorksheet.Cell(row, 8).Style.Fill.BackgroundColor = XLColor.LightCoral;
+                            detailWorksheet.Cell(row, 9).Value = "不合格";
+                            detailWorksheet.Cell(row, 9).Style.Fill.BackgroundColor = XLColor.LightCoral;
+                        }
+
+                        detailWorksheet.Cell(row, 10).Value = result.RatingValue;
+                        detailWorksheet.Cell(row, 11).Value = $"±{result.PrecisionRange}%";
+                        detailWorksheet.Cell(row, 12).Value = result.MeasurementTime.ToString("yyyy-MM-dd HH:mm:ss");
+
+                        row++;
+                    }
+
+                    // 设置列宽
+                    detailWorksheet.Columns().AdjustToContents();
+
+                    // 创建趋势分析工作表
+                    var trendWorksheet = workbook.Worksheets.Add("趋势分析");
+
+                    // 分析精度分布
+                    var accuracyGroups = results
+                        .GroupBy(r => Math.Floor(Math.Abs(r.AccuracyPercentage) / 5) * 5)
+                        .OrderBy(g => g.Key)
+                        .ToList();
+
+                    trendWorksheet.Cell(1, 1).Value = "精度分布分析";
+                    trendWorksheet.Range(1, 1, 1, 3).Merge();
+                    trendWorksheet.Row(1).Style.Font.Bold = true;
+                    trendWorksheet.Row(1).Style.Font.FontSize = 14;
+
+                    trendWorksheet.Cell(2, 1).Value = "精度范围(%)";
+                    trendWorksheet.Cell(2, 2).Value = "点数";
+                    trendWorksheet.Cell(2, 3).Value = "占比(%)";
+
+                    row = 3;
+                    foreach (var group in accuracyGroups)
+                    {
+                        int count = group.Count();
+                        double percentage = (double)count / results.Count * 100;
+
+                        trendWorksheet.Cell(row, 1).Value = $"{group.Key}~{group.Key + 5}";
+                        trendWorksheet.Cell(row, 2).Value = count;
+                        trendWorksheet.Cell(row, 3).Value = percentage;
+                        row++;
+                    }
+
+                    // 保存报告
+                    workbook.SaveAs(filePath);
+
+                    // 显示报告保存位置
+                    string message = $"{reportType}报告已生成！\n\n" +
+                                   $"报告保存位置：{filePath}\n\n" +
+                                   $"总计量点数：{totalCount}\n" +
+                                   $"合格点数：{qualifiedCount}\n" +
+                                   $"合格率：{qualifiedRate:F2}%";
+
+                    if (this.InvokeRequired)
+                    {
+                        this.Invoke(new Action(() =>
+                            XtraMessageBox.Show(message, "计量报告生成完成",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                    }
+                    else
+                    {
+                        XtraMessageBox.Show(message, "计量报告生成完成",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"生成计量报告失败: {ex.Message}");
+
+                string errorMessage = $"生成计量报告失败：{ex.Message}";
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() =>
+                        XtraMessageBox.Show(errorMessage, "错误",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                }
+                else
+                {
+                    XtraMessageBox.Show(errorMessage, "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region 计量结果数据模型
+        /// <summary>
+        /// 计量结果数据模型
+        /// </summary>
+        public class MeasurementResult
+        {
+            /// <summary>
+            /// 设备名称
+            /// </summary>
+            public string DeviceName { get; set; } = string.Empty;
+
+            /// <summary>
+            /// 信号名称
+            /// </summary>
+            public string SignalName { get; set; } = string.Empty;
+
+            /// <summary>
+            /// 信号类型（电压/电流）
+            /// </summary>
+            public string SignalType { get; set; } = string.Empty;
+
+            /// <summary>
+            /// 计量点序号
+            /// </summary>
+            public int PointIndex { get; set; }
+
+            /// <summary>
+            /// 目标值
+            /// </summary>
+            public double TargetValue { get; set; }
+
+            /// <summary>
+            /// 设备采样值
+            /// </summary>
+            public double DeviceValue { get; set; }
+
+            /// <summary>
+            /// 实际测量值
+            /// </summary>
+            public double ActualValue { get; set; }
+
+            /// <summary>
+            /// 精度百分比
+            /// </summary>
+            public double AccuracyPercentage { get; set; }
+
+            /// <summary>
+            /// 是否合格
+            /// </summary>
+            public bool IsQualified { get; set; }
+
+            /// <summary>
+            /// 额定值
+            /// </summary>
+            public double RatingValue { get; set; }
+
+            /// <summary>
+            /// 精度范围
+            /// </summary>
+            public double PrecisionRange { get; set; }
+
+            /// <summary>
+            /// 计量时间
+            /// </summary>
+            public DateTime MeasurementTime { get; set; }
+        }
+        #endregion
+
         #region 同步读取方法
 
         /// <summary>
@@ -4376,8 +5672,8 @@ namespace ChargeDebug.Form
 
             btnVoltageCalibration = new SimpleButton
             {
-                Text = "开始电压校准",
-                Size = new Size(110, 30),
+                Text = "电压校准",
+                Size = new Size(80, 30),
                 Location = new Point(btnDeleteSignal.Right + 10, 10)
             };
             btnVoltageCalibration.Click += BtnVoltageCalibration_Click;
@@ -4385,18 +5681,36 @@ namespace ChargeDebug.Form
 
             btnCurrentCalibration = new SimpleButton
             {
-                Text = "开始电流校准",
-                Size = new Size(110, 30),
+                Text = "电流校准",
+                Size = new Size(80, 30),
                 Location = new Point(btnVoltageCalibration.Right + 10, 10)
             };
             btnCurrentCalibration.Click += BtnCurrentCalibration_Click;
             buttonPanel.Controls.Add(btnCurrentCalibration);
 
+            btnVoltageMeasurement = new SimpleButton
+            {
+                Text = "电压计量",
+                Size = new Size(80, 30),
+                Location = new Point(btnCurrentCalibration.Right + 10, 10)
+            };
+            btnVoltageMeasurement.Click += BtnVoltageMeasurement_Click;
+            buttonPanel.Controls.Add(btnVoltageMeasurement);
+
+            btnCurrentMeasurement = new SimpleButton
+            {
+                Text = "电流计量",
+                Size = new Size(80, 30),
+                Location = new Point(btnVoltageMeasurement.Right + 10, 10)
+            };
+            btnCurrentMeasurement.Click += BtnCurrentMeasurement_Click;
+            buttonPanel.Controls.Add(btnCurrentMeasurement);
+
             btnStopCalibration = new SimpleButton
             {
                 Text = "停止校准",
                 Size = new Size(80, 30),
-                Location = new Point(btnCurrentCalibration.Right + 10, 10)
+                Location = new Point(btnCurrentMeasurement.Right + 10, 10)
             };
             btnStopCalibration.Click += BtnStopCalibration_Click;
             buttonPanel.Controls.Add(btnStopCalibration);

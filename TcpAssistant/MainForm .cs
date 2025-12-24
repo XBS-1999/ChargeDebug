@@ -122,7 +122,7 @@ namespace TcpAssistant
             btnUpgrade = new SimpleButton();
 
             // 设置默认值
-            ConfigureComboBox(cbProtocolType, "TCP Server", "TCP Client", "UDP", "CANETTCP", "USBCANFD_200U");
+            ConfigureComboBox(cbProtocolType, "TCP Server", "TCP Client", "UDP", "CANETTCP", "CANFDNET_200U_TCP", "USBCANFD_200U");
             txtIPAddress.Text = "192.168.1.8";
             txtPort.Text = "4001";
 
@@ -207,7 +207,7 @@ namespace TcpAssistant
 
             // 控制IP地址和端口输入框的可见性
             bool showNetworkControls = protocol == "TCP Server" || protocol == "TCP Client" ||
-                                     protocol == "UDP" || protocol == "CANETTCP";
+                                     protocol == "UDP" || protocol == "CANETTCP" || protocol == "CANFDNET_200U_TCP";
             bool showBaudRate = protocol == "USBCANFD_200U";
 
             // 获取布局项
@@ -273,7 +273,7 @@ namespace TcpAssistant
                 string protocol = cbProtocolType.SelectedItem?.ToString() ?? "";
 
                 // 根据协议类型选择不同的升级流程
-                if (protocol == "CANETTCP")
+                if (protocol == "CANETTCP" || protocol == "CANFDNET_200U_TCP")
                 {
                     await StartCANUpgrade(firmwareModel, systemModel, filePath);
                 }
@@ -369,13 +369,13 @@ namespace TcpAssistant
             }
 
             // 步骤4-6: 分块传输固件数据
-            await TransferFirmwareDataInBlocksCAN(filePath);
+            await TransferFirmwareDataInBlocksCAN(filePath, firmwareModel);
 
             DisconnectCAN();
             AppendInfo("✅ 固件升级完成！");
         }
 
-        private async Task TransferFirmwareDataInBlocksCAN(string filePath)
+        private async Task TransferFirmwareDataInBlocksCAN(string filePath, string firmwareModel)
         {
             try
             {
@@ -393,6 +393,11 @@ namespace TcpAssistant
                     int retryCount = 0;
                     const int maxRetries = 5;
                     int times = 20;
+
+                    if(firmwareModel.Contains("ARM"))
+                    {
+                        times = 5;
+                    }
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -911,7 +916,7 @@ namespace TcpAssistant
         {
             string protocol = cbProtocolType.SelectedItem?.ToString();
 
-            if (protocol == "CANETTCP")
+            if (protocol == "CANETTCP" || protocol == "CANFDNET_200U_TCP")
             {
                 return firmwareModel switch
                 {
@@ -1087,7 +1092,7 @@ namespace TcpAssistant
         {
             string protocol = cbProtocolType.SelectedItem?.ToString();
 
-            if (protocol == "CANETTCP" || protocol == "USBCANFD_200U")
+            if (protocol == "CANETTCP" || protocol == "CANFDNET_200U_TCP")
             {
                 // CAN连接处理
                 if (IsCANConnected())
@@ -1745,7 +1750,7 @@ namespace TcpAssistant
             {
                 AppendInfo($"当前波特率: {cbBaudRate.SelectedItem?.ToString()}"); // 修改：使用下拉框的值
             }
-            else if (protocol == "CANETTCP" || protocol == "TCP Server" ||
+            else if (protocol == "CANETTCP" || protocol == "CANFDNET_200U_TCP" || protocol == "TCP Server" ||
                      protocol == "TCP Client" || protocol == "UDP")
             {
                 AppendInfo($"设备IP地址: {txtIPAddress.Text}");

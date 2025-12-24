@@ -130,6 +130,7 @@ namespace ChargeDebug.Form
 
             labelDeviceName = new LabelControl { Text = "设备名称:", Location = new Point(340, 22) };
             devicename = new TextEdit { Location = new Point(450, 20), Width = 150 };
+            devicename.TextChanged += Devicename_TextChanged;
 
             labelDeviceType = new LabelControl { Text = "设备类型:", Location = new Point(70, 62) };
             deviceType = new ComboBoxEdit { Location = new Point(150, 60), Width = 150 };
@@ -307,6 +308,24 @@ namespace ChargeDebug.Form
             if (comPort.Properties.Items.Count > 0)
             {
                 comPort.SelectedIndex = 0;
+            }
+        }
+
+        // 设备名称文本变化事件
+        private void Devicename_TextChanged(object? sender, EventArgs e)
+        {
+            // 当设备类型是充放电设备时，实时检查设备名称是否包含减号
+            if (deviceType.Text == "充放电设备")
+            {
+                if (devicename.Text.Contains("-"))
+                {
+                    // 移除减号并显示警告
+                    devicename.Text = devicename.Text.Replace("-", "");
+                    XtraMessageBox.Show("充放电设备的设备名称不允许输入减号(-)！",
+                                      "输入限制",
+                                      MessageBoxButtons.OK,
+                                      MessageBoxIcon.Warning);
+                }
             }
         }
 
@@ -639,6 +658,15 @@ namespace ChargeDebug.Form
             {
                 ShowError("设备名称不能为空！", devicename);
                 return false;
+            }
+
+            if (deviceType.Text == "充放电设备")
+            {
+                if (devicename.Text.Contains("-"))
+                {
+                    ShowError("充放电设备的设备名称不允许输入减号(-)！", devicename);
+                    return false;
+                }
             }
 
             // 验证CAN盒类型
