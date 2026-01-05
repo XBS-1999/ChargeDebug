@@ -16,6 +16,7 @@ using Log;
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
+using System.Threading;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -2533,17 +2534,17 @@ namespace ChargeDebug.Form
                             // 将新的校准系数写入设备
                             if (scaleFactorSignal != null && zeroFactorSignal != null)
                             {
-                                if (0.9 > newScaleFactor || newScaleFactor > 1.1)
-                                {
-                                    LogService.Log($"比例系数{newScaleFactor}超出设置(0.9—1.1)范围");
-                                    return false;
-                                }
+                                //if (0.9 > newScaleFactor || newScaleFactor > 1.1)
+                                //{
+                                //    LogService.Log($"比例系数{newScaleFactor}超出设置(0.9—1.1)范围");
+                                //    return false;
+                                //}
 
-                                if (-5.0 > newZeroFactor || newZeroFactor > 5.0)
-                                {
-                                    LogService.Log($"零点系数{newZeroFactor}超出设置(-10.0—10.0)范围");
-                                    return false;
-                                }
+                                //if (-5.0 > newZeroFactor || newZeroFactor > 5.0)
+                                //{
+                                //    LogService.Log($"零点系数{newZeroFactor}超出设置(-10.0—10.0)范围");
+                                //    return false;
+                                //}
 
                                 bool writeSuccess = await WriteCalibrationFactors(
                                     firstPoint.DeviceName,
@@ -3075,6 +3076,8 @@ namespace ChargeDebug.Form
 
             try
             {
+                UpdateProgress(0, "开始电压计量:");
+
                 // 1. 从设备列表中查找设备信息
                 string? voltageSourceName = cbVoltageSource.SelectedItem?.ToString();
                 string? voltmeterName = cbVoltmeter.SelectedItem?.ToString();
@@ -3192,6 +3195,8 @@ namespace ChargeDebug.Form
 
             try
             {
+                UpdateProgress(0, "开始电流计量:");
+
                 // 1. 查找启动管理器
                 startupManager = FindStartupManager(currentSourceName);
                 if (startupManager == null)
@@ -7256,21 +7261,6 @@ namespace ChargeDebug.Form
                 LogService.Log($"删除校准记录时发生错误: {ex.Message}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// 获取默认导出路径
-        /// </summary>
-        private string GetDefaultExportPath(string deviceNumber)
-        {
-            string basePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                                         "CalibrationData");
-
-            if (!Directory.Exists(basePath))
-                Directory.CreateDirectory(basePath);
-
-            string fileName = $"校准数据_{deviceNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-            return Path.Combine(basePath, fileName);
         }
 
         #endregion

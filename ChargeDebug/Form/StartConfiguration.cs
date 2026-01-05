@@ -221,7 +221,7 @@ namespace ChargeDebug.Form
 
         private void RangeValidation(object? sender, System.ComponentModel.CancelEventArgs e)
         {
-            return;
+            //return;
 
             TextEdit? textEdit = sender as TextEdit;
             if (textEdit == null) return;
@@ -250,12 +250,13 @@ namespace ChargeDebug.Form
                      textEdit.Name == "ConstantPowerCharge_CurrentLimit" ||
                      textEdit.Name == "ConstantPowerDischarge_CurrentLimit")
             {
+
                 double value = double.Parse(textEdit.Text);
                 double max_value = double.Parse(overCurrentValue.Text);
                 double min_value = double.Parse(underCurrentValue.Text);
                 if (value < min_value || value > max_value)
                 {
-                    textEdit.ErrorText = $"电压值必须在 {min_value} 到 {max_value} V 之间";
+                    textEdit.ErrorText = $"电流值必须在 {min_value} 到 {max_value} V 之间";
                     e.Cancel = true;
                     return;
                 }
@@ -268,7 +269,7 @@ namespace ChargeDebug.Form
                 double min_value = double.Parse(underPowerValue.Text);
                 if (value < min_value || value > max_value)
                 {
-                    textEdit.ErrorText = $"电压值必须在 {min_value} 到 {max_value} V 之间";
+                    textEdit.ErrorText = $"功率值必须在 {min_value} 到 {max_value} V 之间";
                     e.Cancel = true;
                     return;
                 }

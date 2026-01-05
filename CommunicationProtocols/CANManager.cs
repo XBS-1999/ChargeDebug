@@ -347,7 +347,20 @@ namespace ChargeDebug.Service
                     UpdateConnectionStatus(key, false);
 
                     // 打开设备
-                    IntPtr deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
+                    IntPtr deviceHandle = IntPtr.Zero;
+                    if (equipment.CanType == "ZCAN_CANETTCP")
+                    {
+                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANETTCP, (uint)deviceIndex, 0);
+                    }
+                    else if (equipment.CanType == "ZCAN_CANFDNET_200U_TCP")
+                    {
+                        deviceHandle = ZCAN_OpenDevice(Define.ZCAN_CANFDNET_200U_TCP, (uint)deviceIndex, 0);
+                    }
+                    else
+                    {
+                        deviceHandle = IntPtr.Zero;
+                    }
+
                     if (deviceHandle == IntPtr.Zero)
                     {
                         LogService.Log($"{equipment.DeviceName}打开失败");

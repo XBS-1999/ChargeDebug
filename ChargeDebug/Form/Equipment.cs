@@ -57,117 +57,117 @@ namespace ChargeDebug.Form
             deviceType.FieldName = "DeviceType";
             deviceType.Caption = "设备类型";
             deviceType.Visible = true;
-            deviceType.Width = 60;
+            deviceType.Width = 50;
 
             GridColumn devicenumber = new GridColumn();
             devicenumber.FieldName = "DeviceNumber";
             devicenumber.Caption = "设备序号";
             devicenumber.Visible = true;
-            devicenumber.Width = 60;
+            devicenumber.Width = 35;
 
             GridColumn devicename = new GridColumn();
             devicename.FieldName = "DeviceName";
             devicename.Caption = "设备名称";
             devicename.Visible = true;
-            devicename.Width = 60;
+            devicename.Width = 70;
 
             GridColumn cantype = new GridColumn();
             cantype.FieldName = "CanType";
             cantype.Caption = "通讯类型";
             cantype.Visible = true;
-            cantype.Width = 60;
+            cantype.Width = 70;
 
             // 网口配置列
             GridColumn deviceip = new GridColumn();
             deviceip.FieldName = "DeviceIP";
             deviceip.Caption = "设备IP";
             deviceip.Visible = true;
-            deviceip.Width = 60;
+            deviceip.Width = 70;
 
             GridColumn deviceport = new GridColumn();
             deviceport.FieldName = "DevicePort";
             deviceport.Caption = "设备端口";
             deviceport.Visible = true;
-            deviceport.Width = 60;
+            deviceport.Width = 35;
 
             // 串口配置列
             GridColumn comPort = new GridColumn();
             comPort.FieldName = "ComPort";
             comPort.Caption = "串口号";
             comPort.Visible = true;
-            comPort.Width = 60;
+            comPort.Width = 30;
 
             GridColumn baudRate = new GridColumn();
             baudRate.FieldName = "BaudRate";
             baudRate.Caption = "波特率";
             baudRate.Visible = true;
-            baudRate.Width = 50;
+            baudRate.Width = 30;
 
             GridColumn dataBits = new GridColumn();
             dataBits.FieldName = "DataBits";
             dataBits.Caption = "数据位";
             dataBits.Visible = true;
-            dataBits.Width = 50;
+            dataBits.Width = 30;
 
             GridColumn parity = new GridColumn();
             parity.FieldName = "Parity";
             parity.Caption = "校验位";
             parity.Visible = true;
-            parity.Width = 50;
+            parity.Width = 30;
 
             GridColumn stopBits = new GridColumn();
             stopBits.FieldName = "StopBits";
             stopBits.Caption = "停止位";
             stopBits.Visible = true;
-            stopBits.Width = 50;
+            stopBits.Width = 30;
 
             GridColumn deviceindex = new GridColumn();
             deviceindex.FieldName = "DeviceIndex";
             deviceindex.Caption = "设备索引";
             deviceindex.Visible = true;
-            deviceindex.Width = 60;
+            deviceindex.Width = 35;
 
             GridColumn canindex = new GridColumn();
             canindex.FieldName = "CanIndex";
             canindex.Caption = "CAN索引";
             canindex.Visible = true;
-            canindex.Width = 60;
+            canindex.Width = 35;
 
             GridColumn acnumber = new GridColumn();
             acnumber.FieldName = "ACNumber";
             acnumber.Caption = "AC数量";
             acnumber.Visible = true;
-            acnumber.Width = 60;
+            acnumber.Width = 35;
 
             GridColumn acaddress = new GridColumn();
             acaddress.FieldName = "ACAddress";
             acaddress.Caption = "AC起始地址";
             acaddress.Visible = true;
-            acaddress.Width = 70;
+            acaddress.Width = 50;
 
             GridColumn dcnumber = new GridColumn();
             dcnumber.FieldName = "DCNumber";
             dcnumber.Caption = "DC数量";
             dcnumber.Visible = true;
-            dcnumber.Width = 60;
+            dcnumber.Width = 35;
 
             GridColumn dcaddress = new GridColumn();
             dcaddress.FieldName = "DCAddress";
             dcaddress.Caption = "DC起始地址";
             dcaddress.Visible = true;
-            dcaddress.Width = 70;
+            dcaddress.Width = 50;
 
             GridColumn communicationprotocols = new GridColumn();
             communicationprotocols.FieldName = "CommunicationProtocols";
             communicationprotocols.Caption = "通讯协议";
             communicationprotocols.Visible = true;
-            communicationprotocols.Width = 60;
+            communicationprotocols.Width = 90;
 
             GridColumn whether = new GridColumn();
             whether.FieldName = "Whether";
             whether.Caption = "是否启用设备";
             whether.Visible = true;
-            whether.Width = 90;
+            whether.Width = 50;
 
             // 连接状态列
             //GridColumn connectionStatus = new GridColumn();
@@ -348,7 +348,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
@@ -491,7 +491,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);

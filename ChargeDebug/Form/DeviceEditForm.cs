@@ -141,7 +141,7 @@ namespace ChargeDebug.Form
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "ZCAN_USBCANFD_200U", "RS485-MODBUS", "USB-SCPI", "RS232" });
+            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "ZCAN_CANFDNET_200U_TCP", "ZCAN_USBCANFD_200U", "RS485-MODBUS", "USB-SCPI", "RS232" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
 
@@ -378,7 +378,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型显示或隐藏网口/串口配置组
-            if (cantype.Text == "ZCAN_CANETTCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
             {
                 // 显示网口配置，隐藏串口配置
                 networkGroup.Visible = true;
@@ -455,7 +455,7 @@ namespace ChargeDebug.Form
             {
                 buttonY = equipmentGroup.Bottom;
 
-                if (cantype.Text == "ZCAN_CANETTCP")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -476,7 +476,7 @@ namespace ChargeDebug.Form
             {
                 buttonY = 140;
 
-                if (cantype.Text == "ZCAN_CANETTCP")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -511,7 +511,7 @@ namespace ChargeDebug.Form
 
                     // 根据通讯类型确定协议类型
                     string agreementType = "";
-                    if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_USBCANFD_200U")
+                    if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_USBCANFD_200U" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
                     {
                         agreementType = "CAN总线";
                     }
@@ -605,7 +605,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型加载相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
             {
                 deviceip.Text = row.Table.Columns.Contains("DeviceIP") ? row["DeviceIP"].ToString() : "";
                 deviceport.Text = row.Table.Columns.Contains("DevicePort") ? row["DevicePort"].ToString() : "";
@@ -677,7 +677,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型验证相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
             {
                 // 验证IP地址格式
                 if (!string.IsNullOrWhiteSpace(deviceip.Text) &&
