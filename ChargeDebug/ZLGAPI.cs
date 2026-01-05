@@ -1,5 +1,7 @@
 ﻿// update time 2025/1/14
 
+using ChargeDebug.Service;
+using DataModel;
 using System.Runtime.InteropServices;
 
 namespace ZLGAPI
@@ -692,8 +694,8 @@ namespace ZLGAPI
         /// <param name="sgl">sgl 信号</param> 
         /// <param name="rawVal">rawVal 原始值, 如果该值超出信号长度可表示范围，会被截断。</param>
         /// <returns>实际值</returns>
-        [DllImport(".\\zdbc.dll", CallingConvention = CallingConvention.StdCall)]
-        public static extern double ZDBC_CalcActualValue(IntPtr sgl, IntPtr rawVal); //原始值通过计算转为实际值,实际值会传入rawVal的地址
+        [DllImport(".\\zdbc.dll", CallingConvention = CallingConvention.StdCall)] 
+        public static extern ulong ZDBC_CalcActualValue(DBCSignal sgl, byte[] rawVal); //原始值通过计算转为实际值,实际值会传入rawVal的地址
 
         /// <summary>
         /// 信号实际值转换为原始值

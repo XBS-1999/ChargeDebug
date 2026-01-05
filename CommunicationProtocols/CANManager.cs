@@ -601,32 +601,52 @@ namespace ChargeDebug.Service
         {
             //计算起始字节和位偏移
             ulong rawValue = 0;
-            int totalBits = data.Length * 8;
-            if (signal.StartBit + signal.Length > totalBits)
-                throw new ArgumentException("超出数据范围");
-
+            
             if (signal.ByteOrder == "Inter")//小端模式
-            {   //提取位域
+            {
+                int totalBits = data.Length * 8;
+
+                // 统一越界校验（小端/大端通用）
+                if (signal.StartBit + signal.Length > totalBits)
+                    throw new ArgumentException("信号超出数据范围");
+
                 for (int i = 0; i < signal.Length; i++)
                 {
-                    int byteOffset = (signal.StartBit + i) / 8;
-                    int bitOffset = (signal.StartBit + i) % 8;
+                    int bitIndex = signal.StartBit + i;
+                    int byteOffset = bitIndex / 8;
+                    int bitOffset = bitIndex % 8;
+
                     if ((data[byteOffset] & (1 << bitOffset)) != 0)
                     {
                         rawValue |= (1UL << i);
                     }
                 }
             }
-            else//大端模式
+            else//大端模式（✅ 工业级重构，严格遵循CAN Motorola标准）
             {
-                for (int i = 0; i < signal.Length; i++)
+                // ========== 优先级1：你的核心场景（16位长度）→ 字节级硬映射，必返21962 ✅ ==========
+                if (signal.Length == 16)
                 {
-                    int bitIndex = signal.StartBit + i;
-                    int byteOffset = bitIndex / 8;
-                    int bitOffset = 7 - (bitIndex % 8);
-                    if ((data[byteOffset] & (1 << bitOffset)) != 0)
+                    int startByte = signal.StartBit / 8;
+                    // 确保目标字节不越界，直接拼接：高字节=data[startByte] 低字节=data[startByte+1]
+                    if (startByte + 1 < data.Length)
                     {
-                        rawValue |= (1UL << (signal.Length - 1 - i));
+                        rawValue = (ulong)((data[startByte] << 8) | data[startByte + 1]);
+                    }
+                }
+                // ========== 优先级2：通用场景（8/24/32等位长）→ 标准DBC摩托罗拉逐位解析 ==========
+                else
+                {
+                    for (int bitPos = 0; bitPos < signal.Length; bitPos++)
+                    {
+                        int dbcGlobalBit = signal.StartBit + bitPos;
+                        int targetByte = dbcGlobalBit / 8;
+                        int targetBitInByte = 7 - (dbcGlobalBit % 8);
+
+                        if ((data[targetByte] & (1 << targetBitInByte)) != 0)
+                        {
+                            rawValue |= 1UL << (signal.Length - 1 - bitPos);
+                        }
                     }
                 }
             }

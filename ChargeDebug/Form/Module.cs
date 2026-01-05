@@ -14,6 +14,7 @@ using System.ComponentModel;
 using System.Data;
 using System.IO;
 using System.Runtime.CompilerServices;
+using ZLGAPI;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -213,6 +214,11 @@ namespace ChargeDebug.Form
         /// <param name="signals">信号列表</param>
         public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
         {
+            byte[] data = { 0x55, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // 0x55CA000000000000
+            SignalInfo signal1 = new SignalInfo { StartBit = 7, Length = 16, ByteOrder = "1"};
+            ulong result1 = CANManager.Instance.ExtractRawValue(data, signal1);
+
+            //return;
             _equipment = equipment;
             _title = title;
             _userPermissions = userPermissions;
@@ -728,8 +734,9 @@ namespace ChargeDebug.Form
                 {
                     if (!signalDefinitions.TryGetValue(signal.SystemName, out var signalDef)) continue;
 
-                    // 1. 从CAN帧中提取原始值
+                    // 1. 从CAN帧中提取原始值ZDBC_CalcActualValue
                     ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalDef);
+                    //ulong rawValue = ZDBC.ZDBC_CalcActualValue(signalDef, frame.data);
 
                     // 2. 转换为物理值
                     double value = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalDef);
