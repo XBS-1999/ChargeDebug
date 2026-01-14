@@ -131,7 +131,7 @@ namespace TcpAssistant
             cbBaudRate.SelectedIndex = 2; // 默认选择500K
 
             ConfigureComboBox(cbFirmwareModel, "CPU1", "CPU2", "CPU3", "ARM1", "ARM2", "FPGA1", "FPGA2");
-            ConfigureComboBox(cbSystemModell, "AC1", "AC2", "DC1", "DC2", "DC3", "测功机", "AI板卡", "AO板卡", "DI板卡", "DO板卡");
+            ConfigureComboBox(cbSystemModell, "AC1", "AC2", "DC1", "DC2", "DC3", "采集板0", "采集板1", "采集板2", "采集板3", "采集板4", "采集板5", "采集板6", "采集板7", "测功机", "AI板卡", "AO板卡", "DI板卡", "DO板卡");
 
 
             // 配置文件选择按钮
@@ -957,6 +957,14 @@ namespace TcpAssistant
                 "DC1" => 0x20,
                 "DC2" => 0x21,
                 "DC3" => 0x22,
+                "采集板0" => 0xC0,
+                "采集板1" => 0xC1,
+                "采集板2" => 0xC2,
+                "采集板3" => 0xC3,
+                "采集板4" => 0xC4,
+                "采集板5" => 0xC5,
+                "采集板6" => 0xC6,
+                "采集板7" => 0xC7,
                 "测功机" => 0x30,
                 "AI板卡" => 0x10,
                 "AO板卡" => 0x11,

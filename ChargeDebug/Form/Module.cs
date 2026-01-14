@@ -214,9 +214,9 @@ namespace ChargeDebug.Form
         /// <param name="signals">信号列表</param>
         public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
         {
-            byte[] data = { 0x55, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // 0x55CA000000000000
-            SignalInfo signal1 = new SignalInfo { StartBit = 7, Length = 16, ByteOrder = "1"};
-            ulong result1 = CANManager.Instance.ExtractRawValue(data, signal1);
+            //byte[] data = { 0x55, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // 0x55CA000000000000
+            //SignalInfo signal1 = new SignalInfo { StartBit = 7, Length = 16, ByteOrder = "1"};
+            //ulong result1 = CANManager.Instance.ExtractRawValue(data, signal1);
 
             //return;
             _equipment = equipment;
@@ -1476,7 +1476,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 等待一段时间再检查
-                await Task.Delay(100);
+                await Task.Delay(200);
             }
 
             // 超时，状态未改变
@@ -1486,73 +1486,76 @@ namespace ChargeDebug.Form
         /// <summary>
         /// 检查运行模式
         /// </summary>
-        private Task<bool> CheckRunMode(string workingMode, string channel)
+        private async Task<bool> CheckRunMode(TimeSpan timeout, string workingMode, string channel)
         {
             uint mode = 0;
-            if (channel == "AC")
+            DateTime startTime = DateTime.Now;
+
+            while (DateTime.Now - startTime < timeout)
             {
-                switch (workingMode)
+                if (channel == "AC")
                 {
-                    case "恒定并网直流恒压运行":
-                        mode = 0x01;
-                        break;
+                    switch (workingMode)
+                    {
+                        case "恒定并网直流恒压运行":
+                            mode = 0x01;
+                            break;
 
-                    case "停机":
-                        mode = 0x00;
-                        break;
-                }
+                        case "停机":
+                            mode = 0x00;
+                            break;
+                    }
 
-                if (mode == _acRunMode)
-                {
-                    return Task.FromResult(true);
+                    if (mode == _acRunMode)
+                    {
+                        return true;
+                    }
                 }
                 else
                 {
-                    return Task.FromResult(false);
-                }
-            }
-            else
-            {
-                switch (workingMode)
-                {
-                    case "恒流充电":
-                        mode = 0x03;
-                        break;
-                    case "恒流放电":
-                        mode = 0x23;
-                        break;
-                    case "恒压充电":
-                        mode = 0x02;
-                        break;
-                    case "恒压放电":
-                        mode = 0x22;
-                        break;
-                    case "恒功率充电":
-                        mode = 0x01;
-                        break;
-                    case "恒功率放电":
-                        mode = 0x21;
-                        break;
-                    case "搁置":
-                        mode = 0x05;
-                        break;
-                    case "静置":
-                        mode = 0x06;
-                        break;
-                    case "停机":
-                        mode = 0x00;
-                        break;
+                    switch (workingMode)
+                    {
+                        case "恒流充电":
+                            mode = 0x03;
+                            break;
+                        case "恒流放电":
+                            mode = 0x23;
+                            break;
+                        case "恒压充电":
+                            mode = 0x02;
+                            break;
+                        case "恒压放电":
+                            mode = 0x22;
+                            break;
+                        case "恒功率充电":
+                            mode = 0x01;
+                            break;
+                        case "恒功率放电":
+                            mode = 0x21;
+                            break;
+                        case "搁置":
+                            mode = 0x05;
+                            break;
+                        case "静置":
+                            mode = 0x06;
+                            break;
+                        case "停机":
+                            mode = 0x00;
+                            break;
+                    }
+
+                    if (mode == _dcRunMode)
+                    {
+                        return true;
+                    }
                 }
 
-                if (mode == _dcRunMode)
-                {
-                    return Task.FromResult(true);
-                }
-                else
-                {
-                    return Task.FromResult(false);
-                }
+                // 等待一段时间再检查
+                await Task.Delay(200);
             }
+
+            // 超时，状态未改变
+            return false;
         }
 
         /// <summary>
@@ -2064,7 +2067,7 @@ namespace ChargeDebug.Form
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3), "DC");
 
                                 // 检测设备运行工步码是否一致
-                                bool runmode = await CheckRunMode(configForm.Configuration.WorkingMode, "DC");
+                                bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), configForm.Configuration.WorkingMode, "DC");
 
                                 if ((!statusChanged) || (!runmode))
                                 {
@@ -2159,7 +2162,7 @@ namespace ChargeDebug.Form
                                 bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3), "AC");
 
                                 // 检测设备运行工步码是否一致
-                                bool runmode = await CheckRunMode(acConfig.RunMode, "AC");
+                                bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), acConfig.RunMode, "AC");
 
                                 if (!statusChanged || !runmode)
                                 {
@@ -2298,7 +2301,7 @@ namespace ChargeDebug.Form
                         await Task.Delay(100);
 
                         // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode(newParams.WorkingMode, "DC");
+                        bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), newParams.WorkingMode, "DC");
 
                         if (runmode)
                         {

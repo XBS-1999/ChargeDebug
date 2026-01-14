@@ -3,6 +3,7 @@ using ClosedXML.Excel;
 using CommunicationProtocols;
 using DataModel;
 using DevExpress.DataProcessing;
+using DevExpress.Pdf.Native.BouncyCastle.Asn1.Tsp;
 using DevExpress.Utils;
 using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
@@ -16,6 +17,7 @@ using Log;
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
+using System.Text;
 using System.Threading;
 
 #pragma warning disable
@@ -2269,6 +2271,10 @@ namespace ChargeDebug.Form
                         }
                     }
 
+                    // 获取最大电压和精度范围
+                    var (ratingVoltage, precisionRange) = GetRatingVoltageAndPrecision(
+                        firstPoint.DeviceName, firstPoint.SignalName);
+
                     // 对于电流校准，按照特定顺序处理校准点
                     if (type == "电流")
                     {
@@ -2318,7 +2324,8 @@ namespace ChargeDebug.Form
                                 LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
                                 await Task.Delay(point.ReadTimeMs, cancellationToken);
 
-                                var currentvalue = await ReadCurrentValue(voltmeter);
+                                //var currentvalue = await ReadCurrentValue(voltmeter);
+                                var currentvalue = await ReadCurrentValue(voltmeter, measurementCount: 5, delayBetweenMeasurements: 200);
 
                                 LogService.Log($"电流表测量值: {currentvalue}A, 设备电流采样值: {point.Voltage}A");
 
@@ -2396,7 +2403,8 @@ namespace ChargeDebug.Form
                                 LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
                                 await Task.Delay(point.ReadTimeMs, cancellationToken);
 
-                                var currentvalue = await ReadCurrentValue(voltmeter);
+                                //var currentvalue = await ReadCurrentValue(voltmeter);
+                                var currentvalue = await ReadCurrentValue(voltmeter, measurementCount: 5, delayBetweenMeasurements: 200);
 
                                 LogService.Log($"电流表测量值: {currentvalue}A, 设备电流采样值: {point.Voltage}A");
 
@@ -2527,7 +2535,6 @@ namespace ChargeDebug.Form
                             //    newScaleFactor, newZeroFactor);
 
                             // 更新UI页面的校准系数
-                            // 更新UI页面的校准系数
                             UpdateTreeNodeCalibrationFactors(firstPoint.DeviceName, firstPoint.SignalName,
                                 newScaleFactor, newZeroFactor);
 
@@ -2591,6 +2598,9 @@ namespace ChargeDebug.Form
             }
         }
 
+        /// <summary>
+        /// 读取电流值 - 采用单次测量
+        /// </summary>
         private async Task<double> ReadCurrentValue(EquipmentModel ammeter)
         {
             try
@@ -2707,6 +2717,269 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 读取电流值 - 采用多次测量取平均值
+        /// </summary>
+        private async Task<double> ReadCurrentValue(EquipmentModel ammeter, int measurementCount, int delayBetweenMeasurements)
+        {
+            try
+            {
+                List<double> measurements = new List<double>();
+                int maxRetries = 3; // 最大重试次数
+
+                for (int measurement = 0; measurement < measurementCount; measurement++)
+                {
+                    int retryCount = 0;
+                    bool measurementSuccessful = false;
+
+                    while (retryCount < maxRetries && !measurementSuccessful)
+                    {
+                        try
+                        {
+                            byte[] command = new byte[]
+                            {
+                                0xAA, 0xAB, 0x05, 0xA2, 0x00, 0x00, 0x00, 0x00
+                            };
+
+                            bool sendSuccess = RS232Manager.Instance.SendData(ammeter.ComPort, command, true);
+
+                            if (!sendSuccess)
+                            {
+                                LogService.Log($"第 {measurement + 1} 次测量发送命令失败，重试 {retryCount + 1}/{maxRetries}");
+                                retryCount++;
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            await Task.Delay(delayBetweenMeasurements);
+                            byte[] readBuffer = RS232Manager.Instance.ReadBuffer(ammeter.ComPort);
+
+                            // 基本帧检查
+                            if (readBuffer.Length < 16)
+                            {
+                                LogService.Log($"第 {measurement + 1} 次测量数据长度不足: {readBuffer.Length} 字节");
+                                retryCount++;
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            if (readBuffer[0] != 0xAA ||
+                                readBuffer[1] != 0xAB ||
+                                readBuffer[3] != 0xA2 ||
+                                readBuffer[15] != 0x55)
+                            {
+                                LogService.Log($"第 {measurement + 1} 次测量帧格式错误");
+                                retryCount++;
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            // 校验和检查
+                            byte checksum = 0;
+                            for (int i = 2; i <= 13; i++)
+                            {
+                                checksum += readBuffer[i];
+                            }
+
+                            if (checksum != readBuffer[14])
+                            {
+                                LogService.Log($"第 {measurement + 1} 次测量校验和失败，期望: {readBuffer[14]:X2}，实际: {checksum:X2}");
+                                retryCount++;
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            // 解析符号
+                            bool isPositive = readBuffer[4] == 0x2B;
+
+                            if (_protectionParameters?.Directionammeter == "反方向")
+                            {
+                                isPositive = !isPositive;
+                            }
+
+                            // 解析数值部分
+                            string valueStr = "";
+
+                            for (int i = 5; i <= 12; i++)
+                            {
+                                char c = (char)readBuffer[i];
+
+                                if (c == '.')
+                                {
+                                    valueStr += ".";
+                                }
+                                else if (char.IsDigit(c))
+                                {
+                                    valueStr += c;
+                                }
+                                else if (c != '\0') // 忽略空字符
+                                {
+                                    LogService.Log($"警告：数据部分包含非数字字符: 0x{readBuffer[i]:X2} (字符: {c})");
+                                    // 如果是空格或其他非数字字符，跳过或根据情况处理
+                                }
+                            }
+
+                            // 转换为数字
+                            if (double.TryParse(valueStr, out double result))
+                            {
+                                // 应用符号
+                                result = isPositive ? result : -result;
+
+                                // 单位转换
+                                switch (readBuffer[13])
+                                {
+                                    case 0x01: // uA
+                                        result *= 1e-6;
+                                        break;
+                                    case 0x02: // mA
+                                        result *= 1e-3;
+                                        break;
+                                    case 0x03: // A (不需要转换)
+                                        break;
+                                    case 0x04: // kA
+                                        result *= 1e3;
+                                        break;
+                                    default:
+                                        LogService.Log($"第 {measurement + 1} 次测量未知单位: 0x{readBuffer[13]:X2}");
+                                        retryCount++;
+                                        continue;
+                                }
+
+                                // 有效性检查
+                                if (double.IsNaN(result) || double.IsInfinity(result))
+                                {
+                                    LogService.Log($"第 {measurement + 1} 次测量数值无效: {result}");
+                                    retryCount++;
+                                    continue;
+                                }
+
+                                // 添加测量值
+                                measurements.Add(result);
+                                LogService.Log($"第 {measurement + 1} 次测量成功: {result} A");
+                                measurementSuccessful = true;
+
+                                // 如果还有后续测量，等待一段时间
+                                if (measurement < measurementCount - 1)
+                                {
+                                    await Task.Delay(delayBetweenMeasurements);
+                                }
+                            }
+                            else
+                            {
+                                LogService.Log($"第 {measurement + 1} 次测量数值解析失败: {valueStr}");
+                                retryCount++;
+                                await Task.Delay(100);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Log($"第 {measurement + 1} 次测量发生异常: {ex.Message}");
+                            retryCount++;
+                            await Task.Delay(100);
+                        }
+                    }
+
+                    // 如果重试次数用尽仍未成功，记录错误
+                    if (!measurementSuccessful)
+                    {
+                        LogService.Log($"第 {measurement + 1} 次测量失败，已重试 {maxRetries} 次");
+                    }
+                }
+
+                // 处理测量结果
+                if (measurements.Count == 0)
+                {
+                    LogService.Log("所有测量尝试均失败，返回 NaN");
+                    return double.NaN;
+                }
+
+                // 统计测量结果
+                double average = measurements.Average();
+                double stdDev = CalculateStandardDeviation(measurements);
+
+                // 过滤异常值（使用3σ原则）
+                var filteredMeasurements = FilterOutliers(measurements, 3.0);
+
+                if (filteredMeasurements.Count == 0)
+                {
+                    LogService.Log("所有测量值都被判定为异常值，使用原始平均值");
+                    filteredMeasurements = measurements;
+                }
+
+                // 计算最终平均值保留4位小数
+                double finalAverage = Math.Round(filteredMeasurements.Average(), 4);
+
+                LogService.Log($"电流测量统计: " +
+                               $"原始测量次数: {measurements.Count}, " +
+                               $"有效测量次数: {filteredMeasurements.Count}, " +
+                               $"平均值: {finalAverage} A, " +
+                               $"标准差: {stdDev:F4} A");
+
+                // 记录详细的测量数据
+                //LogService.Log($"详细测量数据: [{string.Join(", ", measurements.Select(m => $"{m:F6}"))}]");
+                //if (filteredMeasurements.Count != measurements.Count)
+                //{
+                //    LogService.Log($"过滤后数据: [{string.Join(", ", filteredMeasurements.Select(m => $"{m:F6}"))}]");
+                //}
+
+                return finalAverage;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"读取电流数据帧操作失败{ex.Message}！");
+                return double.NaN;
+            }
+        }
+
+        /// <summary>
+        /// 计算标准差
+        /// </summary>
+        private double CalculateStandardDeviation(List<double> values)
+        {
+            if (values.Count <= 1) return 0;
+
+            double mean = values.Average();
+            double sumOfSquares = 0.0;
+
+            foreach (double value in values)
+            {
+                sumOfSquares += Math.Pow(value - mean, 2);
+            }
+
+            return Math.Sqrt(sumOfSquares / (values.Count - 1));
+        }
+
+        /// <summary>
+        /// 过滤异常值
+        /// </summary>
+        private List<double> FilterOutliers(List<double> values, double sigmaThreshold)
+        {
+            if (values.Count <= 1) return values;
+
+            double mean = values.Average();
+            double stdDev = CalculateStandardDeviation(values);
+
+            // 如果标准差很小，不进行过滤
+            if (stdDev < 1e-10) return values;
+
+            List<double> filtered = new List<double>();
+
+            foreach (double value in values)
+            {
+                double zScore = Math.Abs(value - mean) / stdDev;
+                if (zScore <= sigmaThreshold)
+                {
+                    filtered.Add(value);
+                }
+                else
+                {
+                    LogService.Log($"过滤异常值: {value:F6} (Z-score: {zScore:F2})");
+                }
+            }
+
+            return filtered;
+        }
+
+        /// <summary>
         /// 执行校准后验证
         /// </summary>
         private async Task<bool> PerformPostCalibrationVerification(
@@ -2792,7 +3065,8 @@ namespace ChargeDebug.Form
                                 LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
                                 await Task.Delay(point.ReadTimeMs, cancellationToken);
 
-                                var currentvalue = await ReadCurrentValue(voltmeter);
+                                //var currentvalue = await ReadCurrentValue(voltmeter);
+                                var currentvalue = await ReadCurrentValue(voltmeter, measurementCount: 5, delayBetweenMeasurements: 200);
 
                                 LogService.Log($"电流表测量值: {currentvalue}A, 设备电流采样值: {point.Voltage}A");
 
@@ -2881,7 +3155,8 @@ namespace ChargeDebug.Form
                                 LogService.Log($"等待 {point.ReadTimeMs}ms 使电流稳定...");
                                 await Task.Delay(point.ReadTimeMs, cancellationToken);
 
-                                var currentvalue = await ReadCurrentValue(voltmeter);
+                                //var currentvalue = await ReadCurrentValue(voltmeter);
+                                var currentvalue = await ReadCurrentValue(voltmeter, measurementCount: 5, delayBetweenMeasurements: 200);
 
                                 LogService.Log($"电流表测量值: {currentvalue}A, 设备电流采样值: {point.Voltage}A");
 
@@ -3591,7 +3866,7 @@ namespace ChargeDebug.Form
 
                         // 读取电流表测量值
                         var actualCurrent = await ReadCurrentValue(ammeter);
-                        LogService.Log($"电流表测量值: {actualCurrent}A, 设备电流采样值: {point.Voltage}A");
+                        LogService.Log($"电流表测量值: {actualCurrent:F4}A, 设备电流采样值: {point.Voltage}A");
 
                         // 计算精度
                         double accuracy = (point.Voltage - actualCurrent) / ratingCurrent;
@@ -5094,6 +5369,25 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 检查校准系数是否在允许范围内
+        /// </summary>
+        private bool CheckCalibrationCoefficientsRange(double scaleFactor, double zeroFactor, string signalType)
+        {
+            if (signalType == "电压")
+            {
+                // 电压校准系数范围：比例系数 0.9-1.1，零点系数 -5.0-5.0
+                return scaleFactor >= 0.9 && scaleFactor <= 1.1 &&
+                       zeroFactor >= -5.0 && zeroFactor <= 5.0;
+            }
+            else // 电流
+            {
+                // 电流校准系数范围：比例系数 0.9-1.1，零点系数 -10.0-10.0
+                return scaleFactor >= 0.9 && scaleFactor <= 1.1 &&
+                       zeroFactor >= -10.0 && zeroFactor <= 10.0;
+            }
+        }
+
+        /// <summary>
         /// 读取设备的校准系数
         /// </summary>
         private async Task<(double scaleFactor, double zeroFactor)> ReadCalibrationFactors(
@@ -5491,7 +5785,7 @@ namespace ChargeDebug.Form
                         {
                             childNodeName, // 设备名称列显示校准点名称
                             "", "", "", "", "", "", "","","",
-                            valueDisplay,// 设备电压采样值/实际电压测量值
+                            valueDisplay, // 设备电压采样值/实际电压测量值
                             "", "", ""
                         });
 
@@ -5693,29 +5987,29 @@ namespace ChargeDebug.Form
             btnCurrentCalibration.Click += BtnCurrentCalibration_Click;
             buttonPanel.Controls.Add(btnCurrentCalibration);
 
-            btnVoltageMeasurement = new SimpleButton
-            {
-                Text = "电压计量",
-                Size = new Size(80, 30),
-                Location = new Point(btnCurrentCalibration.Right + 10, 10)
-            };
-            btnVoltageMeasurement.Click += BtnVoltageMeasurement_Click;
-            buttonPanel.Controls.Add(btnVoltageMeasurement);
+            //btnVoltageMeasurement = new SimpleButton
+            //{
+            //    Text = "电压计量",
+            //    Size = new Size(80, 30),
+            //    Location = new Point(btnCurrentCalibration.Right + 10, 10)
+            //};
+            //btnVoltageMeasurement.Click += BtnVoltageMeasurement_Click;
+            //buttonPanel.Controls.Add(btnVoltageMeasurement);
 
-            btnCurrentMeasurement = new SimpleButton
-            {
-                Text = "电流计量",
-                Size = new Size(80, 30),
-                Location = new Point(btnVoltageMeasurement.Right + 10, 10)
-            };
-            btnCurrentMeasurement.Click += BtnCurrentMeasurement_Click;
-            buttonPanel.Controls.Add(btnCurrentMeasurement);
+            //btnCurrentMeasurement = new SimpleButton
+            //{
+            //    Text = "电流计量",
+            //    Size = new Size(80, 30),
+            //    Location = new Point(btnVoltageMeasurement.Right + 10, 10)
+            //};
+            //btnCurrentMeasurement.Click += BtnCurrentMeasurement_Click;
+            //buttonPanel.Controls.Add(btnCurrentMeasurement);
 
             btnStopCalibration = new SimpleButton
             {
                 Text = "停止校准",
                 Size = new Size(80, 30),
-                Location = new Point(btnCurrentMeasurement.Right + 10, 10)
+                Location = new Point(btnCurrentCalibration.Right + 10, 10)
             };
             btnStopCalibration.Click += BtnStopCalibration_Click;
             buttonPanel.Controls.Add(btnStopCalibration);
