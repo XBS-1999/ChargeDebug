@@ -372,7 +372,7 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@Parity", form.Parity);
                                     cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
                                 }
-                                else if (form.CanType == "RS232")
+                                else if (form.CanType == "RS232" || form.CanType == "USB-SCPI")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
@@ -384,18 +384,18 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@Parity", form.Parity);
                                     cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
                                 }
-                                else if (form.CanType == "USB-SCPI")
-                                {
-                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
-                                }
+                                //else if (form.CanType == "USB-SCPI")
+                                //{
+                                //    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
+                                //}
 
                                 if (form.DeviceType == "充放电设备")
                                 {
@@ -515,7 +515,7 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@Parity", form.Parity);
                                     cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
                                 }
-                                else if (form.CanType == "RS232")
+                                else if (form.CanType == "RS232" || form.CanType == "USB-SCPI")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
@@ -527,18 +527,18 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@Parity", form.Parity);
                                     cmd.Parameters.AddWithValue("@StopBits", form.StopBits);
                                 }
-                                else if (form.CanType == "USB-SCPI")
-                                {
-                                    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
-                                    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
-                                }
+                                //else if (form.CanType == "USB-SCPI")
+                                //{
+                                //    cmd.Parameters.AddWithValue("@DeviceIP", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DevicePort", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DeviceIndex", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
+                                //    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);
+                                //}
 
                                 if (form.DeviceType == "充放电设备")
                                 {

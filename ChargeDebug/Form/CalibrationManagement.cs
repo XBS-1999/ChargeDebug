@@ -4575,7 +4575,7 @@ namespace ChargeDebug.Form
                         ulong rawValue = CANManager.Instance.ExtractRawValue(frame.data, signalInfo);
                         double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
 
-                        if (signalInfo.SystemName.Contains("交流电压"))
+                        if (signalInfo.SystemName.Contains("相电压"))
                         {
                             physicalValue = physicalValue / 1.11;
                         }

@@ -426,7 +426,7 @@ namespace ChargeDebug.Form
                     serialGroup.Location = new Point(0, 140);
                 }
             }
-            else if (cantype.Text == "RS232")
+            else if (cantype.Text == "RS232" || cantype.Text == "USB-SCPI")
             {
                 // 显示串口配置，隐藏网口配置
                 networkGroup.Visible = false;
@@ -442,12 +442,12 @@ namespace ChargeDebug.Form
                     serialGroup.Location = new Point(0, 140);
                 }
             }
-            else if (cantype.Text == "USB-SCPI")
-            {
-                // 隐藏网口和串口配置
-                networkGroup.Visible = false;
-                serialGroup.Visible = false;
-            }
+            //else if (cantype.Text == "USB-SCPI")
+            //{
+            //    // 隐藏网口和串口配置
+            //    networkGroup.Visible = false;
+            //    serialGroup.Visible = false;
+            //}
 
             // 调整按钮位置
             int buttonY = 0;
@@ -467,7 +467,7 @@ namespace ChargeDebug.Form
                 {
                     buttonY = serialGroup.Bottom;
                 }
-                else if (cantype.Text == "RS232")
+                else if (cantype.Text == "RS232" || cantype.Text == "USB-SCPI")
                 {
                     buttonY = serialGroup.Bottom;
                 }
@@ -488,7 +488,7 @@ namespace ChargeDebug.Form
                 {
                     buttonY = serialGroup.Bottom;
                 }
-                else if (cantype.Text == "RS232")
+                else if (cantype.Text == "RS232" || cantype.Text == "USB-SCPI")
                 {
                     buttonY = serialGroup.Bottom;
                 }
@@ -618,7 +618,7 @@ namespace ChargeDebug.Form
                 parity.Text = row.Table.Columns.Contains("Parity") ? row["Parity"].ToString() : "无";
                 stopBits.Text = row.Table.Columns.Contains("StopBits") ? row["StopBits"].ToString() : "1";
             }
-            else if (cantype.Text == "RS232")
+            else if (cantype.Text == "RS232" || cantype.Text == "USB-SCPI")
             {
                 comPort.Text = row.Table.Columns.Contains("ComPort") ? row["ComPort"].ToString() : "";
                 baudRate.Text = row.Table.Columns.Contains("BaudRate") ? row["BaudRate"].ToString() : "9600";
@@ -626,10 +626,10 @@ namespace ChargeDebug.Form
                 parity.Text = row.Table.Columns.Contains("Parity") ? row["Parity"].ToString() : "无";
                 stopBits.Text = row.Table.Columns.Contains("StopBits") ? row["StopBits"].ToString() : "1";
             }
-            else if (cantype.Text == "USB-SCPI")
-            {
+            //else if (cantype.Text == "USB-SCPI")
+            //{
 
-            }
+            //}
 
             deviceindex.Text = row["DeviceIndex"].ToString();
             canindex.Text = row["CanIndex"].ToString();

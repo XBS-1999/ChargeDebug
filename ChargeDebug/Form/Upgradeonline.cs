@@ -632,10 +632,17 @@ namespace ChargeDebug.Form
 
                 // 完成后隐藏进度条
                 progressBar.Visible = false;
+                AppendInfo("✅ 升级流程全部完成！");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // 统一处理所有异常
                 progressBar.Visible = false;
+                AppendInfo($"❌ 升级失败: {ex.Message}");
+
+                // 显示错误消息框
+                XtraMessageBox.Show($"升级失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -681,7 +688,8 @@ namespace ChargeDebug.Form
                             if (retryCount >= maxRetries)
                             {
                                 AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
-                                throw; // 抛出异常终止升级
+                                // 直接抛出异常，由外层处理
+                                throw new Exception($"第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，升级已停止。", ex);
                             }
 
                             // 重试前延迟
@@ -701,7 +709,8 @@ namespace ChargeDebug.Form
             {
                 AppendInfo($"❌ 数据传输异常: {ex.Message}");
                 progressBar.Visible = false;
-                XtraMessageBox.Show($"升级失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw; // 重新抛出异常，由 StartUpgrade 方法处理
+                //XtraMessageBox.Show($"升级失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
