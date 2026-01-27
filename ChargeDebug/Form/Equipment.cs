@@ -392,6 +392,7 @@ namespace ChargeDebug.Form
                                 //    cmd.Parameters.AddWithValue("@CanIndex", DBNull.Value);
                                 //    cmd.Parameters.AddWithValue("@ComPort", DBNull.Value);
                                 //    cmd.Parameters.AddWithValue("@BaudRate", DBNull.Value);
+
                                 //    cmd.Parameters.AddWithValue("@DataBits", DBNull.Value);
                                 //    cmd.Parameters.AddWithValue("@Parity", DBNull.Value);
                                 //    cmd.Parameters.AddWithValue("@StopBits", DBNull.Value);

@@ -4,6 +4,7 @@ using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using System.IO;
+using System.Threading;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -20,6 +21,7 @@ namespace ChargeDebug.Form
         private ButtonEdit btnSelectFile;
         private SimpleButton btnEnterBoot;
         private SimpleButton btnUpgrade;
+        private SimpleButton btnStopUpgrade; // 新增停止升级按钮
         // 右侧控件声明
         private MemoEdit txtInfoDisplay;
 
@@ -30,7 +32,9 @@ namespace ChargeDebug.Form
         // 在类级别添加以下字段
         private Dictionary<string, HexFileData> hexFileCache = new Dictionary<string, HexFileData>();
 
-        // 添加HexFileData类定义（内部类）
+        // 新增：取消令牌源，用于停止升级
+        private CancellationTokenSource _cancellationTokenSource;
+        private bool _isUpgrading = false;
 
         public Upgradeonline(List<EquipmentModel> equipmentList)
         {
@@ -97,6 +101,7 @@ namespace ChargeDebug.Form
             btnSelectFile = new ButtonEdit();
             btnEnterBoot = new SimpleButton();
             btnUpgrade = new SimpleButton();
+            btnStopUpgrade = new SimpleButton(); // 初始化停止升级按钮
 
             // 生成设备选项并建立设备映射
             GenerateDeviceOptions();
@@ -109,12 +114,18 @@ namespace ChargeDebug.Form
             btnSelectFile.Text = "点击选择文件";
 
             // 配置操作按钮
-            btnEnterBoot.Text = "进入Boot模式";
-            btnEnterBoot.Click += (s, e) => EnterBootMode(); // 修改为调用验证方法
+            //btnEnterBoot.Text = "进入Boot模式";
+            //btnEnterBoot.Click += (s, e) => EnterBootMode(); // 修改为调用验证方法
 
             btnUpgrade.Text = "开始升级";
             btnUpgrade.Click += (s, e) => StartUpgrade();
             btnUpgrade.Appearance.BackColor = Color.LightGreen;
+
+            // 配置停止升级按钮
+            btnStopUpgrade.Text = "停止升级";
+            btnStopUpgrade.Click += (s, e) => StopUpgrade();
+            btnStopUpgrade.Appearance.BackColor = Color.LightCoral;
+            btnStopUpgrade.Enabled = false; // 初始不可用
 
             // 添加控件到布局 - 每个项之间保持20px间隔
             LayoutControlItem deviceItem = leftLayout.AddItem("选择设备:", cbDevice);
@@ -130,8 +141,8 @@ namespace ChargeDebug.Form
             fileItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
             // 修复：添加按钮时指定标签文本（可以设置为空字符串）
-            leftLayout.AddItem("", btnEnterBoot).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 50, 0);
-            leftLayout.AddItem("", btnUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 10, 0);
+            leftLayout.AddItem("", btnUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 0);
+            leftLayout.AddItem("", btnStopUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 20, 0);
 
             // 新增进度条控件
             progressBar = new ProgressBarControl();
@@ -181,36 +192,6 @@ namespace ChargeDebug.Form
             }
 
             return true;
-        }
-
-        private async void EnterBootMode()
-        {
-            if (!ValidateFile(out string errorMessage))
-            {
-                AppendInfo(errorMessage);
-                XtraMessageBox.Show(errorMessage, "文件验证失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // 文件验证通过后执行进入Boot操作
-            AppendInfo("✅ 文件验证通过，正在进入Boot模式...");
-
-            // 这里添加实际进入Boot模式的设备操作代码
-            // 1. 获取设备对象
-            EquipmentModel device = deviceMap[cbDevice.SelectedItem.ToString()];
-            // 2. 获取通道
-            string channel = cbChannel.SelectedItem.ToString();
-            // 3. 获取CPU类型
-            string cpuType = cbCpu.SelectedItem.ToString();
-            // 4. 获取固件文件路径
-            string filePath = btnSelectFile.Text;
-
-            if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                "进入Bootloader指令", "进入Bootloader"))
-            {
-                return;
-            }
         }
 
         private void GenerateDeviceOptions()
@@ -583,12 +564,19 @@ namespace ChargeDebug.Form
 
         private async void StartUpgrade()
         {
-            // 显示并重置进度条
-            progressBar.Visible = true;
-            progressBar.EditValue = 0;
+            // 如果正在升级中，不执行新的升级操作
+            if (_isUpgrading)
+            {
+                AppendInfo("⚠️ 升级操作正在进行中，请等待完成");
+                return;
+            }
 
             try
             {
+                // 显示并重置进度条
+                progressBar.Visible = true;
+                progressBar.EditValue = 0;
+
                 // 步骤1: 文件验证
                 if (!ValidateFile(out string errorMessage))
                 {
@@ -606,33 +594,89 @@ namespace ChargeDebug.Form
                 string filePath = btnSelectFile.Text;
                 string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
 
-                // 步骤1: 发送请求升级指令 (0x01)
-                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                    new byte[] { 0x01, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                    "请求升级指令", "请求升级"))
-                {
-                    return;
-                }
+                // 设置升级状态
+                _isUpgrading = true;
+                _cancellationTokenSource = new CancellationTokenSource();
+                var cancellationToken = _cancellationTokenSource.Token;
 
-                // 步骤2: 发送启动升级指令 (0x03)
-                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                    new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
-                    "启动升级指令", "启动升级"))
+                // 更新按钮状态
+                btnUpgrade.Enabled = false;
+                btnStopUpgrade.Enabled = true;
+
+                try
                 {
+                    // ========== 步骤1: 进入Boot模式 ==========
+                    AppendInfo("正在进入Boot模式...");
+
                     if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                    new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
-                    "启动升级指令", "启动升级"))
+                        new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                        "进入Bootloader指令", "进入Bootloader", cancellationToken))
                     {
-                        return;
+                        AppendInfo("⚠️ 尝试再次进入Boot模式...");
+
+                        // 增加延迟后重试
+                        await Task.Delay(500, cancellationToken);
+
+                        if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                            new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                            "进入Bootloader指令", "进入Bootloader", cancellationToken))
+                        {
+                            throw new Exception("进入Boot模式失败");
+                        }
                     }
+
+                    // ========== 步骤2: 发送请求升级指令 (0x01) ==========
+                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                        new byte[] { 0x01, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                        "请求升级指令", "请求升级", cancellationToken))
+                    {
+                        throw new Exception("请求升级失败");
+                    }
+
+                    // ========== 步骤3: 发送启动升级指令 (0x03) ==========
+                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                        new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                        "启动升级指令", "启动升级", cancellationToken))
+                    {
+                        AppendInfo("⚠️ 启动升级第一次失败，尝试第二次...");
+
+                        await Task.Delay(500, cancellationToken);
+
+                        if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                            new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                            "启动升级指令", "启动升级", cancellationToken))
+                        {
+                            throw new Exception("启动升级失败");
+                        }
+                    }
+
+                    // ========== 步骤4-6: 分块传输固件数据 ==========
+                    await TransferFirmwareDataInBlocks(device, channelKey, filePath, cancellationToken);
+
+                    AppendInfo("✅ 升级流程全部完成！");
                 }
+                catch (OperationCanceledException)
+                {
+                    AppendInfo("🛑 升级操作已被用户取消");
+                    // 不需要抛出异常，这是正常取消
+                }
+                catch (Exception ex)
+                {
+                    AppendInfo($"❌ 升级过程中发生错误: {ex.Message}");
+                    throw; // 重新抛出异常，由外层处理
+                }
+                finally
+                {
+                    // 恢复按钮状态
+                    btnUpgrade.Enabled = true;
+                    btnStopUpgrade.Enabled = false;
+                    progressBar.Visible = false;
 
-                // 步骤3-6: 分块传输固件数据
-                await TransferFirmwareDataInBlocks(device, channelKey, filePath);
-
-                // 完成后隐藏进度条
-                progressBar.Visible = false;
-                AppendInfo("✅ 升级流程全部完成！");
+                    // 重置升级状态
+                    _isUpgrading = false;
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
             }
             catch (Exception ex)
             {
@@ -640,13 +684,42 @@ namespace ChargeDebug.Form
                 progressBar.Visible = false;
                 AppendInfo($"❌ 升级失败: {ex.Message}");
 
+                // 恢复按钮状态
+                btnUpgrade.Enabled = true;
+                btnStopUpgrade.Enabled = false;
+                _isUpgrading = false;
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+
                 // 显示错误消息框
                 XtraMessageBox.Show($"升级失败: {ex.Message}", "错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private async Task TransferFirmwareDataInBlocks(EquipmentModel device, string channelKey, string filePath)
+        private async void StopUpgrade()
+        {
+            if (!_isUpgrading || _cancellationTokenSource == null)
+            {
+                AppendInfo("⚠️ 当前没有正在进行的升级操作");
+                return;
+            }
+
+            AppendInfo("🛑 正在停止升级操作...");
+
+            // 请求取消
+            _cancellationTokenSource.Cancel();
+
+            // 禁用停止按钮，防止重复点击
+            btnStopUpgrade.Enabled = false;
+
+            // 等待一小段时间让操作有机会停止
+            await Task.Delay(500);
+
+            AppendInfo("✅ 升级操作已停止");
+        }
+
+        private async Task TransferFirmwareDataInBlocks(EquipmentModel device, string channelKey, string filePath, CancellationToken cancellationToken)
         {
             try
             {
@@ -659,6 +732,9 @@ namespace ChargeDebug.Form
                 // 直接使用解析时生成的块
                 for (int i = 0; i < hexData.Blocks.Count; i++)
                 {
+                    // 检查是否已取消
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     DataBlock block = hexData.Blocks[i];
                     bool blockSuccess = false;
                     int retryCount = 0;
@@ -670,14 +746,22 @@ namespace ChargeDebug.Form
                     {
                         try
                         {
+                            // 检查是否已取消
+                            cancellationToken.ThrowIfCancellationRequested();
+
                             await SendBlock(device, channelKey,
                                            block.StartAddress,
                                            block.Data,
                                            block.BlockIndex,
                                            hexData.Blocks.Count,
-                                           times);
+                                           times,
+                                           cancellationToken);
 
                             blockSuccess = true; // 标记成功
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw; // 重新抛出取消异常
                         }
                         catch (Exception ex)
                         {
@@ -688,12 +772,11 @@ namespace ChargeDebug.Form
                             if (retryCount >= maxRetries)
                             {
                                 AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
-                                // 直接抛出异常，由外层处理
                                 throw new Exception($"第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，升级已停止。", ex);
                             }
 
                             // 重试前延迟
-                            await Task.Delay(100);
+                            await Task.Delay(100, cancellationToken);
                         }
                     }
 
@@ -701,51 +784,55 @@ namespace ChargeDebug.Form
                     int progress = (i + 1) * 100 / hexData.Blocks.Count;
                     this.Invoke((Action)(() => { progressBar.EditValue = progress; }));
 
-                    await Task.Delay(5);
+                    await Task.Delay(5, cancellationToken);
                 }
                 AppendInfo("✅ 所有数据包传输完成，升级成功！");
+            }
+            catch (OperationCanceledException)
+            {
+                AppendInfo("🛑 数据传输已被取消");
+                throw; // 重新抛出取消异常
             }
             catch (Exception ex)
             {
                 AppendInfo($"❌ 数据传输异常: {ex.Message}");
-                progressBar.Visible = false;
                 throw; // 重新抛出异常，由 StartUpgrade 方法处理
-                //XtraMessageBox.Show($"升级失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private async Task SendBlock(EquipmentModel device, string channelKey,
-            uint startAddress, byte[] blockData, int blockIndex, int totalBlocks, int times)
+            uint startAddress, byte[] blockData, int blockIndex, int totalBlocks, int times, CancellationToken cancellationToken)
         {
-            //AppendInfo($"准备发送块 {blockIndex}/{totalBlocks}, 大小: {blockData.Length}字节, " +
-            //           $"起始地址: 0x{startAddress:X8}");
-
             // 1. 发送烧写地址和长度
             if (!await SendAddressAndLength(device, channelKey,
                                    startAddress,
-                                   (uint)blockData.Length)) // 这里传入字节长度
+                                   (uint)blockData.Length,
+                                   cancellationToken)) // 这里传入字节长度
             {
                 throw new Exception($"第 {blockIndex} 包数据地址和长度设置失败");
             }
 
             // 2. 发送数据
-            if (!await SendDataPackets(device, channelKey, blockData, blockIndex, totalBlocks, times))
+            if (!await SendDataPackets(device, channelKey, blockData, blockIndex, totalBlocks, times, cancellationToken))
             {
                 throw new Exception($"第 {blockIndex} 包数据传输失败");
             }
 
             // 3. 校验数据
-            if (!await VerifyDataBlock(device, channelKey, blockIndex, totalBlocks))
+            if (!await VerifyDataBlock(device, channelKey, blockIndex, totalBlocks, cancellationToken))
             {
                 throw new Exception($"第 {blockIndex} 包数据校验失败");
             }
         }
 
         private async Task<bool> SendAddressAndLength(EquipmentModel device, string channelKey,
-             uint startAddress, uint byteLength)
+             uint startAddress, uint byteLength, CancellationToken cancellationToken)
         {
             try
             {
+                // 检查是否已取消
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // 准备指令数据
                 byte[] data = new byte[8];
                 data[0] = 0x06; // 指令码
@@ -792,6 +879,10 @@ namespace ChargeDebug.Form
                     return false;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 AppendInfo($"❌ 地址和包数设置异常: {ex.Message}");
@@ -800,16 +891,17 @@ namespace ChargeDebug.Form
         }
 
         private async Task<bool> SendDataPackets(EquipmentModel device, string channelKey,
-            byte[] blockData, int blockIndex, int totalBlocks, int times)
+            byte[] blockData, int blockIndex, int totalBlocks, int times, CancellationToken cancellationToken)
         {
             try
             {
                 int packetsNeeded = (blockData.Length + 7) / 8;
-                //AppendInfo($"块 {blockIndex}/{totalBlocks} 大小: {blockData.Length}字节, " +
-                //         $"需要 {packetsNeeded} 个数据包");
 
                 for (int packetIndex = 0; packetIndex < packetsNeeded; packetIndex++)
                 {
+                    // 检查是否已取消
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     int offset = packetIndex * 8;
                     int length = Math.Min(8, blockData.Length - offset);
 
@@ -855,10 +947,14 @@ namespace ChargeDebug.Form
                                          packetIndex * 100 / (totalBlocks * packetsNeeded);
 
                     // 添加少量延迟防止CAN总线过载
-                    await Task.Delay(times);
+                    await Task.Delay(times, cancellationToken);
                 }
 
                 return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -867,10 +963,13 @@ namespace ChargeDebug.Form
             }
         }
 
-        private async Task<bool> VerifyDataBlock(EquipmentModel device, string channelKey, int blockIndex, int totalBlocks)
+        private async Task<bool> VerifyDataBlock(EquipmentModel device, string channelKey, int blockIndex, int totalBlocks, CancellationToken cancellationToken)
         {
             try
             {
+                // 检查是否已取消
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // 获取当前块的数据
                 string filePath = btnSelectFile.Text;
                 if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
@@ -927,6 +1026,10 @@ namespace ChargeDebug.Form
                     return false;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 AppendInfo($"❌ 块校验异常: {ex.Message}");
@@ -969,7 +1072,8 @@ namespace ChargeDebug.Form
             uint receiveCanId,
             byte[] data,
             string commandName,
-            string operationName)
+            string operationName,
+            CancellationToken cancellationToken)
         {
             int maxRetries = 5;
             int retryCount = 0;
@@ -978,6 +1082,9 @@ namespace ChargeDebug.Form
             {
                 try
                 {
+                    // 检查是否已取消
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     // 发送命令
                     string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
                     CANManager.Instance.ClearQueue(channelKey);
@@ -1023,6 +1130,11 @@ namespace ChargeDebug.Form
                         AppendInfo($"❌ {operationName}失败: 未收到响应");
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    AppendInfo($"❌ {operationName}被取消");
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     AppendInfo($"❌ {operationName}异常: {ex.Message}");
@@ -1033,7 +1145,7 @@ namespace ChargeDebug.Form
                 if (retryCount < maxRetries)
                 {
                     AppendInfo($"↻ {operationName} 重试中 ({retryCount}/{maxRetries})...");
-                    await Task.Delay(100); // 指数退避
+                    await Task.Delay(100, cancellationToken); // 指数退避
                 }
             }
             AppendInfo($"❌ {operationName} 失败: 超过最大重试次数({maxRetries})");
@@ -1138,6 +1250,8 @@ namespace ChargeDebug.Form
         {
             if (disposing)
             {
+                // 释放取消令牌源
+                _cancellationTokenSource?.Dispose();
                 components.Dispose();
             }
             base.Dispose(disposing);

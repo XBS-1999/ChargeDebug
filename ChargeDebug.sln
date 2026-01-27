@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectManagement", "Projec
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PCBTestingSoftware", "PCBTestingSoftware\PCBTestingSoftware.csproj", "{BD8D730B-96BC-41E8-817B-1E25EFC7B5D2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PowerChangeAnalyzer", "PowerChangeAnalyzer\PowerChangeAnalyzer.csproj", "{E9DB6966-E100-42FA-B3A8-8C9E8B375B12}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -53,6 +55,10 @@ Global
 		{BD8D730B-96BC-41E8-817B-1E25EFC7B5D2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BD8D730B-96BC-41E8-817B-1E25EFC7B5D2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BD8D730B-96BC-41E8-817B-1E25EFC7B5D2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E9DB6966-E100-42FA-B3A8-8C9E8B375B12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E9DB6966-E100-42FA-B3A8-8C9E8B375B12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E9DB6966-E100-42FA-B3A8-8C9E8B375B12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E9DB6966-E100-42FA-B3A8-8C9E8B375B12}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

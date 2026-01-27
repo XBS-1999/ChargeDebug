@@ -15,6 +15,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Data.SQLite;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using ZLGAPI;
@@ -606,7 +607,38 @@ namespace ChargeDebug.Form
         /// </summary>
         private void ExportExcel()
         {
-            using (var sfd = new SaveFileDialog { Filter = "Excel文件|*.xlsx" })
+            // 获取当前选中的协议文件名
+            string protocolName = "协议文件"; // 默认名称
+            if (gridView.FocusedRowHandle >= 0)
+            {
+                DataRow row = gridView.GetDataRow(gridView.FocusedRowHandle);
+                if (row != null && row["文件名称"] != null)
+                {
+                    // 获取文件名（不带路径和扩展名）
+                    string fileName = row["文件名称"].ToString();
+                    protocolName = Path.GetFileNameWithoutExtension(fileName);
+                }
+            }
+
+            // 获取当前协议类型
+            string protocolType = "CAN";
+            if (gridView.FocusedRowHandle >= 0)
+            {
+                DataRow row = gridView.GetDataRow(gridView.FocusedRowHandle);
+                if (row != null && row["协议类型"] != null)
+                {
+                    protocolType = row["协议类型"].ToString();
+                }
+            }
+
+            // 构造默认文件名：协议名称_协议类型_日期
+            string defaultFileName = $"{protocolName}_{protocolType}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+
+            using (var sfd = new SaveFileDialog
+            {
+                Filter = "Excel文件|*.xlsx",
+                FileName = defaultFileName // 设置默认文件名
+            })
             {
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {

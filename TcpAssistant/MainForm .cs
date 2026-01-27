@@ -31,6 +31,7 @@ namespace TcpAssistant
         private ComboBoxEdit cbSystemModell;
         private ButtonEdit btnSelectFile;
         private SimpleButton btnUpgrade;
+        private SimpleButton btnStopUpgrade;
 
         // 右侧控件声明
         private Panel rightPanel;
@@ -41,6 +42,11 @@ namespace TcpAssistant
 
         // 在类级别添加以下字段
         private Dictionary<string, HexFileData> hexFileCache = new Dictionary<string, HexFileData>();
+
+        // 新增升级状态跟踪
+        private CancellationTokenSource upgradeCancellationTokenSource;
+        private bool isUpgrading = false;
+        private DateTime upgradeStartTime;
 
         // CAN接收队列
         //private ConcurrentQueue<CANManager.ZCAN_Receive_Data> canReceiveQueue = 
@@ -120,6 +126,7 @@ namespace TcpAssistant
 
             btnSelectFile = new ButtonEdit();
             btnUpgrade = new SimpleButton();
+            btnStopUpgrade = new SimpleButton();
 
             // 设置默认值
             ConfigureComboBox(cbProtocolType, "TCP Server", "TCP Client", "UDP", "CANETTCP", "CANFDNET_200U_TCP", "USBCANFD_200U");
@@ -147,6 +154,10 @@ namespace TcpAssistant
             btnUpgrade.Text = "开始升级";
             btnUpgrade.Click += (s, e) => StartUpgrade();
             btnUpgrade.Appearance.BackColor = Color.LightGreen;
+
+            btnStopUpgrade.Text = "停止升级";
+            btnStopUpgrade.Click += (s, e) => StopUpgrade();
+            btnStopUpgrade.Appearance.BackColor = Color.LightCoral;
 
             // 添加控件到布局 - 每个项之间保持20px间隔
             LayoutControlItem deviceItem = leftLayout.AddItem("设备类型:", cbProtocolType);
@@ -181,6 +192,7 @@ namespace TcpAssistant
 
             // 修复：添加按钮时指定标签文本（可以设置为空字符串）
             leftLayout.AddItem("", btnUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 20);
+            leftLayout.AddItem("", btnStopUpgrade).Padding = new DevExpress.XtraLayout.Utils.Padding(20, 20, 0, 20);
 
             // 新增进度条控件
             progressBar = new ProgressBarControl();
@@ -249,9 +261,22 @@ namespace TcpAssistant
 
         private async void StartUpgrade()
         {
+            // 检查是否已经在升级中
+            if (isUpgrading)
+            {
+                XtraMessageBox.Show("当前正在升级中，请等待完成后再操作", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
             // 显示并重置进度条
             progressBar.Visible = true;
+            progressBar.EditValue = 0;// 显示并重置进度条
+            progressBar.Visible = true;
             progressBar.EditValue = 0;
+            isUpgrading = true;
+            upgradeStartTime = DateTime.Now;
+            upgradeCancellationTokenSource = new CancellationTokenSource();
 
             try
             {
@@ -259,13 +284,13 @@ namespace TcpAssistant
                 if (!ValidateFile(out string errorMessage))
                 {
                     AppendInfo(errorMessage);
-                    XtraMessageBox.Show(errorMessage, "文件验证失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    XtraMessageBox.Show(errorMessage, "文件验证失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 AppendInfo("✅ 文件验证通过，开始升级流程...");
 
-                // 获取设备信息cbFirmwareModel   cbSystemModell
                 // 获取设备信息
                 string firmwareModel = cbFirmwareModel.SelectedItem?.ToString() ?? "";
                 string systemModel = cbSystemModell.SelectedItem?.ToString() ?? "";
@@ -282,97 +307,227 @@ namespace TcpAssistant
                     await StartTCPUpgrade(firmwareModel, systemModel, filePath);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                AppendInfo("⚠ 升级操作已被取消");
+                XtraMessageBox.Show("升级操作已被取消", "操作取消",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             catch (Exception ex)
             {
-                AppendInfo($"❌ 升级过程中发生错误: {ex.Message}");
+                HandleUpgradeException(ex);
             }
             finally
             {
                 // 完成后隐藏进度条
                 progressBar.Visible = false;
+                isUpgrading = false;
+                upgradeCancellationTokenSource?.Dispose();
+                upgradeCancellationTokenSource = null;
             }
+        }
+
+        // 新增：统一的异常处理方法
+        private void HandleUpgradeException(Exception ex)
+        {
+            // 记录详细异常信息
+            StringBuilder errorInfo = new StringBuilder();
+            errorInfo.AppendLine($"❌ 升级过程中发生严重错误");
+            errorInfo.AppendLine($"错误时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            errorInfo.AppendLine($"错误类型: {ex.GetType().Name}");
+            errorInfo.AppendLine($"错误信息: {ex.Message}");
+
+            // 如果是内部异常，也记录
+            if (ex.InnerException != null)
+            {
+                errorInfo.AppendLine($"内部错误: {ex.InnerException.Message}");
+            }
+
+            errorInfo.AppendLine($"堆栈跟踪: {ex.StackTrace}");
+
+            // 显示错误信息到日志
+            AppendInfo(errorInfo.ToString());
+
+            // 弹窗提示用户
+            string errorMessage = GetUserFriendlyErrorMessage(ex);
+            if (XtraMessageBox.Show($"{errorMessage}\n\n是否查看详细错误信息？",
+                "升级失败",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Error) == DialogResult.Yes)
+            {
+                // 显示详细错误信息
+                ShowDetailedErrorDialog(ex);
+            }
+
+            // 如果是连接相关错误，建议重新连接
+            if (IsConnectionError(ex))
+            {
+                AppendInfo("⚠ 建议：请检查网络连接并重新尝试连接设备");
+            }
+        }
+
+        // 新增：获取用户友好的错误信息
+        private string GetUserFriendlyErrorMessage(Exception ex)
+        {
+            // 根据异常类型返回不同的提示信息
+            if (ex is SocketException socketEx)
+            {
+                return socketEx.SocketErrorCode switch
+                {
+                    SocketError.ConnectionRefused => "连接被拒绝，请检查设备是否开启",
+                    SocketError.TimedOut => "连接超时，请检查网络连接",
+                    SocketError.HostUnreachable => "无法连接到设备，请检查IP地址和端口",
+                    SocketError.NetworkDown => "网络不可用，请检查网络连接",
+                    _ => $"网络通信错误: {socketEx.Message}"
+                };
+            }
+            else if (ex is TimeoutException)
+            {
+                return "设备响应超时，请检查设备状态";
+            }
+            else if (ex is IOException ioEx)
+            {
+                return $"文件操作失败: {ioEx.Message}";
+            }
+            else if (ex is InvalidOperationException)
+            {
+                return "操作无效，可能是设备状态异常";
+            }
+            else if (ex is ArgumentException)
+            {
+                return "参数错误，请检查输入的数据";
+            }
+            else
+            {
+                return $"升级失败: {ex.Message}";
+            }
+        }
+
+        // 新增：显示详细错误对话框
+        private void ShowDetailedErrorDialog(Exception ex)
+        {
+            using (DetailedErrorForm errorForm = new DetailedErrorForm(ex))
+            {
+                errorForm.ShowDialog();
+            }
+        }
+
+        // 新增：判断是否为连接错误
+        private bool IsConnectionError(Exception ex)
+        {
+            return ex is SocketException ||
+                   ex is TimeoutException ||
+                   (ex is InvalidOperationException && ex.Message.Contains("连接"));
         }
 
         // TCP升级流程
         private async Task StartTCPUpgrade(string firmwareModel, string systemModel, string filePath)
         {
-            // 步骤1: 发送升级标志指令 (0x05)
-            if (!await SendTCPCommandAndVerify("升级标志指令", 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+            try
             {
-                AppendInfo("❌ 升级标志指令发送失败，停止升级");
-                return;
+                // 步骤1: 发送升级标志指令 (0x05)
+                if (!await SendTCPCommandAndVerify("升级标志指令", 0x05,
+                    GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+                {
+                    AppendInfo("❌ 升级标志指令发送失败，停止升级");
+                    throw new InvalidOperationException("升级标志指令发送失败");
+                }
+
+                await Task.Delay(100, upgradeCancellationTokenSource.Token);
+
+                // 步骤2: 发送请求升级指令 (0x01)
+                if (!await SendTCPCommandAndVerify("请求升级指令", 0x01,
+                    GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+                {
+                    AppendInfo("❌ 请求升级指令发送失败，停止升级");
+                    throw new InvalidOperationException("请求升级指令发送失败");
+                }
+
+                // 步骤3: 发送启动升级指令 (0x03)
+                if (!await SendTCPCommandAndVerify("启动升级指令", 0x03, 0xA1, 0xB2, 0xC3, 0xD4))
+                {
+                    AppendInfo("❌ 启动升级指令发送失败，停止升级");
+                    throw new InvalidOperationException("启动升级指令发送失败");
+                }
+
+                // 步骤4-6: 分块传输固件数据
+                await TransferFirmwareDataInBlocksTCP(filePath);
+
+                // 断开当前连接
+                Disconnect();
+                AppendInfo($"✅ 固件升级完成！耗时: {(DateTime.Now - upgradeStartTime).TotalSeconds:F2}秒");
             }
-
-            await Task.Delay(100); //延时100ms
-
-            // 步骤2: 发送请求升级指令 (0x01)
-            if (!await SendTCPCommandAndVerify("请求升级指令", 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel)))
+            catch (OperationCanceledException)
             {
-                AppendInfo("❌ 请求升级指令发送失败，停止升级");
-                return;
+                AppendInfo("⚠ TCP升级流程被取消");
+                throw;
             }
-
-            // 步骤3: 发送启动升级指令 (0x03)
-            if (!await SendTCPCommandAndVerify("启动升级指令", 0x03, 0xA1, 0xB2, 0xC3, 0xD4))
+            catch (Exception ex)
             {
-                AppendInfo("❌ 启动升级指令发送失败，停止升级");
-                return;
+                AppendInfo($"❌ TCP升级流程失败: {ex.Message}");
+                throw;
             }
-
-            // 步骤4-6: 分块传输固件数据
-            await TransferFirmwareDataInBlocksTCP(filePath);
-
-            // 断开当前连接
-            Disconnect();
-            AppendInfo("✅ 固件升级完成！");
         }
 
         // CAN升级流程
         private async Task StartCANUpgrade(string firmwareModel, string systemModel, string filePath)
         {
-            // 检查CAN连接状态
-            if (!IsCANConnected())
+            try
             {
-                AppendInfo("❌ CAN连接未建立，请先打开CAN连接");
-                return;
-            }
+                // 检查CAN连接状态
+                if (!IsCANConnected())
+                {
+                    AppendInfo("❌ CAN连接未建立，请先打开CAN连接");
+                    throw new InvalidOperationException("CAN连接未建立");
+                }
 
-            // 步骤1: 发送请求升级指令 (0x05)
-            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
-                new byte[] { 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                "升级标志指令", "升级标志"))
-            {
-                return;
-            }
+                // 步骤1: 发送请求升级指令 (0x05)
+                if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                    new byte[] { 0x05, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    "升级标志指令", "升级标志"))
+                {
+                    throw new InvalidOperationException("升级标志指令发送失败");
+                }
 
-            await Task.Delay(100); //延时100ms
+                await Task.Delay(100, upgradeCancellationTokenSource.Token);
 
-            // 步骤2: 发送请求升级指令 (0x01)
-            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
-                new byte[] { 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                "请求升级指令", "请求升级"))
-            {
-                return;
-            }
+                // 步骤2: 发送请求升级指令 (0x01)
+                if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                    new byte[] { 0x01, GetCpuByte(firmwareModel), GetChannelByte(systemModel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    "请求升级指令", "请求升级"))
+                {
+                    throw new InvalidOperationException("请求升级指令发送失败");
+                }
 
-            // 步骤3: 发送启动升级指令 (0x03)
-            if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                // 步骤3: 发送启动升级指令 (0x03)
+                if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
+                        new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                        "启动升级指令", "启动升级"))
+                {
+                    if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
                     new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
                     "启动升级指令", "启动升级"))
-            {
-                if (!await SendAndVerifyCommand(0, 0, 0x0000AA01, 0x0000BB01,
-                new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
-                "启动升级指令", "启动升级"))
-                {
-                    return;
+                    {
+                        throw new InvalidOperationException("启动升级指令发送失败");
+                    }
                 }
+
+                // 步骤4-6: 分块传输固件数据
+                await TransferFirmwareDataInBlocksCAN(filePath, firmwareModel);
+
+                DisconnectCAN();
+                AppendInfo($"✅ 固件升级完成！耗时: {(DateTime.Now - upgradeStartTime).TotalSeconds:F2}秒");
             }
-
-            // 步骤4-6: 分块传输固件数据
-            await TransferFirmwareDataInBlocksCAN(filePath, firmwareModel);
-
-            DisconnectCAN();
-            AppendInfo("✅ 固件升级完成！");
+            catch (OperationCanceledException)
+            {
+                AppendInfo("⚠ CAN升级流程被取消");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AppendInfo($"❌ CAN升级流程失败: {ex.Message}");
+                throw;
+            }
         }
 
         private async Task TransferFirmwareDataInBlocksCAN(string filePath, string firmwareModel)
@@ -382,19 +537,22 @@ namespace TcpAssistant
                 if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
                 {
                     AppendInfo("❌ 未找到缓存的HEX文件数据");
-                    return;
+                    throw new InvalidOperationException("未找到缓存的HEX文件数据");
                 }
 
                 // 直接使用解析时生成的块
                 for (int i = 0; i < hexData.Blocks.Count; i++)
                 {
+                    // 检查取消请求
+                    upgradeCancellationTokenSource.Token.ThrowIfCancellationRequested();
+
                     DataBlock block = hexData.Blocks[i];
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
                     int times = 20;
 
-                    if(firmwareModel.Contains("ARM"))
+                    if (firmwareModel.Contains("ARM"))
                     {
                         times = 5;
                     }
@@ -404,6 +562,9 @@ namespace TcpAssistant
                     {
                         try
                         {
+                            // 检查取消请求
+                            upgradeCancellationTokenSource.Token.ThrowIfCancellationRequested();
+
                             await SendBlock(0, 0,
                                            block.StartAddress,
                                            block.Data,
@@ -412,6 +573,11 @@ namespace TcpAssistant
                                            times);
 
                             blockSuccess = true; // 标记成功
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            AppendInfo($"⚠ 第 {block.BlockIndex} 包数据发送被取消");
+                            throw;
                         }
                         catch (Exception ex)
                         {
@@ -422,11 +588,11 @@ namespace TcpAssistant
                             if (retryCount >= maxRetries)
                             {
                                 AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
-                                throw; // 抛出异常终止升级
+                                throw new TimeoutException($"第 {block.BlockIndex} 包数据传输失败，重试{maxRetries}次");
                             }
 
                             // 重试前延迟
-                            await Task.Delay(100);
+                            await Task.Delay(100, upgradeCancellationTokenSource.Token);
                         }
                     }
 
@@ -434,16 +600,75 @@ namespace TcpAssistant
                     int progress = (i + 1) * 100 / hexData.Blocks.Count;
                     this.Invoke((Action)(() => { progressBar.EditValue = progress; }));
 
-                    await Task.Delay(5);
+                    await Task.Delay(5, upgradeCancellationTokenSource.Token);
                 }
                 AppendInfo("✅ 所有数据包传输完成，升级成功！");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 AppendInfo($"❌ 数据传输异常: {ex.Message}");
-                progressBar.Visible = false;
-                XtraMessageBox.Show($"升级失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw;
             }
+        }
+
+        // 新增：升级停止按钮事件
+        private void StopUpgrade()
+        {
+            if (!isUpgrading || upgradeCancellationTokenSource == null)
+            {
+                AppendInfo("⚠ 当前没有进行中的升级操作");
+                return;
+            }
+
+            // 确认对话框
+            if (XtraMessageBox.Show("确定要停止当前升级吗？停止后需要重新开始升级流程。",
+                "确认停止升级",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) == DialogResult.Yes)
+            {
+                try
+                {
+                    AppendInfo("⚠ 正在停止升级操作...");
+
+                    // 触发取消令牌
+                    upgradeCancellationTokenSource.Cancel();
+
+                    // 记录停止时间
+                    TimeSpan upgradeDuration = DateTime.Now - upgradeStartTime;
+                    AppendInfo($"⏹ 升级已停止，已运行时间: {upgradeDuration.TotalSeconds:F2}秒");
+                }
+                catch (Exception ex)
+                {
+                    AppendInfo($"❌ 停止升级时发生错误: {ex.Message}");
+                }
+            }
+        }
+
+        // 修改：在窗体关闭时处理升级状态
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (isUpgrading)
+            {
+                DialogResult result = XtraMessageBox.Show("当前正在升级中，关闭窗口将停止升级。\n确定要关闭吗？",
+                    "警告", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+                if (result == DialogResult.Yes)
+                {
+                    upgradeCancellationTokenSource?.Cancel();
+                    // 等待一小段时间让升级任务停止
+                    Task.Delay(500).Wait();
+                }
+                else
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+            base.OnFormClosing(e);
         }
 
         private async Task<bool> SendAddressAndLength(int deviceIndex, int channelIndex,
