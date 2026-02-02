@@ -77,14 +77,14 @@ namespace PowerChangeAnalyzer
                 // 移除引号并分割
                 var parts = line.Replace("\"", "").Split(',');
 
-                if (parts.Length >= 4)
+                if (parts.Length >= 3)
                 {
                     var record = new PowerRecord
                     {
-                        WarehouseNum = int.Parse(parts[0]),
-                        Timestamp = DateTime.ParseExact(parts[1], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                        TotalActivePower = double.Parse(parts[2], CultureInfo.InvariantCulture),
-                        ChannelCount = int.Parse(parts[3])
+                        //WarehouseNum = int.Parse(parts[0]),
+                        Timestamp = DateTime.ParseExact(parts[0], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                        TotalActivePower = double.Parse(parts[1], CultureInfo.InvariantCulture),
+                        ChannelCount = int.Parse(parts[2])
                     };
                     records.Add(record);
                 }

@@ -2565,6 +2565,7 @@ namespace ChargeDebug.Form
                                 else
                                 {
                                     LogService.Log("校准系数写入设备失败");
+                                    return false;
                                 }
                             }
 
@@ -2581,11 +2582,13 @@ namespace ChargeDebug.Form
                         catch (Exception ex)
                         {
                             LogService.Log($"计算校准系数失败: {ex.Message}");
+                            return false;
                         }
                     }
                     else
                     {
                         LogService.Log("有效数据点不足，无法计算校准系数");
+                        return false;
                     }
                 }
 
@@ -5441,8 +5444,8 @@ namespace ChargeDebug.Form
                 // 发送写入请求帧
                 await SendWriteCalibrationRequest(equipment, channel, scaleFactorSignal, zeroFactorSignal, scaleFactor, zeroFactor);
 
-                // 等待100ms
-                await Task.Delay(100);
+                // 等待200ms
+                await Task.Delay(200);
 
                 // 发送读取请求帧
                 await SendReadCalibrationRequest(equipment, channel, scaleFactorSignal);

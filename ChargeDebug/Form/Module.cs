@@ -72,6 +72,8 @@ namespace ChargeDebug.Form
         private static string _baseSaveDirectory;
         private string _deviceSaveDirectory;
 
+        private string _lastStartupType = ""; // "AC" 或 "DC"
+
         #endregion
 
         #region 字段声明
@@ -135,6 +137,7 @@ namespace ChargeDebug.Form
         private StartupManager _startupManager;
         private EquipmentModel _equipment;
         private ConfigurationData _protectionParameters;
+        private ACStartConfiguration? _acParamForm; // 新增：AC参数配置窗体
 
         // 定时器字段
         private System.Threading.Timer _uiUpdateTimer;
@@ -489,7 +492,7 @@ namespace ChargeDebug.Form
             // 如果包含AC通道，添加AC启动选项
             if (_hasACChannel)
             {
-                var acPowerOn = new ToolStripMenuItem("AC侧控制");
+                var acPowerOn = new ToolStripMenuItem("AC侧启动");
                 acPowerOn.Click += ACPoweronAsync;
                 contextMenu.Items.Insert(1, acPowerOn); // 插入到第二个位置
             }
@@ -1270,6 +1273,7 @@ namespace ChargeDebug.Form
 
                                 // 在停止设备时重置时间
                                 _startTime = DateTime.MinValue;
+                                _stepStartTime = DateTime.MinValue;
                                 LogService.Log("AC停机指令发送成功");
                             }
                             else
@@ -1495,10 +1499,15 @@ namespace ChargeDebug.Form
             {
                 if (channel == "AC")
                 {
+                    return true;
                     switch (workingMode)
                     {
                         case "恒定并网直流恒压运行":
                             mode = 0x01;
+                            break;
+
+                        case "交流恒功率运行":
+                            mode = 0x02;
                             break;
 
                         case "停机":
@@ -2092,8 +2101,6 @@ namespace ChargeDebug.Form
                                     // 状态已改变，启动成功
                                     _totalTimeData.Value = "00:00:00";
                                     _startTime = DateTime.Now;
-
-                                    LogService.Log("设备启动成功");
                                 }
 
                                 // 异步等待设备进入运行状态
@@ -2102,6 +2109,8 @@ namespace ChargeDebug.Form
                                 // 设置工步开始时间
                                 _stepTimeData.Value = "00:00:00";
                                 _stepStartTime = DateTime.Now;
+                                _lastStartupType = "DC";
+                                LogService.Log("设备启动成功");
                             }
                             else
                             {
@@ -2137,14 +2146,14 @@ namespace ChargeDebug.Form
                 if (_acRunStatus == 0x00 || _acRunStatus == 0x03)
                 {
                     // 显示AC启动配置对话框
-                    using (var configForm = new ACStartConfiguration(_title, "AC启动配置"))
+                    using (var configForm = new ACStartConfiguration(_title, "AC启动配置", true))
                     {
                         if (configForm.ShowDialog() == DialogResult.OK)
                         {
                             var acConfig = configForm.ACConfiguration;
 
                             // 记录AC启动配置
-                            LogService.Log($"AC启动配置 - 启动方式: {acConfig.StartMode}, 运行模式: {acConfig.RunMode}, 电池电压: {acConfig.BatteryVoltage}V");
+                            LogService.Log($"AC启动配置 - 启动方式: {acConfig.StartMode}, 运行模式: {acConfig.RunMode}");
 
                             // 这里可以添加AC设备启动的具体逻辑
                             bool success = await _startupManager.ACStartDeviceAsync(acConfig);
@@ -2182,12 +2191,14 @@ namespace ChargeDebug.Form
                                     return;
                                 }
 
-                                LogService.Log("AC通道控制成功");
                                 //XtraMessageBox.Show("AC通道控制成功");
 
                                 // 设置AC运行时间
                                 _totalTimeData.Value = "00:00:00";
                                 _startTime = DateTime.Now;
+                                _lastStartupType = "AC";
+
+                                LogService.Log("AC通道控制成功");
                             }
                             else
                             {
@@ -2246,90 +2257,258 @@ namespace ChargeDebug.Form
             try
             {
                 // 检查设备状态,运行情况下才能设置参数
-                if (_dcRunStatus != 0x02)
+                if (_dcRunStatus != 0x02 && _acRunStatus != 0x02)
                 {
                     XtraMessageBox.Show("设备状态异常，禁止设置参数");
                     return;
                 }
 
-                // 检查是否已有窗体实例存在
-                if (_paramForm != null && !_paramForm.IsDisposed)
+                // 根据上次启动类型决定使用哪个配置窗体
+                if (_lastStartupType == "AC")
                 {
-                    _paramForm.Activate(); // 激活已有窗体
-                    return;
+                    OpenACParameterConfiguration();
+                }
+                else if (_lastStartupType == "DC")
+                {
+                    OpenDCParameterConfiguration();
+                }
+                else
+                {
+                    XtraMessageBox.Show("请先启动设备再进行参数设置", "提示",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
 
-                // 保存当前保护参数以便比较
-                ConfigurationData currentParams = _protectionParameters;
+                //// 检查是否已有窗体实例存在
+                //if (_paramForm != null && !_paramForm.IsDisposed)
+                //{
+                //    _paramForm.Activate(); // 激活已有窗体
+                //    return;
+                //}
 
-                _paramForm = new StartConfiguration(_title, "参数配置", true);
+                //// 保存当前保护参数以便比较
+                //ConfigurationData currentParams = _protectionParameters;
 
-                // 设置窗体位置居中
-                CenterFormToParent(_paramForm);
+                //_paramForm = new StartConfiguration(_title, "参数配置", true);
 
-                // 订阅窗体关闭事件以便清理引用
-                _paramForm.FormClosed += (s, args) =>
-                {
-                    _paramForm = null;
-                };
+                //// 设置窗体位置居中
+                //CenterFormToParent(_paramForm);
 
-                _paramForm.Applied += async (s, args) =>
-                {
-                    // 获取用户设置的新参数
-                    ConfigurationData newParams = _paramForm.Configuration;
+                //// 订阅窗体关闭事件以便清理引用
+                //_paramForm.FormClosed += (s, args) =>
+                //{
+                //    _paramForm = null;
+                //};
 
-                    // ============ 新增：检查新参数是否会导致当前信号值超出阈值 ============
-                    if (!await CheckParametersSafe(newParams))
-                    {
-                        XtraMessageBox.Show("新参数设置会导致当前信号值超出保护阈值，请调整参数或设备状态");
-                        return;
-                    }
-                    // ============ 新增结束 ============
+                //_paramForm.Applied += async (s, args) =>
+                //{
+                //    // 获取用户设置的新参数
+                //    ConfigurationData newParams = _paramForm.Configuration;
 
-                    // 比较参数是否有变化
-                    bool hasChanges = CompareParameters(currentParams, newParams);
+                //    // ============ 新增：检查新参数是否会导致当前信号值超出阈值 ============
+                //    if (!await CheckParametersSafe(newParams))
+                //    {
+                //        XtraMessageBox.Show("新参数设置会导致当前信号值超出保护阈值，请调整参数或设备状态");
+                //        return;
+                //    }
+                //    // ============ 新增结束 ============
 
-                    // 发送新的参数
-                    bool success = await _startupManager.StartDeviceAsync(newParams, hasChanges);
+                //    // 比较参数是否有变化
+                //    bool hasChanges = CompareParameters(currentParams, newParams);
 
-                    if (success)
-                    {
-                        _stepStartTime = DateTime.MinValue;
-                        _stepTimeData.Value = "00:00:00";
-                        _stepStartTime = DateTime.Now;
+                //    // 发送新的参数
+                //    bool success = await _startupManager.StartDeviceAsync(newParams, hasChanges);
 
-                        await Task.Delay(100);
+                //    if (success)
+                //    {
+                //        _stepStartTime = DateTime.MinValue;
+                //        _stepTimeData.Value = "00:00:00";
+                //        _stepStartTime = DateTime.Now;
 
-                        // 检测设备运行工步码是否一致
-                        bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), newParams.WorkingMode, "DC");
+                //        await Task.Delay(100);
 
-                        if (runmode)
-                        {
-                            // 更新当前保护参数
-                            _protectionParameters = newParams;
-                            LogService.Log("参数设置成功");
-                            XtraMessageBox.Show("参数设置成功");
-                        }
-                        else
-                        {
-                            LogService.Log("参数发送失败");
-                            XtraMessageBox.Show("参数发送失败");
-                        }
-                    }
-                    else
-                    {
-                        LogService.Log("参数发送失败");
-                        XtraMessageBox.Show("参数发送失败");
-                    }
-                };
+                //        // 检测设备运行工步码是否一致
+                //        bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), newParams.WorkingMode, "DC");
 
-                _paramForm.Show(); // 非模态显示
+                //        if (runmode)
+                //        {
+                //            // 更新当前保护参数
+                //            _protectionParameters = newParams;
+                //            LogService.Log("参数设置成功");
+                //            XtraMessageBox.Show("参数设置成功");
+                //        }
+                //        else
+                //        {
+                //            LogService.Log("参数发送失败");
+                //            XtraMessageBox.Show("参数发送失败");
+                //        }
+                //    }
+                //    else
+                //    {
+                //        LogService.Log("参数发送失败");
+                //        XtraMessageBox.Show("参数发送失败");
+                //    }
+                //};
+
+                //_paramForm.Show(); // 非模态显示
             }
             catch (Exception ex)
             {
                 LogService.Log($"设置参数失败: {ex.Message}");
                 XtraMessageBox.Show($"设置参数失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 打开DC参数配置
+        /// </summary>
+        private void OpenDCParameterConfiguration()
+        {
+            // 检查是否已有窗体实例存在
+            if (_paramForm != null && !_paramForm.IsDisposed)
+            {
+                _paramForm.Activate();
+                return;
+            }
+
+            // 保存当前保护参数以便比较
+            ConfigurationData currentParams = _protectionParameters;
+
+            _paramForm = new StartConfiguration(_title, "DC参数配置", false); // false表示不是启动配置
+
+            // 设置窗体位置居中
+            CenterFormToParent(_paramForm);
+
+            // 订阅窗体关闭事件以便清理引用
+            _paramForm.FormClosed += (s, args) =>
+            {
+                _paramForm = null;
+            };
+
+            _paramForm.Applied += async (s, args) =>
+            {
+                // 获取用户设置的新参数
+                ConfigurationData newParams = _paramForm.Configuration;
+
+                // 检查新参数是否会导致当前信号值超出阈值
+                if (!await CheckParametersSafe(newParams))
+                {
+                    XtraMessageBox.Show("新参数设置会导致当前信号值超出保护阈值，请调整参数或设备状态");
+                    return;
+                }
+
+                // 比较参数是否有变化
+                bool hasChanges = CompareParameters(currentParams, newParams);
+
+                // 发送新的参数
+                bool success = await _startupManager.StartDeviceAsync(newParams, hasChanges);
+
+                if (success)
+                {
+                    // 更新工步开始时间
+                    _stepStartTime = DateTime.MinValue;
+                    _stepTimeData.Value = "00:00:00";
+                    _stepStartTime = DateTime.Now;
+
+                    await Task.Delay(100);
+
+                    // 检测设备运行工步码是否一致
+                    bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), newParams.WorkingMode, "DC");
+
+                    if (runmode)
+                    {
+                        // 更新当前保护参数
+                        _protectionParameters = newParams;
+                        LogService.Log("DC参数设置成功");
+                        XtraMessageBox.Show("DC参数设置成功");
+                    }
+                    else
+                    {
+                        LogService.Log("DC参数发送失败");
+                        XtraMessageBox.Show("DC参数发送失败");
+                    }
+                }
+                else
+                {
+                    LogService.Log("DC参数发送失败");
+                    XtraMessageBox.Show("DC参数发送失败");
+                }
+            };
+
+            _paramForm.Show();
+        }
+
+        /// <summary>
+        /// 打开AC参数配置
+        /// </summary>
+        private void OpenACParameterConfiguration()
+        {
+            // 检查是否已有窗体实例存在
+            if (_acParamForm != null && !_acParamForm.IsDisposed)
+            {
+                _acParamForm.Activate();
+                return;
+            }
+
+            // 创建AC参数配置窗体
+            _acParamForm = new ACStartConfiguration(_title, "AC参数配置", true);
+
+            // 设置窗体位置居中
+            CenterFormToParent(_acParamForm);
+
+            // 订阅窗体关闭事件以便清理引用
+            _acParamForm.FormClosed += (s, args) =>
+            {
+                _acParamForm = null;
+            };
+
+            // 订阅应用按钮事件
+            _acParamForm.Applied += async (s, args) =>
+            {
+                // 获取AC配置参数
+                var acConfig = _acParamForm.ACConfiguration;
+
+                try
+                {
+                    // 发送AC参数设置命令
+                    bool success = await _startupManager.ACStartDeviceAsync(acConfig);
+
+                    if (success)
+                    {
+                        // 更新工步开始时间
+                        _stepStartTime = DateTime.MinValue;
+                        _stepTimeData.Value = "00:00:00";
+                        _stepStartTime = DateTime.Now;
+
+                        await Task.Delay(100);
+
+                        // 检测设备运行模式是否一致
+                        bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), acConfig.RunMode, "AC");
+
+                        if (runmode)
+                        {
+                            LogService.Log("AC参数设置成功");
+                            XtraMessageBox.Show("AC参数设置成功");
+                        }
+                        else
+                        {
+                            LogService.Log("AC参数发送失败");
+                            XtraMessageBox.Show("AC参数发送失败");
+                        }
+                    }
+                    else
+                    {
+                        LogService.Log("AC参数发送失败");
+                        XtraMessageBox.Show("AC参数发送失败");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Log($"AC参数设置失败: {ex.Message}");
+                    XtraMessageBox.Show($"AC参数设置失败: {ex.Message}");
+                }
+            };
+
+            _acParamForm.Show();
         }
 
         // 辅助方法：居中窗体
@@ -3603,6 +3782,13 @@ namespace ChargeDebug.Form
                 {
                     _paramForm.Close();
                     _paramForm.Dispose();
+                }
+
+                // 新增：关闭AC参数设置窗体
+                if (_acParamForm != null && !_acParamForm.IsDisposed)
+                {
+                    _acParamForm.Close();
+                    _acParamForm.Dispose();
                 }
 
                 // 停止并释放UI更新定时器

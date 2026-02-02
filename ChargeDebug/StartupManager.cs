@@ -1,6 +1,9 @@
 ﻿using ChargeDebug.Form;
 using ChargeDebug.Service;
 using DataModel;
+using DevExpress.XtraRichEdit.Layout.Engine;
+using DocumentFormat.OpenXml.Office.PowerPoint.Y2022.M03.Main;
+using DocumentFormat.OpenXml.Wordprocessing;
 using Log;
 using System.Globalization;
 using static ChargeDebug.Form.ACStartConfiguration;
@@ -150,30 +153,62 @@ namespace ChargeDebug
 
                 // 构造保护参数数据
                 byte[] data = new byte[8];
-                data[3] = 0x00;
-                data[4] = 0x00;
-                data[5] = 0x00;
-                data[6] = 0x00;
-                data[7] = 0x00;
 
                 switch (configData.RunMode)
                 {
-                    case "停机":
-                        data[0] = 0x00;
-                        break;
-
                     case "恒定并网直流恒压运行":
                         data[0] = 0x01;
+                        data[3] = 0x00;
+                        data[4] = 0x00;
+                        data[5] = 0x00;
+                        data[6] = 0x00;
+                        data[7] = 0x00;
+                        if (configData.DynamicParameters.TryGetValue("ConstantVoltage", out string? voltageValueStr) &&
+                                double.TryParse(voltageValueStr, out double voltageValue))
+                        {
+                            // 控制参数1
+                            int controlparameters1 = (int)(voltageValue * 10);
+                            data[1] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                            data[2] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+                        }
+                        break;
+
+                    case "交流恒功率运行":
+                        data[0] = 0x02;
+                        data[1] = 0x00;
+                        data[2] = 0x00;
+                        data[7] = 0x00;
+                        if (configData.DynamicParameters.TryGetValue("ConstantActivePower", out string? activepowerValueStr) &&
+                                double.TryParse(activepowerValueStr, out double activepowerValue))
+                        {
+                            // 控制参数1
+                            int controlparameters1 = (int)(activepowerValue * 10);
+                            
+                            data[3] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                            data[4] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+
+                            if (configData.DynamicParameters.TryGetValue("ConstantReactivePower", out string? reactivepowerValueStr) &&
+                                double.TryParse(reactivepowerValueStr, out double reactivepowerValue))
+                            {
+                                // 控制参数2
+                                int controlparameters2 = (int)(reactivepowerValue * 10);
+                                data[5] = (byte)(controlparameters2 & 0xFF);
+                                data[6] = (byte)((controlparameters2 >> 8) & 0xFF);
+                            }
+                        }
                         break;
 
                     default:
                         data[0] = 0x00;
+                        data[1] = 0x00;
+                        data[2] = 0x00;
+                        data[3] = 0x00;
+                        data[4] = 0x00;
+                        data[5] = 0x00;
+                        data[6] = 0x00;
+                        data[7] = 0x00;
                         break;
                 }
-
-                short batteryVoltage = (short)(double.Parse(configData.BatteryVoltage, CultureInfo.InvariantCulture) * 10);
-                data[1] = (byte)(batteryVoltage & 0xFF);        // 低字节
-                data[2] = (byte)((batteryVoltage >> 8) & 0xFF); // 高字节
 
                 // 构造通道键
                 string channelKey = CANManager.GetChannelKey(_equipment.DeviceIndex, _equipment.CanIndex);
@@ -387,6 +422,45 @@ namespace ChargeDebug
                 throw new Exception($"设备设置参数: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// 设置参数
+        /// </summary>
+        public async Task<bool> ACSetParameters(uint workstepcode, double currentValue, double voltageValue)
+        {
+            try
+            {
+                if (_dcRunStatus == 0x02)
+                //if (true)
+                {
+                    //步骤1: 发送控制参数32YCC
+                    bool controlparameters = await SendControlParams32YCC(currentValue, voltageValue);
+                    if (!controlparameters)
+                    {
+                        return false;
+                    }
+
+                    // 步骤2: 发送工步参数22YCC
+                    bool processparameters = await SendStepParams22YCC(workstepcode);
+                    if (!processparameters)
+                    {
+                        return false;
+                    }
+
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设备设置参数: {ex.Message}");
+            }
+        }
+
+
 
         /// <summary>
         /// 发送保护参数52YCC

@@ -652,6 +652,7 @@ namespace ChargeDebug.Form
             OverPower = "100.0";
             UnderPower = "-100.0";
             WorkingMode = "搁置";
+            Directionammeter = "正方向";
         }
     }
 

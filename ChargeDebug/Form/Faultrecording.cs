@@ -78,7 +78,8 @@ namespace ChargeDebug.Form
 
         public void UpdateDcNumber(List<EquipmentModel> equipmentList)
         {
-            faultrecordingList = equipmentList;
+            DeviceConfig(equipmentList);
+            //faultrecordingList = equipmentList;
             //清除所有旧布局
             this.Controls.Clear();
             //LoadFaultTemplates();
@@ -1071,16 +1072,32 @@ namespace ChargeDebug.Form
                                     double physicalValue = CANManager.Instance.ConvertToPhysicalValue(rawValue, signalInfo);
 
                                     // 检查是否为故障信息信号
-                                    if (signal.SignalName.Contains("故障信息"))
+                                    if(passage.StartsWith("DC"))
                                     {
-                                        // 提取故障信息编号
-                                        string faultInfoStr = signal.SignalName.Replace("故障信息", "");
-                                        if (int.TryParse(faultInfoStr, out int faultInfoIndex))
+                                        if (signal.SignalName.Contains("故障信息"))
                                         {
-                                            // 存储故障信息的原始值
-                                            faultInfoValues[faultInfoIndex] = rawValue;
+                                            // 提取故障信息编号
+                                            string faultInfoStr = signal.SignalName.Replace("故障信息", "");
+                                            if (int.TryParse(faultInfoStr, out int faultInfoIndex))
+                                            {
+                                                // 存储故障信息的原始值
+                                                faultInfoValues[faultInfoIndex] = rawValue;
+                                            }
+                                            continue; // 不添加到数据行
                                         }
-                                        continue; // 不添加到数据行
+                                    }
+                                    else
+                                    {
+                                        if (signal.SignalName.Contains("故障信息"))
+                                        {
+                                            // 只有列存在时才赋值
+                                            if (dataTable.Columns.Contains(signal.SignalName))
+                                            {
+                                                row[signal.SignalName] = ParseFaultInformation(
+                                                    rawValue,acfaultTemplate);
+                                                break;
+                                            }
+                                        }   
                                     }
 
                                     // 解析故障时间信号
@@ -1162,11 +1179,13 @@ namespace ChargeDebug.Form
                         }
                     }
 
-                    // 处理合并的故障信息
-                    string combinedFaultInfo = ParseCombinedFaultInfo(faultInfoValues,
-                        passage.StartsWith("AC") ? acfaultTemplate : dcfaultTemplate);
-                    row["故障信息"] = combinedFaultInfo;
-
+                    if (passage.StartsWith("DC"))
+                    {
+                        // 处理合并的故障信息
+                        string combinedFaultInfo = ParseCombinedFaultInfo(faultInfoValues, dcfaultTemplate);
+                        row["故障信息"] = combinedFaultInfo;
+                    }
+                    
                     // 设置中位机指令时间
                     if (hasCommandTime)
                     {
@@ -1695,7 +1714,7 @@ namespace ChargeDebug.Form
                     var receivedZcanFrames = await CANManager.Instance.ReceiveMultipleFramesAsync(
                         canChannelKey,
                         expectedCanIds,
-                        15000
+                        25000
                     );
 
                     if (receivedZcanFrames.Count >= 2)
@@ -1774,7 +1793,7 @@ namespace ChargeDebug.Form
                     var receivedZcanFrames = await CANManager.Instance.ReceiveMultipleFramesAsync(
                         canChannelKey,
                         expectedCanIds,
-                        15000
+                        25000
                     );
 
                     if (receivedZcanFrames.Values.Count >= 1)
