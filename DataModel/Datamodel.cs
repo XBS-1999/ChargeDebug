@@ -183,4 +183,179 @@ namespace DataModel
         /// </summary>
         //public string PrecisionRange { get; set; }
     }
+
+    public class FileInfoDto
+    {
+        public int FileID { get; set; }
+        public string FileName { get; set; }
+        public string FilePath { get; set; }
+        public long FileSize { get; set; }
+        public DateTime CreateTime { get; set; }
+        public int RecordCount { get; set; }
+    }
+
+    #region 记录模型类
+
+    /// <summary>
+    /// 文件时间信息类
+    /// </summary>
+    public class FileTimeInfo
+    {
+        public string FilePath { get; set; }
+        public string FileName { get; set; }
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public long FileSize { get; set; }
+    }
+
+    /// <summary>
+    /// 文件组信息类
+    /// </summary>
+    public class FileGroupInfo
+    {
+        public string FileName { get; set; }
+        public string FilePath { get; set; }
+        public long FileSize { get; set; }
+    }
+
+    public class CenterBottomData
+    {
+        public string Type { get; set; }
+
+        public int X { get; set; }
+
+        public decimal Y { get; set; }
+    }
+
+    public class Template
+    {
+        public string Name { get; set; }
+        public string ChineseName { get; set; }
+        public string Unit { get; set; }
+        public string Type_Table { get; set; }
+        public string Type_Chart { get; set; }
+    }
+
+    /// <summary>
+    /// 批量插入的数据容器类
+    /// </summary>
+    public class TargetTableRecordData
+    {
+        public DateTime? CreateTime { get; set; }
+        public double? AC_TotalPower { get; set; }
+        public double? DC_TotalPower { get; set; }
+        public double?[] ChannelPowers { get; set; } = new double?[4] { null, null, null, null };
+        public double?[] ChannelSocs { get; set; } = new double?[4] { null, null, null, null };
+    }
+
+    public class Cal7Record
+    {
+        public DateTime CreateTime { get; set; }
+        public int? ChannelNum { get; set; }
+        public double? Power { get; set; }
+        public double? ChargeEnergy { get; set; }
+        public double? DischargeEnergy { get; set; }
+        public int? DeviceStatus { get; set; }
+        public string KeyValue { get; set; }
+        public int? Sign {  get; set; }
+
+    }
+
+    public class Cal6Record
+    {
+        public DateTime CreateTime { get; set; }
+        public string CurrentDate { get; set; }
+        public string StartTime { get; set; }
+        public string EndTime { get; set; }
+        public double? MaxFrequencyPower { get; set; }
+        public double? Paclm5 { get; set; }
+        public double? Paclm6 { get; set; }
+        public double? Paclm1 { get; set; }
+        public double? Paclm2 { get; set; }
+        public double? SocMin { get; set; }
+        public double? SocMax { get; set; }
+        public double? KP { get; set; }
+        public double? LimitChargeCurrent { get; set; }
+        public double? LimitDischargeCurrent { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class Cal5Record
+    {
+        public DateTime CreateTime { get; set; }
+        public int? ChannelNum { get; set; }
+        public double? SOH { get; set; }
+        public double? Current { get; set; }
+        public double? Power { get; set; }
+        public double? ChargeEnergy { get; set; }
+        public double? Voltage { get; set; }
+        public int? DeviceStatus { get; set; }
+        public double? SOC { get; set; }
+        public double? DischargeEnergy { get; set; }
+        public string KeyValue { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class Cal2Record
+    {
+        public DateTime CreateTime { get; set; }
+        public string Condition { get; set; }
+        public double? Pac0 { get; set; }
+        public double? PreviewPAC { get; set; }
+        public double? PacMin { get; set; }
+        public double? PacMax { get; set; }
+        public double? KP { get; set; }
+        public double? MaxFrequencyPower { get; set; }
+        public double? Pace0 { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class Cal1Record
+    {
+        public DateTime CreateTime { get; set; }
+        public string Condition { get; set; }
+        public double? Pac0 { get; set; }
+        public double? PreviewPAC { get; set; }
+        public double? Csoc { get; set; }
+        public double? Paclm1 { get; set; }
+        public double? Paclm2 { get; set; }
+        public double? Paclm5 { get; set; }
+        public double? Paclm6 { get; set; }
+        public double? KP { get; set; }
+        public double? SocMin { get; set; }
+        public double? SocMax { get; set; }
+        public double? MaxFrequencyPower { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class Cal3Record
+    {
+        public DateTime CreateTime { get; set; }
+        public string Condition { get; set; }
+        public double? Pc1n { get; set; }
+        public double? TotalScale { get; set; }
+        public double? CurrentValue { get; set; }
+        public double? SOC { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class Cal4Record
+    {
+        public DateTime CreateTime { get; set; }
+        public string Condition { get; set; }
+        public string DataType { get; set; }
+        public string JsonData { get; set; }
+        public string Receivers { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    public class NoneRecord
+    {
+        public DateTime CreateTime { get; set; }
+        public string RecordContent { get; set; }
+        public string SequenceNumber { get; set; }
+        public int? Sign { get; set; }
+    }
+
+    #endregion
 }
