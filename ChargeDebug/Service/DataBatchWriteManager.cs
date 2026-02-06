@@ -393,10 +393,10 @@ namespace ChargeDebug.Service
             return @"
                 INSERT INTO TargetTable 
                 (Time, AC_TotalPower, DC_TotalPower, DC1_Power, DC2_Power,
-                 DC3_Power, DC4_Power, SOC1, SOC2, SOC3, SOC4, FileID)
+                 DC3_Power, DC4_Power, DC1_SOC1, DC2_SOC2, DC3_SOC3, DC4_SOC4, FileID)
                 VALUES 
                 (@Time, @AC_TotalPower, @DC_TotalPower, @DC1_Power, @DC2_Power,
-                 @DC3_Power, @DC4_Power, @SOC1, @SOC2, @SOC3, @SOC4, @FileID)";
+                 @DC3_Power, @DC4_Power, @DC1_SOC1, @DC2_SOC2, @DC3_SOC3, @DC4_SOC4, @FileID)";
         }
 
         /// <summary>
@@ -416,10 +416,10 @@ namespace ChargeDebug.Service
             cmd.Parameters.Add("@DC4_Power", DbType.Double);
 
             // 通道1-4的SOC
-            cmd.Parameters.Add("@SOC1", DbType.Double);
-            cmd.Parameters.Add("@SOC2", DbType.Double);
-            cmd.Parameters.Add("@SOC3", DbType.Double);
-            cmd.Parameters.Add("@SOC4", DbType.Double);
+            cmd.Parameters.Add("@DC1_SOC1", DbType.Double);
+            cmd.Parameters.Add("@DC2_SOC2", DbType.Double);
+            cmd.Parameters.Add("@DC3_SOC3", DbType.Double);
+            cmd.Parameters.Add("@DC4_SOC4", DbType.Double);
         }
 
         /// <summary>
@@ -442,10 +442,10 @@ namespace ChargeDebug.Service
             cmd.Parameters["@DC4_Power"].Value = recordData.ChannelPowers[3] ?? (object)DBNull.Value;
 
             // 通道1-4的SOC
-            cmd.Parameters["@SOC1"].Value = recordData.ChannelSocs[0] ?? (object)DBNull.Value;
-            cmd.Parameters["@SOC2"].Value = recordData.ChannelSocs[1] ?? (object)DBNull.Value;
-            cmd.Parameters["@SOC3"].Value = recordData.ChannelSocs[2] ?? (object)DBNull.Value;
-            cmd.Parameters["@SOC4"].Value = recordData.ChannelSocs[3] ?? (object)DBNull.Value;
+            cmd.Parameters["@DC1_SOC1"].Value = recordData.ChannelSocs[0] ?? (object)DBNull.Value;
+            cmd.Parameters["@DC2_SOC2"].Value = recordData.ChannelSocs[1] ?? (object)DBNull.Value;
+            cmd.Parameters["@DC3_SOC3"].Value = recordData.ChannelSocs[2] ?? (object)DBNull.Value;
+            cmd.Parameters["@DC4_SOC4"].Value = recordData.ChannelSocs[3] ?? (object)DBNull.Value;
         }
 
         /// <summary>

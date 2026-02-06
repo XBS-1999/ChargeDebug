@@ -12,13 +12,10 @@ using DevExpress.XtraLayout.Utils;
 using DevExpress.XtraTreeList;
 using DevExpress.XtraTreeList.Columns;
 using DevExpress.XtraTreeList.Nodes;
-using DocumentFormat.OpenXml.Bibliography;
 using Log;
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
-using System.Text;
-using System.Threading;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -4465,6 +4462,9 @@ namespace ChargeDebug.Form
                     case "RS485-MODBUS":
                         throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
 
+                    case "RS232":
+                        return await ReadRS232VoltmeterValueAsync(voltmeter);
+
                     default:
                         throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
                 }
@@ -4541,6 +4541,84 @@ namespace ChargeDebug.Form
 
                     LogService.Log($"电压表测量值: {voltageValue}V");
                     return voltageValue;
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"读取电压表值失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 异步读取RS232电压表值
+        /// </summary>
+
+        private async Task<double> ReadRS232VoltmeterValueAsync(EquipmentModel voltmeter)
+        {
+            try
+            {
+                // 使用Task.Run将同步方法包装为异步，避免阻塞
+                return await Task.Run(() =>
+                {
+                    if (voltmeter.DeviceName == "ZYB-1T")
+                    {
+                        byte[] readBuffer = RS232Manager.Instance.ReadBuffer(voltmeter.ComPort);
+
+                        // 基本帧检查
+                        if (readBuffer[0] != 0x2D || 
+                            readBuffer[0] != 0x20 ||
+                            readBuffer[9] != 0x20)
+                        {
+                            LogService.Log("接收到的数据帧格式错误");
+                            return double.NaN;
+                        }
+
+                        // 解析符号"-"
+                        bool isPositive = readBuffer[4] == 0x20;
+
+                        string valueStr = "";
+                        for (int i = 1; i <= 8; i++)
+                        {
+                            // 将字节转换为对应的ASCII字符
+                            char c = (char)readBuffer[i];
+
+                            // 处理小数点
+                            if (c == '.') // 0x2E对应ASCII的小数点
+                            {
+                                valueStr += ".";
+                            }
+                            else if (char.IsDigit(c)) // 数字字符
+                            {
+                                valueStr += c;
+                            }
+                            else
+                            {
+                                // 如果有非数字字符且不是小数点，记录警告但继续处理
+                                LogService.Log($"警告：数据部分包含非数字字符: 0x{readBuffer[i]:X2}");
+                                valueStr += c; // 仍然添加到字符串中，让TryParse处理
+                            }
+                        }
+
+                        // 转换为数字
+                        if (double.TryParse(valueStr, out double result))
+                        {
+                            // 应用符号
+                            result = isPositive ? result : -result;
+
+                            LogService.Log($"电压表测量值: {result}V");
+                            return result;
+                        }
+                        else
+                        {
+                            LogService.Log($"数值解析失败: {valueStr}");
+                            return double.NaN;
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
+                    }
                 });
             }
             catch (Exception ex)
