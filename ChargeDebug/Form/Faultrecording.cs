@@ -8,16 +8,13 @@ using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Base;
 using DevExpress.XtraGrid.Views.Grid;
-using DevExpress.XtraPrinting;
 using Log;
 using System.ComponentModel;
 using System.Data;
 using System.Data.SQLite;
 using System.Globalization;
 using System.IO;
-using System.ServiceModel.Channels;
 using System.Text;
-using System.Text.RegularExpressions;
 
 #pragma warning disable
 namespace ChargeDebug.Form

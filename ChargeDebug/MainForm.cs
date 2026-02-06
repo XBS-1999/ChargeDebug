@@ -35,7 +35,7 @@ namespace ChargeDebug
 
         // 功能按钮
         private BarButtonItem buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem5;
-        private BarButtonItem buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10;
+        private BarButtonItem buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, buttonItem11;
         private BarButtonItem logButton, skinButton;
 
         // 页面缓存字典
@@ -336,6 +336,7 @@ namespace ChargeDebug
             buttonItem2 = new BarButtonItem { Caption = "参数管理" };
             buttonItem3 = new BarButtonItem { Caption = "设备管理" };
             buttonItem4 = new BarButtonItem { Caption = "协议管理" };
+            buttonItem11 = new BarButtonItem { Caption = "数据分析" };
             buttonItem5 = new BarButtonItem { Caption = "用户管理" };
             buttonItem6 = new BarButtonItem { Caption = "故障录波" };
             buttonItem7 = new BarButtonItem { Caption = "在线升级" };
@@ -350,7 +351,7 @@ namespace ChargeDebug
         /// </summary>
         private void ConfigureButtonStyles()
         {
-            BarButtonItem[] buttons = { buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem5,
+            BarButtonItem[] buttons = { buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem11, buttonItem5,
                                       buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, logButton };
 
             foreach (var button in buttons)
@@ -374,6 +375,7 @@ namespace ChargeDebug
             buttonItem8.ImageOptions.Image = Properties.Resources.用户切换;
             buttonItem9.ImageOptions.Image = Properties.Resources.校准管理;
             buttonItem10.ImageOptions.Image = Properties.Resources.校准管理;
+            buttonItem11.ImageOptions.Image = Properties.Resources.校准管理;
             logButton.ImageOptions.Image = Properties.Resources.日志管理;
         }
 
@@ -384,7 +386,7 @@ namespace ChargeDebug
         private void AddButtonsToGroup(RibbonPageGroup group)
         {
             group.ItemLinks.AddRange(new[] {
-                buttonItem1, buttonItem2, buttonItem9, buttonItem3, buttonItem4,
+                buttonItem1, buttonItem2, buttonItem9, buttonItem3, buttonItem4, buttonItem11,
                 buttonItem6, buttonItem7, buttonItem5, buttonItem8, logButton
             });
         }
@@ -403,8 +405,9 @@ namespace ChargeDebug
             buttonItem7.ItemClick += (s, e) => ShowPage(typeof(Upgradeonline));
             buttonItem9.ItemClick += (s, e) => ShowPage(typeof(CalibrationManagement));
             buttonItem10.ItemClick += (s, e) => ShowPage(typeof(TestManagement));
+            buttonItem11.ItemClick += (s, e) => ShowPage(typeof(DataAnalysis));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer));
-            buttonItem8.ItemClick += (s, e) => SwitchUser();
+            buttonItem8.ItemClick += (s, e) => SwitchUser(); 
         }
 
         /// <summary>
@@ -441,6 +444,7 @@ namespace ChargeDebug
             RegisterPage(typeof(LogViewer), logViewer);
             RegisterPage(typeof(CalibrationManagement), new CalibrationManagement(dbPath, equipmentList));
             RegisterPage(typeof(TestManagement), new TestManagement());
+            RegisterPage(typeof(DataAnalysis), new DataAnalysis(dbPath)); 
         }
         #endregion
 
@@ -589,6 +593,7 @@ namespace ChargeDebug
             buttonItem8.Visibility = BarItemVisibility.Never;  // 用户切换
             buttonItem9.Visibility = BarItemVisibility.Never;  // 校准管理
             buttonItem10.Visibility = BarItemVisibility.Never;  // 测试管理
+            buttonItem11.Visibility = BarItemVisibility.Never;  // 数据分析
         }
 
         /// <summary>

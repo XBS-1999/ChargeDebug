@@ -1339,5 +1339,278 @@ namespace ChargeDebug.Service
             return faultSignals;
         }
         #endregion
+
+        #region FileInfo表操作
+        public int InsertFileInfo(string fileName, string filePath, long fileSize, SQLiteConnection conn, DateTime? createTime = null)
+        {
+            int fileId = 0;
+
+            string sql = @"
+                    INSERT INTO FileInfo (FileName, FilePath, FileSize, CreateTime)
+                    VALUES (@FileName, @FilePath, @FileSize, @CreateTime);
+                    SELECT last_insert_rowid();";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileName", fileName);
+                cmd.Parameters.AddWithValue("@FilePath", filePath);
+                cmd.Parameters.AddWithValue("@FileSize", fileSize);
+                cmd.Parameters.AddWithValue("@CreateTime", createTime ?? (object)DBNull.Value);
+
+                fileId = Convert.ToInt32(cmd.ExecuteScalar());
+            }
+
+            return fileId;
+        }
+
+        public void UpdateFileRecordCount(int fileId, SQLiteConnection conn, int count)
+        {
+            string sql = "UPDATE FileInfo SET RecordCount = @RecordCount WHERE FileID = @FileID";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@RecordCount", count);
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal7 记录
+        public void InsertCal7Record(int fileId, SQLiteConnection conn, Cal7Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal7 
+                    (FileID, CreateTime, ChannelNum, Power, ChargeEnergy, DisChargeEnergy, DeviceStatus, KeyValue, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @ChannelNum, @Power, @ChargeEnergy, @DisChargeEnergy, @DeviceStatus, @KeyValue, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@ChannelNum", record.ChannelNum);
+                cmd.Parameters.AddWithValue("@Power", record.Power);
+                cmd.Parameters.AddWithValue("@ChargeEnergy", record.ChargeEnergy ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@DisChargeEnergy", record.DischargeEnergy ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@DeviceStatus", record.DeviceStatus ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@KeyValue", record.KeyValue ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal5 记录
+        public void InsertCal5Record(int fileId, SQLiteConnection conn, Cal5Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal5 
+                    (FileID, CreateTime, ChannelNum, SOH, Current, Power, ChargeEnergy, Voltage, DeviceStatus, SOC, DisChargeEnergy, KeyValue, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @ChannelNum, @SOH, @Current, @Power, @ChargeEnergy, @Voltage, @DeviceStatus, @SOC, @DisChargeEnergy, @KeyValue, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@ChannelNum", record.ChannelNum);
+                cmd.Parameters.AddWithValue("@SOH", record.SOH ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Current", record.Current ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Power", record.Power ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@ChargeEnergy", record.ChargeEnergy ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Voltage", record.Voltage ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@DeviceStatus", record.DeviceStatus ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SOC", record.SOC ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@DisChargeEnergy", record.DischargeEnergy ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@KeyValue", record.KeyValue ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal6 记录
+        public void InsertCal6Record(int fileId, SQLiteConnection conn, Cal6Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal6 
+                    (FileID, CreateTime, CurrentDate, StartTime, EndTime, MaxFrequencyPower, Paclm5, Paclm6, Paclm1, Paclm2, 
+                     SocMin, SocMax, KP, LimitChargeCurrent, LimitDischargeCurrent, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @CurrentDate, @StartTime, @EndTime, @MaxFrequencyPower, @Paclm5, @Paclm6, @Paclm1, @Paclm2,
+                     @SocMin, @SocMax, @KP, @LimitChargeCurrent, @LimitDischargeCurrent, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@CurrentDate", record.CurrentDate ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@StartTime", record.StartTime ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@EndTime", record.EndTime ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@MaxFrequencyPower", record.MaxFrequencyPower ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm5", record.Paclm5 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm6", record.Paclm6 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm1", record.Paclm1 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm2", record.Paclm2 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SocMin", record.SocMin ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SocMax", record.SocMax ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@KP", record.KP ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@LimitChargeCurrent", record.LimitChargeCurrent ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@LimitDischargeCurrent", record.LimitDischargeCurrent ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal2 记录
+        public void InsertCal2Record(int fileId, SQLiteConnection conn, Cal2Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal2 
+                    (FileID, CreateTime, Condition, Pac0, PreviewPAC, PacMin, PacMax, KP, MaxFrequencyPower, Pace0, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @Condition, @Pac0, @PreviewPAC, @PacMin, @PacMax, @KP, @MaxFrequencyPower, @Pace0, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@Condition", record.Condition ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Pac0", record.Pac0 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@PreviewPAC", record.PreviewPAC ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@PacMin", record.PacMin ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@PacMax", record.PacMax ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@KP", record.KP ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@MaxFrequencyPower", record.MaxFrequencyPower ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Pace0", record.Pace0 ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal1 记录
+        public void InsertCal1Record(int fileId, SQLiteConnection conn, Cal1Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal1 
+                    (FileID, CreateTime, Condition, Pac0, PreviewPAC, Csoc, Paclm1, Paclm2, Paclm5, Paclm6, KP, SocMin, SocMax, MaxFrequencyPower, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @Condition, @Pac0, @PreviewPAC, @Csoc, @Paclm1, @Paclm2, @Paclm5, @Paclm6, @KP, @SocMin, @SocMax, @MaxFrequencyPower, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@Condition", record.Condition ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Pac0", record.Pac0 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@PreviewPAC", record.PreviewPAC ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Csoc", record.Csoc ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm1", record.Paclm1 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm2", record.Paclm2 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm5", record.Paclm5 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Paclm6", record.Paclm6 ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@KP", record.KP ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SocMin", record.SocMin ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SocMax", record.SocMax ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@MaxFrequencyPower", record.MaxFrequencyPower ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal3 记录
+        public void InsertCal3Record(int fileId, SQLiteConnection conn, Cal3Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal3 
+                    (FileID, CreateTime, Condition, Pc1n, TotalScale, CurrentValue, SOC, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @Condition, @Pc1n, @TotalScale, @CurrentValue, @SOC, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@Condition", record.Condition ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Pc1n", record.Pc1n ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@TotalScale", record.TotalScale ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@CurrentValue", record.CurrentValue ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SOC", record.SOC ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 Cal4 记录
+        public void InsertCal4Record(int fileId, SQLiteConnection conn, Cal4Record record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_Cal4 
+                    (FileID, CreateTime, Condition, DataType, JsonData, Receivers, RawData)
+                    VALUES 
+                    (@FileID, @CreateTime, @Condition, @DataType, @JsonData, @Receivers, @RawData)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@Condition", record.Condition ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@DataType", record.DataType ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@JsonData", record.JsonData ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Receivers", record.Receivers ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // 插入 None 记录
+        public void InsertNoneRecord(int fileId, SQLiteConnection conn, NoneRecord record)
+        {
+            string sql = @"
+                    INSERT INTO RecordType_None 
+                    (FileID, CreateTime, RecordContent, SequenceNumber)
+                    VALUES 
+                    (@FileID, @CreateTime, @RecordContent, @SequenceNumber)";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@FileID", fileId);
+                cmd.Parameters.AddWithValue("@CreateTime", record.CreateTime);
+                cmd.Parameters.AddWithValue("@RecordContent", record.RecordContent ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@SequenceNumber", record.SequenceNumber ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+        #endregion
+
+        /// <summary>
+        /// 获取表格汇总模版
+        /// </summary>
+        public static List<Template> GetTemplate(SQLiteConnection conn)
+        {
+            List<Template> template = new List<Template>();
+
+            const string sql = @"SELECT * FROM Template ORDER BY Name_ID";
+
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var templates = new Template
+                        {
+                            Name = reader["Name"].ToString(),
+                            ChineseName = reader["ChineseName"].ToString(),
+                            Unit = reader["Unit"].ToString(),
+                            Type_Table = reader["Type_Table"].ToString(),
+                            Type_Chart = reader["Type_Chart"].ToString()
+                        };
+
+                        template.Add(templates);
+                    }
+                }
+            }
+            return template;
+        }
     }
 }
