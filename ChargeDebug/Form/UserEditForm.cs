@@ -3,6 +3,7 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class UserEditForm : XtraForm

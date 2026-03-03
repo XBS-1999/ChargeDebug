@@ -4,6 +4,7 @@ using System.Data;
 using System.Data.SQLite;
 using System.IO.Ports;
 
+#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class DeviceEditForm : XtraForm
@@ -135,7 +136,7 @@ namespace ChargeDebug.Form
             labelDeviceType = new LabelControl { Text = "设备类型:", Location = new Point(70, 62) };
             deviceType = new ComboBoxEdit { Location = new Point(150, 60), Width = 150 };
             deviceType.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            deviceType.Properties.Items.AddRange(new[] { "充放电设备", "电池BMS", "电压源", "电压表", "电流表" });
+            deviceType.Properties.Items.AddRange(new[] { "充放电设备", "电池BMS", "电压源", "电压表", "电流表", "绝缘耐压表", "等电位表" });
             deviceType.SelectedIndexChanged += DeviceType_SelectedIndexChanged;
 
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };

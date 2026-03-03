@@ -2373,7 +2373,7 @@ namespace ChargeDebug.Form
             // 保存当前保护参数以便比较
             ConfigurationData currentParams = _protectionParameters;
 
-            _paramForm = new StartConfiguration(_title, "DC参数配置", false); // false表示不是启动配置
+            _paramForm = new StartConfiguration(_title, "DC参数配置", true); // false表示不是启动配置
 
             // 设置窗体位置居中
             CenterFormToParent(_paramForm);

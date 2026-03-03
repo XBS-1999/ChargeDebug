@@ -103,6 +103,16 @@ namespace ChargeDebug.Properties {
         /// <summary>
         ///   查找 System.Drawing.Bitmap 类型的本地化资源。
         /// </summary>
+        internal static System.Drawing.Bitmap 数据分析 {
+            get {
+                object obj = ResourceManager.GetObject("数据分析", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   查找 System.Drawing.Bitmap 类型的本地化资源。
+        /// </summary>
         internal static System.Drawing.Bitmap 数据监控 {
             get {
                 object obj = ResourceManager.GetObject("数据监控", resourceCulture);
@@ -126,6 +136,16 @@ namespace ChargeDebug.Properties {
         internal static System.Drawing.Bitmap 校准管理 {
             get {
                 object obj = ResourceManager.GetObject("校准管理", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   查找 System.Drawing.Bitmap 类型的本地化资源。
+        /// </summary>
+        internal static System.Drawing.Bitmap 测试管理 {
+            get {
+                object obj = ResourceManager.GetObject("测试管理", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }

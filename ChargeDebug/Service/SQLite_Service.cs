@@ -1612,5 +1612,197 @@ namespace ChargeDebug.Service
             }
             return template;
         }
+
+        #region TestProject 表操作
+
+        /// <summary>
+        /// 获取所有测试项目（返回 DataTable，便于绑定到 TreeList）
+        /// </summary>
+        public static DataTable GetAllTestProjects(SQLiteConnection conn)
+        {
+            const string sql = @"SELECT *
+                                FROM TestProject
+                                ORDER BY [ProjectId] ASC";
+            DataTable dt = new DataTable();
+            using (var adapter = new SQLiteDataAdapter(sql, conn))
+            {
+                adapter.Fill(dt);
+            }
+            return dt;
+        }
+
+        /// <summary>
+        /// 根据ID获取单个测试项目（返回实体对象）
+        /// </summary>
+        public static TestProjectModel GetTestProjectById(SQLiteConnection conn, int id)
+        {
+            const string sql = @"SELECT *
+                                FROM TestProject
+                                WHERE Id = @id";
+            using (var cmd = new SQLiteCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@id", id);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return new TestProjectModel
+                        {
+                            Id = Convert.ToInt32(reader["Id"]),
+                            ProjectId = Convert.ToInt32(reader["ProjectId"]),
+                            ProjectName = reader["ProjectName"].ToString(),
+                            TestVoltage = Convert.ToDouble(reader["TestVoltage"]),
+                            TestTime = Convert.ToDouble(reader["TestTime"]),
+                            RampUpTime = Convert.ToDouble(reader["RampUpTime"]),
+                            RampDownTime = Convert.ToDouble(reader["RampDownTime"]),
+                            CurrentLimit = reader["CurrentLimit"] == DBNull.Value ? null : reader["CurrentLimit"].ToString(),
+                            ResistanceLimit = reader["ResistanceLimit"] == DBNull.Value ? null : reader["ResistanceLimit"].ToString(),
+                            CreateTime = reader["CreateTime"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["CreateTime"]),
+                            UpdateTime = reader["UpdateTime"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["UpdateTime"])
+                        };
+                    }
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 添加测试项目
+        /// </summary>
+        /// <param name="conn">数据库连接</param>
+        /// <param name="project">项目实体</param>
+        /// <param name="transaction">可选事务</param>
+        public static void AddTestProject(SQLiteConnection conn, TestProjectModel project, SQLiteTransaction transaction = null)
+        {
+            const string sql = @"INSERT INTO TestProject 
+                            (ProjectId, ProjectName, TestVoltage, TestTime, RampUpTime, RampDownTime, CurrentLimit, ResistanceLimit, CreateTime)
+                         VALUES 
+                            (@ProjectId, @ProjectName, @TestVoltage, @TestTime, @RampUpTime, @RampDownTime, @CurrentLimit, @ResistanceLimit, @CreateTime)";
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@ProjectId", project.ProjectId);
+                cmd.Parameters.AddWithValue("@ProjectName", project.ProjectName);
+                cmd.Parameters.AddWithValue("@TestVoltage", project.TestVoltage);
+                cmd.Parameters.AddWithValue("@TestTime", project.TestTime);
+                cmd.Parameters.AddWithValue("@RampUpTime", project.RampUpTime);
+                cmd.Parameters.AddWithValue("@RampDownTime", project.RampDownTime);
+                cmd.Parameters.AddWithValue("@CurrentLimit", (object)project.CurrentLimit ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ResistanceLimit", (object)project.ResistanceLimit ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CreateTime", DateTime.Now);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 更新测试项目
+        /// </summary>
+        public static void UpdateTestProject(SQLiteConnection conn, TestProjectModel project, SQLiteTransaction transaction = null)
+        {
+            const string sql = @"UPDATE TestProject 
+                         SET ProjectName = @ProjectName,
+                             TestVoltage = @TestVoltage,
+                             TestTime = @TestTime,
+                             RampUpTime = @RampUpTime,
+                             RampDownTime = @RampDownTime,
+                             CurrentLimit = @CurrentLimit,
+                             ResistanceLimit = @ResistanceLimit,
+                             UpdateTime = @UpdateTime
+                         WHERE Id = @Id";
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@Id", project.Id);
+                cmd.Parameters.AddWithValue("@ProjectName", project.ProjectName);
+                cmd.Parameters.AddWithValue("@TestVoltage", project.TestVoltage);
+                cmd.Parameters.AddWithValue("@TestTime", project.TestTime);
+                cmd.Parameters.AddWithValue("@RampUpTime", project.RampUpTime);
+                cmd.Parameters.AddWithValue("@RampDownTime", project.RampDownTime);
+                cmd.Parameters.AddWithValue("@CurrentLimit", (object)project.CurrentLimit ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ResistanceLimit", (object)project.ResistanceLimit ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@UpdateTime", DateTime.Now);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 删除单个测试项目
+        /// </summary>
+        public static void DeleteTestProject(SQLiteConnection conn, int id, SQLiteTransaction transaction = null)
+        {
+            const string sql = "DELETE FROM TestProject WHERE Id = @Id";
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@Id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 批量删除测试项目
+        /// </summary>
+        public static void DeleteTestProjects(SQLiteConnection conn, List<int> ids, SQLiteTransaction transaction = null)
+        {
+            if (ids == null || ids.Count == 0) return;
+            string idList = string.Join(",", ids);
+            string sql = $"DELETE FROM TestProject WHERE Id IN ({idList})";
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        #endregion
+
+        #region TestRecord 表操作（绝缘耐压测试记录）
+
+        /// <summary>
+        /// 插入一条测试记录
+        /// </summary>
+        /// <param name="conn">数据库连接</param>
+        /// <param name="deviceNumber">设备编号</param>
+        /// <param name="projectName">项目名称</param>
+        /// <param name="testVoltage">测试电压(V)</param>
+        /// <param name="testTime">测试时间(s)</param>
+        /// <param name="rampUpTime">电压上升时间(s)</param>
+        /// <param name="rampDownTime">电压下降时间(s)</param>
+        /// <param name="testRange">测试范围（电流/电阻上下限）</param>
+        /// <param name="testData">测试数据（测量值）</param>
+        /// <param name="testResult">测试结果（通过/失败描述）</param>
+        /// <param name="transaction">可选事务</param>
+        public static void InsertTestRecord(
+            SQLiteConnection conn,
+            string deviceNumber,
+            string projectName,
+            double testVoltage,
+            double testTime,
+            double rampUpTime,
+            double rampDownTime,
+            string testRange,
+            string testData,
+            string testResult,
+            SQLiteTransaction transaction = null)
+        {
+            const string sql = @"
+                    INSERT INTO TestRecord 
+                    (DeviceNumber, ProjectName, TestVoltage, TestTime, RampUpTime, RampDownTime, TestRange, TestData, TestResult)
+                    VALUES 
+                    (@DeviceNumber, @ProjectName, @TestVoltage, @TestTime, @RampUpTime, @RampDownTime, @TestRange, @TestData, @TestResult)";
+
+            using (var cmd = new SQLiteCommand(sql, conn, transaction))
+            {
+                cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                cmd.Parameters.AddWithValue("@ProjectName", projectName);
+                cmd.Parameters.AddWithValue("@TestVoltage", testVoltage);
+                cmd.Parameters.AddWithValue("@TestTime", testTime);
+                cmd.Parameters.AddWithValue("@RampUpTime", rampUpTime);
+                cmd.Parameters.AddWithValue("@RampDownTime", rampDownTime);
+                cmd.Parameters.AddWithValue("@TestRange", testRange ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@TestData", testData ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@TestResult", testResult ?? (object)DBNull.Value);
+
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        #endregion
     }
 }

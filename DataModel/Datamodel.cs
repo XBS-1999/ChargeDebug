@@ -358,4 +358,19 @@ namespace DataModel
     }
 
     #endregion
+
+    public class TestProjectModel
+    {
+        public int Id { get; set; }
+        public int ProjectId { get; set; }
+        public string ProjectName { get; set; }
+        public double TestVoltage { get; set; }
+        public double TestTime { get; set; }
+        public double RampUpTime { get; set; }
+        public double RampDownTime { get; set; }
+        public string CurrentLimit { get; set; }
+        public string ResistanceLimit { get; set; }
+        public DateTime? CreateTime { get; set; }
+        public DateTime? UpdateTime { get; set; }
+    }
 }

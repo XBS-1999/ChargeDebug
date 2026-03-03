@@ -5958,7 +5958,7 @@ namespace ChargeDebug.Form
             {
                 Text = "电压源型号:",
                 Size = new Size(100, 30),
-                Location = new Point(10, 14)
+                Location = new Point(10, 15)
             };
             buttonPanel.Controls.Add(lblVoltageSource);
 
@@ -5982,7 +5982,7 @@ namespace ChargeDebug.Form
             LabelControl lblVoltmeter = new LabelControl
             {
                 Text = "电压表型号:",
-                Location = new Point(cbVoltageSource.Right + 10, 14),
+                Location = new Point(cbVoltageSource.Right + 10, 15),
                 AutoSize = true
             };
             buttonPanel.Controls.Add(lblVoltmeter);
@@ -6007,7 +6007,7 @@ namespace ChargeDebug.Form
             LabelControl lblAmmeter = new LabelControl
             {
                 Text = "电流表型号:",
-                Location = new Point(cbVoltmeter.Right + 10, 14)
+                Location = new Point(cbVoltmeter.Right + 10, 15)
             };
             buttonPanel.Controls.Add(lblAmmeter);
 
