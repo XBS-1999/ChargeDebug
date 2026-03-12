@@ -456,6 +456,7 @@ namespace ChargeDebug.Service
             // 解析时间戳
             if (DateTime.TryParse(fields[0], out DateTime parsedTime))
             {
+                //createTime = RoundToNearestSecond(parsedTime); // 四舍五入到秒
                 createTime = parsedTime;
             }
 
@@ -491,6 +492,24 @@ namespace ChargeDebug.Service
             {
                 throw new Exception($"第{lineNumber}行数据格式错误: {ex.Message}", ex);
             }
+        }
+
+        /// <summary>
+        /// 将 DateTime 四舍五入到最近的秒
+        /// </summary>
+        private DateTime RoundToNearestSecond(DateTime dt)
+        {
+            long ticks = dt.Ticks;
+            long seconds = ticks / TimeSpan.TicksPerSecond;
+            long fractionalTicks = ticks % TimeSpan.TicksPerSecond;
+
+            // 如果剩余 ticks 超过半秒，则进位
+            if (fractionalTicks >= TimeSpan.TicksPerSecond / 2)
+            {
+                seconds++;
+            }
+
+            return new DateTime(seconds * TimeSpan.TicksPerSecond, dt.Kind);
         }
 
         /// <summary>
@@ -750,8 +769,11 @@ namespace ChargeDebug.Service
                             record.Current = current;
                         break;
                     case "Power":
-                        if (double.TryParse(fieldValue, out double power))
+                        if (decimal.TryParse(fieldValue, out decimal power))
                             record.Power = power;
+                        break;
+                    case "EMSStatus":
+                            record.EMSStatus = fieldValue;
                         break;
                     case "ChargeEnergy":
                         if (double.TryParse(fieldValue, out double chargeEnergy))
@@ -772,6 +794,9 @@ namespace ChargeDebug.Service
                     case "DisChargeEnergy":
                         if (double.TryParse(fieldValue, out double disChargeEnergy))
                             record.DischargeEnergy = disChargeEnergy;
+                        break;
+                    case "EMSMode":
+                            record.EMSMode = fieldValue;
                         break;
                     case "ChannelNum":
                         if (int.TryParse(fieldValue, out int channelNum))
@@ -892,7 +917,7 @@ namespace ChargeDebug.Service
                 switch (fieldName)
                 {
                     case "Power":
-                        if (double.TryParse(fieldValue, out double power))
+                        if (decimal.TryParse(fieldValue, out decimal power))
                             record.Power = power;
                         break;
                     case "ChargeEnergy":
@@ -952,49 +977,6 @@ namespace ChargeDebug.Service
             result.Add(currentField.ToString());
 
             return result.ToArray();
-        }
-
-        /// <summary>
-        /// 导出数据到CSV文件
-        /// </summary>
-        public void ExportToCsv(Dictionary<string, List<object>> records, string filePath)
-        {
-            try
-            {
-                using (var writer = new StreamWriter(filePath, false, Encoding.UTF8))
-                {
-                    // 写入标题行
-                    writer.WriteLine("RecordType,CreateTime,DataFields");
-
-                    // 写入数据行
-                    foreach (var kvp in records)
-                    {
-                        foreach (var record in kvp.Value)
-                        {
-                            string dataFields = "";
-                            switch (record)
-                            {
-                                case Cal5Record cal5:
-                                    dataFields = $"SOH:{cal5.SOH},Current:{cal5.Current},Power:{cal5.Power},ChargeEnergy:{cal5.ChargeEnergy},Voltage:{cal5.Voltage},DeviceStatus:{cal5.DeviceStatus},SOC:{cal5.SOC},DisChargeEnergy:{cal5.DischargeEnergy},ChannelNum:{cal5.ChannelNum},Key:{cal5.KeyValue}";
-                                    break;
-                                case Cal7Record cal7:
-                                    dataFields = $"Power:{cal7.Power},ChargeEnergy:{cal7.ChargeEnergy},DeviceStatus:{cal7.DeviceStatus},DisChargeEnergy:{cal7.DischargeEnergy},ChannelNum:{cal7.ChannelNum},Key:{cal7.KeyValue}";
-                                    break;
-                                case Cal6Record cal6:
-                                    dataFields = $"StartTime={cal6.StartTime},EndTime={cal6.EndTime},MaxFrequencyPower={cal6.MaxFrequencyPower},Paclm5={cal6.Paclm5},Paclm6={cal6.Paclm6},SocMin={cal6.SocMin},SocMax={cal6.SocMax}";
-                                    break;
-                                    // 其他类型类似处理
-                            }
-
-                            writer.WriteLine($"{kvp.Key},{GetCreateTime(record):yyyy-MM-dd HH:mm:ss.fff},{dataFields}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"导出CSV文件失败: {ex.Message}", ex);
-            }
         }
     }
 }

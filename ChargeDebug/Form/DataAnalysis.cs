@@ -20,6 +20,13 @@ using System.Windows.Forms;
 using System.Threading;
 using DevExpress.DataProcessing;
 using DevExpress.Office.Utils;
+using DevExpress.Data.Linq.Helpers;
+using DevExpress.XtraCharts.Native;
+using DevExpress.XtraGrid.Views.Items;
+using DevExpress.XtraPrinting;
+using DevExpress.XtraPrintingLinks;
+using DevExpress.Export;
+using ClosedXML.Excel;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -59,6 +66,12 @@ namespace ChargeDebug.Form
         private ConcurrentDictionary<string, Series> keyValuePairs = new();
         List<Template> template = new List<Template>();
 
+        private bool _isDragging;
+        private Point _dragStartPoint;          // 鼠标按下时的屏幕坐标（客户端坐标）
+        private double _dragStartXMinOa;         // 按下时 X 轴最小值（OADate）
+        private double _dragStartXMaxOa;         // 按下时 X 轴最大值（OADate）
+        private double _dragStartV0;             // 按下时鼠标所在点的 X 轴数值（OADate）
+
         public DataAnalysis(string sqlPath)
         {
             sqladdress = sqlPath;
@@ -81,6 +94,87 @@ namespace ChargeDebug.Form
             LoadTemplateConfiguration();
             ConfigureGridSelection();
             LoadFileList();
+
+            chartControl.MouseDown += ChartControl_MouseDown;
+            chartControl.MouseMove += ChartControl_MouseMove;
+            chartControl.MouseUp += ChartControl_MouseUp;
+        }
+
+        private void ChartControl_MouseUp(object? sender, MouseEventArgs e)
+        {
+            if (_isDragging)
+            {
+                _isDragging = false;
+                chartControl.Cursor = Cursors.Default;
+            }
+        }
+
+        private void ChartControl_MouseMove(object? sender, MouseEventArgs e)
+        {
+            if (!_isDragging) return;
+            if (e.Button != MouseButtons.Left) // 如果左键意外松开，停止拖动
+            {
+                _isDragging = false;
+                chartControl.Cursor = Cursors.Default;
+                return;
+            }
+            if (!(chartControl.Diagram is XYDiagram diagram)) return;
+
+            // 获取当前鼠标位置对应的数据值
+            Point currentPoint = chartControl.PointToClient(Cursor.Position);
+            DiagramCoordinates currentCoords = diagram.PointToDiagram(currentPoint);
+            if (currentCoords == null || currentCoords.IsEmpty) return;
+
+            double currentV = currentCoords.DateTimeArgument.ToOADate();
+
+            // 计算偏移量（OADate）
+            double diff = currentV - _dragStartV0;
+
+            // 计算新的 X 轴范围
+            double newMinOa = _dragStartXMinOa - diff;
+            double newMaxOa = _dragStartXMaxOa - diff;
+
+            // 可选：添加边界限制（防止平移超出数据范围）
+            // 如果您有数据边界，可以在此限制 newMinOa 和 newMaxOa
+
+            // 转换为 DateTime 并应用
+            DateTime newMin = DateTime.FromOADate(newMinOa);
+            DateTime newMax = DateTime.FromOADate(newMaxOa);
+
+            diagram.AxisX.VisualRange.SetMinMaxValues(newMin, newMax);
+            diagram.AxisX.VisualRange.Auto = false;
+
+            chartControl.RefreshData();
+        }
+
+        private void ChartControl_MouseDown(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            if (!(chartControl.Diagram is XYDiagram diagram)) return;
+
+            // 获取当前 X 轴范围
+            var xRange = diagram.AxisX.VisualRange;
+            if (xRange.MinValue == null || xRange.MaxValue == null) return;
+
+            DateTime xMinDate = (DateTime)xRange.MinValue;
+            DateTime xMaxDate = (DateTime)xRange.MaxValue;
+            double xMinOa = xMinDate.ToOADate();
+            double xMaxOa = xMaxDate.ToOADate();
+
+            // 获取鼠标点对应的数据值
+            Point clientPoint = chartControl.PointToClient(Cursor.Position);
+            DiagramCoordinates coords = diagram.PointToDiagram(clientPoint);
+            if (coords == null || coords.IsEmpty) return;
+
+            // 记录拖动起始信息
+            _dragStartPoint = clientPoint;
+            _dragStartXMinOa = xMinOa;
+            _dragStartXMaxOa = xMaxOa;
+            _dragStartV0 = coords.DateTimeArgument.ToOADate();  // X 轴为日期时间类型
+            _isDragging = true;
+
+            // 可选：改变光标样式
+            chartControl.Cursor = Cursors.SizeWE;
         }
 
         /// <summary>
@@ -147,6 +241,114 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
+        /// 确保 TargetTable 的列与 Template 配置一致，缺失则自动创建
+        /// </summary>
+        private void EnsureTargetTableColumns()
+        {
+            // 如果 template 未加载，重新加载
+            if (template == null || template.Count == 0)
+            {
+                LoadTemplateConfiguration();
+            }
+
+            using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+            {
+                conn.Open();
+
+                // 检查 TargetTable 是否存在
+                string checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='TargetTable'";
+
+                using (var cmd = new SQLiteCommand(checkTableSql, conn))
+                {
+                    var result = cmd.ExecuteScalar();
+                    bool tableExists = result != null && result.ToString() == "TargetTable";
+
+                    if (!tableExists)
+                    {
+                        CreateTargetTable(conn);
+                    }
+                    else
+                    {
+                        AddMissingColumns(conn);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 创建 TargetTable 表（包含 ID、FileID 和所有 Template 列）
+        /// </summary>
+        private void CreateTargetTable(SQLiteConnection conn)
+        {
+            var columnDefinitions = new List<string>
+            {
+                "ID INTEGER PRIMARY KEY AUTOINCREMENT",
+                "FileID INTEGER"
+            };
+
+            foreach (var item in template)
+            {
+                // 根据 Field_Type 决定列类型，若为空则默认 TEXT
+                string columnType = string.IsNullOrEmpty(item.Field_Type) ? "TEXT" : item.Field_Type.ToUpperInvariant();
+                // 可选：对特殊列（如 Time）强制 TEXT，避免用户误配置
+                if (item.Name.Equals("Time", StringComparison.OrdinalIgnoreCase))
+                {
+                    columnType = "TEXT";
+                }
+                columnDefinitions.Add($"\"{item.Name}\" {columnType}");
+            }
+
+            string createSql = $"CREATE TABLE TargetTable ({string.Join(", ", columnDefinitions)})";
+            using (var cmd = new SQLiteCommand(createSql, conn))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 为现有 TargetTable 添加缺失的列
+        /// </summary>
+        private void AddMissingColumns(SQLiteConnection conn)
+        {
+            // 获取现有列名
+            var existingColumns = new List<string>();
+            string pragmaSql = "PRAGMA table_info(TargetTable)";
+            using (var cmd = new SQLiteCommand(pragmaSql, conn))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    string colName = reader["name"].ToString();
+                    existingColumns.Add(colName);
+                }
+            }
+
+            // 找出缺失的列（忽略大小写）
+            var missingColumns = template.Select(t => t.Name)
+                                         .Except(existingColumns, StringComparer.OrdinalIgnoreCase)
+                                         .ToList();
+
+            foreach (string colName in missingColumns)
+            {
+                // 从 template 中找到对应项
+                var templateItem = template.FirstOrDefault(t => t.Name.Equals(colName, StringComparison.OrdinalIgnoreCase));
+                if (templateItem == null) continue;
+
+                string columnType = string.IsNullOrEmpty(templateItem.Field_Type) ? "TEXT" : templateItem.Field_Type.ToUpperInvariant();
+                if (templateItem.Name.Equals("Time", StringComparison.OrdinalIgnoreCase))
+                {
+                    columnType = "TEXT";
+                }
+
+                string alterSql = $"ALTER TABLE TargetTable ADD COLUMN \"{colName}\" {columnType}";
+                using (var cmd = new SQLiteCommand(alterSql, conn))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
         /// 加载并显示文件数据
         /// </summary>
         private async void LoadTreeDataForSelectedRow(int rowHandle)
@@ -191,6 +393,9 @@ namespace ChargeDebug.Form
                         await Task.Delay(100);
                     });
 
+                    // 确保 TargetTable 列与 Template 一致
+                    await Task.Run(() => EnsureTargetTableColumns());
+
                     // 检查目标表数据
                     UpdateWaitDialog($"检查目标表数据...");
 
@@ -204,7 +409,7 @@ namespace ChargeDebug.Form
 
                         // 如果没有数据，则写入数据
                         await Task.Run(() =>
-                            _dataWriteManager.WriteToTargetTableAsync(_currentFileId));
+                            _dataWriteManager.WriteToTargetTableAsync(_currentFileId, template));
 
                         UpdateWaitDialog($"数据写入完成，正在加载表格...");
                     }
@@ -291,8 +496,8 @@ namespace ChargeDebug.Form
 
                     string sql = @"
                        SELECT * FROM TargetTable 
-                       WHERE FileID = @FileID 
-                       ORDER BY Time";
+                        WHERE FileID = @FileID 
+                        ORDER BY strftime('%Y-%m-%d %H:%M:%S', REPLACE(Time, '/', '-'))";
 
                     using (var cmd = new SQLiteCommand(sql, conn))
                     {
@@ -304,6 +509,9 @@ namespace ChargeDebug.Form
                         }
                     }
                 }
+
+                // ====== 新增：检查时间连续性 ======
+                CheckTimeContinuity(dataTable, fileId);
 
                 // 在UI线程上更新数据源
                 if (this.InvokeRequired)
@@ -372,12 +580,21 @@ namespace ChargeDebug.Form
                     }
                     else
                     {
-                        channelColumn.DisplayFormat.FormatString = "F1";
-                        channelColumn.DisplayFormat.FormatType = FormatType.Numeric;
+                        if (templates.Field_Type == "double")
+                        {
+                            channelColumn.DisplayFormat.FormatType = FormatType.Numeric;
+                        }
+                        else
+                        {
+                            channelColumn.DisplayFormat.FormatType = FormatType.None;
+                        }
+                        //channelColumn.DisplayFormat.FormatString = "F1";
+                        
                     }
-                    
+
                     // 设置内容居中
                     channelColumn.AppearanceCell.TextOptions.HAlignment = HorzAlignment.Center;
+                    // 标题居中（此处为列级别设置，可选，若已全局设置则可省略）
                     channelColumn.AppearanceHeader.TextOptions.HAlignment = HorzAlignment.Center;
                     dataGridView.Columns.Add(channelColumn);
                 }
@@ -385,7 +602,7 @@ namespace ChargeDebug.Form
 
             // 配置网格外观
             dataGridView.OptionsView.ShowGroupPanel = false;
-            dataGridView.OptionsView.ShowAutoFilterRow = true;
+            dataGridView.OptionsView.ShowAutoFilterRow = false;
             dataGridView.OptionsView.ShowFooter = true;
             dataGridView.OptionsBehavior.Editable = false;
 
@@ -397,6 +614,9 @@ namespace ChargeDebug.Form
             dataGridView.Appearance.EvenRow.BackColor = Color.FromArgb(245, 245, 245);
 
             dataGridView.Appearance.Row.TextOptions.HAlignment = HorzAlignment.Center;
+
+            // 全局设置标题居中（作为默认值，不影响已显式设置的列）
+            dataGridView.Appearance.HeaderPanel.TextOptions.HAlignment = HorzAlignment.Center;
         }
 
         /// <summary>
@@ -448,78 +668,102 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 提取图表更新逻辑到单独方法
         private void UpdateChartWithData(DataTable dataTable)
         {
-            // 清除现有系列
             chartControl.Series.Clear();
 
             if (dataTable.Rows.Count == 0)
+                return;
+
+            // 收集所有需要绘制的列（Type_Chart == "true" 且不是 Time）
+            List<string> valueColumns = new List<string>();
+            foreach (var templates in template)
             {
+                if (templates.Type_Chart == "true" && templates.Name != "Time")
+                {
+                    valueColumns.Add(templates.Name);
+                }
+            }
+
+            // 检查 Time 列是否存在
+            if (!dataTable.Columns.Contains("Time"))
+            {
+                LogService.Log("数据表中缺少 Time 列，无法生成图表");
                 return;
             }
 
-            // 确保Time列是DateTime类型
-            if (dataTable.Columns["Time"] != null && dataTable.Columns["Time"].DataType != typeof(DateTime))
+            // 创建只包含所需列的新 DataTable
+            DataTable finalTable = new DataTable();
+            finalTable.Columns.Add("Time", typeof(DateTime));
+            foreach (string colName in valueColumns)
             {
-                // 尝试转换Time列为DateTime类型
-                DataTable newTable = dataTable.Clone();
-                newTable.Columns["Time"].DataType = typeof(DateTime);
-
-                foreach (DataRow row in dataTable.Rows)
-                {
-                    DataRow newRow = newTable.NewRow();
-                    foreach (DataColumn col in dataTable.Columns)
-                    {
-                        if (col.ColumnName == "Time")
-                        {
-                            if (DateTime.TryParse(row[col].ToString(), out DateTime dt))
-                            {
-                                newRow[col] = dt;
-                            }
-                            else
-                            {
-                                newRow[col] = DBNull.Value;
-                            }
-                        }
-                        else
-                        {
-                            newRow[col] = row[col];
-                        }
-                    }
-                    newTable.Rows.Add(newRow);
-                }
-                dataTable = newTable;
+                finalTable.Columns.Add(colName, typeof(double));
             }
 
+            // 填充数据：逐行解析 Time 和数值列
+            foreach (DataRow row in dataTable.Rows)
+            {
+                DataRow newRow = finalTable.NewRow();
+
+                // 解析 Time（支持字符串或 DateTime 类型）
+                if (!DateTime.TryParse(row["Time"].ToString(), out DateTime time))
+                    continue; // 时间无效则跳过整行
+
+                newRow["Time"] = time;
+
+                // 解析各数值列
+                foreach (string colName in valueColumns)
+                {
+                    if (row[colName] != DBNull.Value &&
+                        double.TryParse(row[colName].ToString(), out double val))
+                    {
+                        newRow[colName] = val;
+                    }
+                    else
+                    {
+                        newRow[colName] = DBNull.Value; // 无法转换或空值
+                    }
+                }
+
+                finalTable.Rows.Add(newRow);
+            }
+
+            // 创建图表系列（仍然使用模板中的列名）
             foreach (var templates in template)
             {
-                if (templates.Type_Chart == "true")
+                if (templates.Type_Chart == "true" && templates.Name != "Time")
                 {
-                    if (templates.Name != "Time")
-                    {
-                        Series series = new Series(templates.ChineseName, ViewType.Line);
-                        series.ArgumentScaleType = ScaleType.DateTime;
-                        series.ArgumentDataMember = "Time";
-                        series.ValueDataMembers.AddRange(new string[] { templates.Name });
-                        chartControl.Series.Add(series);
-                    }
+                    Series series = new Series(templates.ChineseName, ViewType.Line);
+                    series.ArgumentScaleType = ScaleType.DateTime;
+                    series.ArgumentDataMember = "Time";
+                    series.ValueDataMembers.AddRange(templates.Name);
+                    series.CrosshairLabelPattern = "{A:HH:mm:ss} {V:F1}";
+                    chartControl.Series.Add(series);
                 }
             }
 
-            // 设置数据源
-            chartControl.DataSource = dataTable;
+            // 绑定数据源
+            chartControl.DataSource = null;
+            chartControl.DataSource = finalTable;
 
-            // 配置图表显示格式
             ConfigureChartDisplay();
 
-            // 强制重新计算X轴范围
-            XYDiagram diagram = (XYDiagram)chartControl.Diagram;
-            if (diagram != null)
-            {
-                diagram.AxisX.WholeRange.Auto = true;
-                diagram.AxisX.VisualRange.Auto = true;
-            }
+            // 可选日志（原代码保留）
+            //if (chartControl.Series.Count > 0)
+            //{
+            //    var series = chartControl.Series[0];
+            //    LogService.Log($"系列 {series.Name} 点数: {series.Points.Count}");
+            //    LogService.Log($"数据表行数: {finalTable.Rows.Count}");
+            //}
+        }
+
+        // 辅助方法：判断类型是否为数值类型
+        private bool IsNumericType(Type type)
+        {
+            return type == typeof(int) || type == typeof(double) || type == typeof(decimal) ||
+                   type == typeof(float) || type == typeof(long) || type == typeof(short) ||
+                   type == typeof(byte) || type == typeof(sbyte) || type == typeof(uint) ||
+                   type == typeof(ulong) || type == typeof(ushort);
         }
 
         /// <summary>
@@ -531,83 +775,166 @@ namespace ChargeDebug.Form
 
             if (diagram != null)
             {
-                // 配置X轴为日期时间轴
-                // 移除 MeasureUnit 设置，使用自动配置
-                diagram.AxisX.DateTimeScaleOptions.ScaleMode = ScaleMode.Automatic;
-
+                diagram.AxisX.DateTimeScaleOptions.ScaleMode = ScaleMode.Continuous;
                 diagram.AxisX.Title.Text = "时间";
                 diagram.AxisX.Title.Visible = true;
-                diagram.AxisX.Title.Font = new Font("Microsoft YaHei", 9, FontStyle.Bold);
-                diagram.AxisX.WholeRange.AlwaysShowZeroLevel = false;
-
-                // 设置时间显示格式为完整的日期时间格式
                 diagram.AxisX.Label.TextPattern = "{A:HH:mm:ss}";
-                // 解决标签重叠问题 - 主要修改点
-                diagram.AxisX.Label.Angle = 45; // 设置标签倾斜45度，避免重叠
+                diagram.AxisX.Label.Angle = 45;
                 diagram.AxisX.Label.ResolveOverlappingOptions.AllowRotate = true;
-                diagram.AxisX.Label.ResolveOverlappingOptions.AllowStagger = true; // 启用交错排列
-                diagram.AxisX.Label.ResolveOverlappingOptions.AllowHide = false; // 不要隐藏标签
-
-                // 根据数据量调整标签显示间隔
-                double labelCount = chartControl.Series[0]?.Points?.Count ?? 0;
-                if (labelCount > 50)
-                {
-                    // 数据点多时，减少标签显示密度
-                    diagram.AxisX.Label.ResolveOverlappingOptions.MinIndent = 30;
-
-                    // 设置网格间隔，自动减少标签数量
-                    diagram.AxisX.DateTimeScaleOptions.GridAlignment = DateTimeGridAlignment.Minute;
-                    diagram.AxisX.DateTimeScaleOptions.GridSpacing = 5; // 每5分钟显示一个标签
-                }
-                else
-                {
-                    diagram.AxisX.Label.ResolveOverlappingOptions.MinIndent = 5;
-                }
-
-                // 配置X轴网格线
+                diagram.AxisX.Label.ResolveOverlappingOptions.AllowStagger = true;
                 diagram.AxisX.GridLines.Visible = true;
-                diagram.AxisX.GridLines.Color = Color.LightGray;
-                diagram.AxisX.GridLines.LineStyle.DashStyle = DashStyle.Dash;
-
-                // 调整X轴范围，去掉边距
                 diagram.AxisX.WholeRange.SideMarginsValue = 0;
-                diagram.AxisX.VisualRange.SideMarginsValue = 0;
 
-                // 配置Y轴
                 diagram.AxisY.Title.Text = "功率(KW)/SOC(%)";
                 diagram.AxisY.Title.Visible = true;
-                diagram.AxisY.Title.Font = new Font("Microsoft YaHei", 9, FontStyle.Bold);
-                diagram.AxisY.WholeRange.AlwaysShowZeroLevel = false;
                 diagram.AxisY.Label.TextPattern = "{F1}";
-
-                // 调整Y轴范围，去掉边距
                 diagram.AxisY.WholeRange.SideMarginsValue = 0;
-                diagram.AxisY.VisualRange.SideMarginsValue = 0;
 
-                // 启用滚动和缩放
+                // 启用滚动和缩放（关键）
                 diagram.ScrollingOptions.UseMouse = true;
                 diagram.ScrollingOptions.UseKeyboard = true;
                 diagram.ZoomingOptions.UseMouseWheel = true;
                 diagram.ZoomingOptions.UseKeyboard = true;
+                diagram.ZoomingOptions.AxisXMaxZoomPercent = 10000; // X轴最大缩放百分比
+                diagram.ZoomingOptions.AxisYMaxZoomPercent = 10000; // Y轴最大缩放百分比
+
+                diagram.AxisX.VisualRange.Auto = true;
+                diagram.AxisY.VisualRange.Auto = true;
             }
+
+            // 确保图表获得焦点
+            chartControl.MouseEnter += (s, e) => chartControl.Focus();
+
+            chartControl.MouseWheel += (s, e) => {
+                if (chartControl.Diagram is XYDiagram diagram)
+                {
+                    // 获取当前坐标轴范围
+                    var xRange = diagram.AxisX.VisualRange;
+                    var yRange = diagram.AxisY.VisualRange;
+
+                    if (xRange.MinValue == null || xRange.MaxValue == null ||
+                        yRange.MinValue == null || yRange.MaxValue == null)
+                        return;
+
+                    // 将 X 轴端点转为 OADate（天数）
+                    DateTime xMinDate = (DateTime)xRange.MinValue;
+                    DateTime xMaxDate = (DateTime)xRange.MaxValue;
+                    double xMinOa = xMinDate.ToOADate();
+                    double xMaxOa = xMaxDate.ToOADate();
+
+                    // Y 轴仍为数值
+                    double yMin, yMax;
+                    try
+                    {
+                        yMin = Convert.ToDouble(yRange.MinValue);
+                        yMax = Convert.ToDouble(yRange.MaxValue);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    double zoomFactor = (e.Delta > 0) ? 0.8 : 1.25;
+
+                    // ----- 获取鼠标位置对应的图表坐标（缩放中心）-----
+                    Point mousePos = chartControl.PointToClient(Cursor.Position);
+                    DiagramCoordinates diagramCoords = diagram.PointToDiagram(mousePos);
+                    double xCenterOa, yCenter;
+
+                    if (diagramCoords != null && !diagramCoords.IsEmpty)
+                    {
+                        // X 轴为日期时间类型 → 使用 DateTimeArgument
+                        DateTime xCenterDate = diagramCoords.DateTimeArgument;
+                        xCenterOa = xCenterDate.ToOADate();
+
+                        // Y 轴为数值类型 → 使用 NumericalValue
+                        yCenter = diagramCoords.NumericalValue;
+                    }
+                    else
+                    {
+                        // 若无法获取（如鼠标移出绘图区），回退到视图中心
+                        xCenterOa = (xMinOa + xMaxOa) / 2;
+                        yCenter = (yMin + yMax) / 2;
+                    }
+
+                    // 确保缩放中心位于当前视图范围内（防止越界计算）
+                    if (xCenterOa < xMinOa) xCenterOa = xMinOa;
+                    if (xCenterOa > xMaxOa) xCenterOa = xMaxOa;
+                    if (yCenter < yMin) yCenter = yMin;
+                    if (yCenter > yMax) yCenter = yMax;
+
+                    bool shiftPressed = (Control.ModifierKeys & Keys.Shift) != 0;
+
+                    if (!shiftPressed)
+                    {
+                        // ---------- X 轴缩放（日期时间）----------
+                        // 以鼠标点为中心计算新范围（OADate 单位）
+                        double newXMinOa = xCenterOa - (xCenterOa - xMinOa) * zoomFactor;
+                        double newXMaxOa = xCenterOa + (xMaxOa - xCenterOa) * zoomFactor;
+
+                        // 边界限制：避免范围过小或过大
+                        double minSpan = 1.0 / 1440.0;                     // 最小跨度：1分钟（1天=1440分钟）
+                        double maxSpan = (xMaxOa - xMinOa) * 5;             // 最大跨度：当前范围的5倍
+
+                        double newSpan = newXMaxOa - newXMinOa;
+                        if (newSpan < minSpan)
+                        {
+                            // 强制保持最小跨度，中心点不变
+                            newXMinOa = xCenterOa - minSpan / 2;
+                            newXMaxOa = xCenterOa + minSpan / 2;
+                        }
+                        else if (newSpan > maxSpan)
+                        {
+                            newXMinOa = xCenterOa - maxSpan / 2;
+                            newXMaxOa = xCenterOa + maxSpan / 2;
+                        }
+
+                        // 转回 DateTime 并应用
+                        DateTime newXMin = DateTime.FromOADate(newXMinOa);
+                        DateTime newXMax = DateTime.FromOADate(newXMaxOa);
+
+                        diagram.AxisX.VisualRange.SetMinMaxValues(newXMin, newXMax);
+                        diagram.AxisX.VisualRange.Auto = false;
+                    }
+                    else
+                    {
+                        // ---------- Y 轴缩放（数值）----------
+                        // 以鼠标点为中心计算新范围
+                        double newYMin = yCenter - (yCenter - yMin) * zoomFactor;
+                        double newYMax = yCenter + (yMax - yCenter) * zoomFactor;
+
+                        // 可选：Y 轴范围限制（防止负数等，根据实际需求调整）
+                        double minYRange = 0.001; // 例如最小范围0.001
+                        double maxYRange = (yMax - yMin) * 5; // 最大跨度5倍
+
+                        double newYRange = newYMax - newYMin;
+                        if (newYRange < minYRange)
+                        {
+                            newYMin = yCenter - minYRange / 2;
+                            newYMax = yCenter + minYRange / 2;
+                        }
+                        else if (newYRange > maxYRange)
+                        {
+                            newYMin = yCenter - maxYRange / 2;
+                            newYMax = yCenter + maxYRange / 2;
+                        }
+
+                        diagram.AxisY.VisualRange.SetMinMaxValues(newYMin, newYMax);
+                        diagram.AxisY.VisualRange.Auto = false;
+                    }
+
+                    chartControl.RefreshData();
+
+                    if (e is HandledMouseEventArgs hme)
+                        hme.Handled = true;
+                }
+            };
 
             chartControl.Legend.Visibility = DevExpress.Utils.DefaultBoolean.True;
             chartControl.Legend.AlignmentHorizontal = LegendAlignmentHorizontal.Right;
             chartControl.Legend.AlignmentVertical = LegendAlignmentVertical.Top;
 
-            // 设置图表边框和背景
             chartControl.BorderOptions.Visibility = DevExpress.Utils.DefaultBoolean.False;
-
-            // 配置图表外观
-            //chartControl.PaletteName = "Office 2019";
-            //chartControl.PaletteBaseColorNumber = 2;
-
-            // 强制刷新
-            //if (diagram != null)
-            //{
-            //    diagram.AxisX.VisualRange.Auto = true;
-            //    diagram.AxisY.VisualRange.Auto = true;
-            //}
 
             // 刷新图表
             chartControl.RefreshData();
@@ -685,78 +1012,21 @@ namespace ChargeDebug.Form
             // 设置默认选中的Tab页
             tabControl.SelectedTabPage = tabPageTable;
 
+            //tabControl.MouseWheel += (s, e) => {
+            //    // 获取鼠标下的控件
+            //    Point mousePos = tabControl.PointToClient(Cursor.Position);
+            //    Control ctrl = tabControl.GetChildAtPoint(mousePos);
+            //    if (ctrl == chartControl)
+            //    {
+            //        Console.WriteLine("XtraTabControl 拦截了图表的滚轮事件");
+            //        // 可选：将事件手动转发给图表
+            //        // chartControl.Focus();
+            //        // SendKeys.SendWait(e.Delta > 0 ? "{PGUP}" : "{PGDN}"); // 不推荐
+            //    }
+            //};
+
             // 添加控件到界面
             Controls.AddRange(new Control[] { fileGridControl, tabControl });
-        }
-
-        private void AddDataPoint(IEnumerable<CenterBottomData> array)
-        {
-            this.Invoke(new Action(() =>
-            {
-                try
-                {
-                    foreach (var a in array)
-                    {
-                        if (!keyValuePairs.ContainsKey(a.Type))
-                        {
-                            var series = CreateSeries(a.Type);
-                            keyValuePairs[a.Type] = series;
-                        }
-                    }
-                    chartControl.BeginInit();
-
-                    foreach (var a in array)
-                    {
-                        var series = keyValuePairs[a.Type];
-                        series.Points.Add(new SeriesPoint(a.X, a.Y));
-                        if (series.Points.Count > MAX_POINTS)
-                        {
-                            series.Points.RemoveAt(0);
-                        }
-                    }
-                    chartControl.EndInit();
-                }
-                catch (Exception ex) 
-                { 
-                    LogService.Log(ex.Message); 
-                }
-            }));
-        }
-
-        private Series CreateSeries(string name)
-        {
-            Series series = new Series(name, ViewType.Line);            // 创建系列并设置为线图
-            chartControl.Series.Add(series);
-            XYDiagram diagram = (XYDiagram)chartControl.Diagram;            // 配置图表为XYDiagram以支持滚动
-
-            diagram.EnableAxisXScrolling = true;            // 启用X轴滚动 
-            diagram.EnableAxisXZooming = true;
-            diagram.DefaultPane.BackColor = Color.Transparent;
-            diagram.DefaultPane.BorderColor = Color.Transparent;
-            diagram.AxisX.VisualRange.Auto = true;// 配置X轴           
-            diagram.AxisY.VisualRange.Auto = true; // 配置Y轴            
-            chartControl.Legend.Visibility = DevExpress.Utils.DefaultBoolean.True;// 隐藏图例（可选）
-            chartControl.Legend.BackColor = Color.Transparent;
-            chartControl.Legend.TextColor = Color.White;
-
-            // 设置X轴单位和属性
-            diagram.AxisX.Title.TextColor = Color.White;
-            diagram.AxisX.Title.DXFont = new DevExpress.Drawing.DXFont("微软雅黑", 10);
-            diagram.AxisX.Title.Visibility = DevExpress.Utils.DefaultBoolean.True;
-            diagram.AxisX.Title.Alignment = StringAlignment.Far;  // 末端对齐
-            diagram.AxisX.Title.Position = AxisTitlePosition.Inside;
-            diagram.AxisX.Title.EnableAntialiasing = DevExpress.Utils.DefaultBoolean.True;
-            diagram.AxisX.QualitativeScaleOptions.AutoGrid = false;
-            diagram.AxisX.Label.ResolveOverlappingOptions.AllowHide = false;
-            diagram.AxisX.Label.TextColor = Color.White;
-            diagram.AxisX.Color = Color.FromArgb(0, 144, 255);
-
-            // 设置Y轴单位和属性
-            diagram.AxisY.Label.TextPattern = "KW";
-            diagram.AxisY.Label.TextColor = Color.White;
-            diagram.AxisY.GridLines.Color = Color.FromArgb(0, 144, 255);
-            diagram.AxisY.Color = Color.FromArgb(0, 144, 255);
-            return series;
         }
 
         private void InitializeContextMenu()
@@ -771,6 +1041,104 @@ namespace ChargeDebug.Form
             deletefile.Click += DeleteFile_Click;
 
             gridContextMenu.Items.AddRange(new ToolStripItem[] { importfiles, exportfile, deletefile });
+        }
+
+        private void ExportFile_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                // 检查数据源是否存在且包含数据
+                if (dataGridControl.DataSource == null)
+                {
+                    XtraMessageBox.Show("没有可导出的数据", "提示",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // 获取数据表（已知在 LoadTableData 中设置为 DataTable）
+                DataTable dt = dataGridControl.DataSource as DataTable;
+                if (dt == null || dt.Rows.Count == 0)
+                {
+                    XtraMessageBox.Show("没有可导出的数据", "提示",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // 让用户选择保存路径和格式
+                using (SaveFileDialog saveFileDialog = new SaveFileDialog())
+                {
+                    saveFileDialog.Filter = "Excel 工作簿 (*.xlsx)|*.xlsx|CSV 文件 (*.csv)|*.csv";
+                    saveFileDialog.Title = "导出数据";
+                    saveFileDialog.FileName = $"数据导出_{DateTime.Now:yyyyMMddHHmmss}";
+
+                    if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        string fileName = saveFileDialog.FileName;
+                        string extension = Path.GetExtension(fileName).ToLower();
+
+                        // 显示等待对话框（避免界面假死）
+                        //WaitDialogForm waitDialog = new WaitDialogForm("正在导出数据", "请稍候...");
+                        //waitDialog.Show();
+                        //waitDialog.TopMost = true;
+
+                        try
+                        {
+                            // 根据文件扩展名选择导出方式
+                            switch (extension)
+                            {
+                                case ".xlsx":
+                                    XlsxExportOptionsEx xlsxOptions = new XlsxExportOptionsEx();
+                                    xlsxOptions.ExportType = DevExpress.Export.ExportType.DataAware;
+                                    dataGridView.ExportToXlsx(fileName, xlsxOptions);
+
+                                    // 使用 ClosedXML 创建工作簿
+                                    //using (var workbook = new XLWorkbook())
+                                    //{
+                                    //    // 添加工作表，命名为“数据”
+                                    //    var worksheet = workbook.Worksheets.Add("数据");
+
+                                    //    // 将 DataTable 导入工作表（包括列标题）
+                                    //    worksheet.Cell(1, 1).InsertTable(dt);
+
+                                    //    // 可选：调整列宽以适应内容
+                                    //    worksheet.Columns().AdjustToContents();
+
+                                    //    // 保存文件
+                                    //    workbook.SaveAs(fileName);
+                                    //}
+                                    break;
+                                case ".csv":
+                                    CsvExportOptionsEx csvOptions = new CsvExportOptionsEx();
+                                    csvOptions.ExportType = DevExpress.Export.ExportType.DataAware;
+                                    dataGridView.ExportToCsv(fileName, csvOptions);
+                                    break;
+                                default:
+                                    XtraMessageBox.Show("不支持的文件格式", "错误",
+                                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                    return;
+                            }
+
+                            XtraMessageBox.Show($"数据导出成功！\n文件保存至：{fileName}", "完成",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        catch (Exception ex)
+                        {
+                            XtraMessageBox.Show($"导出失败：{ex.Message}", "错误",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                        finally
+                        {
+                            //waitDialog.Close();
+                            //waitDialog.Dispose();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"导出过程中发生错误：{ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private async void DeleteFile_Click(object? sender, EventArgs e)
@@ -915,102 +1283,6 @@ namespace ChargeDebug.Form
             }
         }
 
-        private async void ExportFile_Click(object? sender, EventArgs e)
-        {
-            try
-            {
-                // 获取选中的行
-                int[] selectedRows = fileGridView.GetSelectedRows();
-                if (selectedRows.Length == 0)
-                {
-                    XtraMessageBox.Show("请选择要导出的文件", "提示",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-
-                // 选择导出目录
-                using (FolderBrowserDialog folderDialog = new FolderBrowserDialog())
-                {
-                    folderDialog.Description = "选择导出目录";
-                    folderDialog.ShowNewFolderButton = true;
-
-                    if (folderDialog.ShowDialog() == DialogResult.OK)
-                    {
-                        string exportPath = folderDialog.SelectedPath;
-
-                        // 确认对话框
-                        DialogResult result = XtraMessageBox.Show(
-                            $"确定要导出选中的 {selectedRows.Length} 个文件到目录：\n{exportPath}",
-                            "确认导出",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Question);
-
-                        if (result != DialogResult.Yes)
-                            return;
-
-                        // 显示等待对话框
-                        using (WaitDialogForm waitDialog = new WaitDialogForm("正在导出文件", "请稍候..."))
-                        {
-                            waitDialog.Show();
-                            waitDialog.TopMost = true;
-
-                            try
-                            {
-                                int successCount = 0;
-                                int totalCount = selectedRows.Length;
-
-                                for (int i = 0; i < totalCount; i++)
-                                {
-                                    int rowHandle = selectedRows[i];
-                                    if (rowHandle >= 0 && rowHandle < fileGridView.RowCount)
-                                    {
-                                        // 获取文件信息
-                                        int fileId = Convert.ToInt32(fileGridView.GetRowCellValue(rowHandle, "文件ID"));
-                                        string fileName = fileGridView.GetRowCellValue(rowHandle, "文件名称").ToString();
-
-                                        string description = $"正在导出文件: {fileName}\n({i + 1}/{totalCount})";
-                                        if (waitDialog.InvokeRequired)
-                                        {
-                                            waitDialog.Invoke(new Action(() =>
-                                            {
-                                                waitDialog.AccessibleDescription = description;
-                                                waitDialog.Refresh();
-                                            }));
-                                        }
-                                        else
-                                        {
-                                            waitDialog.AccessibleDescription = description;
-                                            waitDialog.Refresh();
-                                        }
-                                    }
-                                }
-
-                                XtraMessageBox.Show($"成功导出 {successCount}/{totalCount} 个文件到目录：\n{exportPath}",
-                                    "导出完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                                // 打开导出目录
-                                try
-                                {
-                                    System.Diagnostics.Process.Start("explorer.exe", exportPath);
-                                }
-                                catch { }
-                            }
-                            catch (Exception ex)
-                            {
-                                XtraMessageBox.Show($"导出过程中出错: {ex.Message}", "错误",
-                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                XtraMessageBox.Show($"导出失败: {ex.Message}", "错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
         private async void ImportFiles_Click(object? sender, EventArgs e)
         {
             try
@@ -1150,6 +1422,44 @@ namespace ChargeDebug.Form
                 {
                     LogService.Log($"处理文件组 {groupIndex + 1} 失败: {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// 检查数据表中时间列是否连续（严格递增，无重复）
+        /// </summary>
+        /// <param name="dt">数据表</param>
+        /// <param name="fileId">当前文件ID，用于日志记录</param>
+        private void CheckTimeContinuity(DataTable dt, int fileId)
+        {
+            if (dt == null || dt.Rows.Count < 2) return;
+            if (!dt.Columns.Contains("Time")) return;
+
+            DateTime? prevTime = null;
+            int rowIndex = 0;
+            const double maxAllowedSeconds = 2.0;
+
+            foreach (DataRow row in dt.Rows)
+            {
+                string timeStr = row["Time"]?.ToString();
+                if (DateTime.TryParse(timeStr, out DateTime currTime))
+                {
+                    if (prevTime.HasValue)
+                    {
+                        double diffSeconds = (currTime - prevTime.Value).TotalSeconds;
+                        if (diffSeconds > maxAllowedSeconds || diffSeconds < 0)
+                        {
+                            // 时间差超过1秒，或时间倒退（虽然应由ORDER BY保证，但以防万一）
+                            LogService.Log($"警告：文件ID {fileId} 时间不连续，第 {rowIndex - 1} 行到第 {rowIndex} 行间隔 {diffSeconds:F3} 秒，上一时间: {prevTime.Value:yyyy-MM-dd HH:mm:ss}，当前时间: {currTime:yyyy-MM-dd HH:mm:ss}");
+                        }
+                    }
+                    prevTime = currTime;
+                }
+                else
+                {
+                    LogService.Log($"警告：文件ID {fileId} 第 {rowIndex} 行时间格式无法解析: {timeStr}");
+                }
+                rowIndex++;
             }
         }
 

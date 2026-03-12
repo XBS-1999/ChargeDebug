@@ -375,7 +375,7 @@ namespace ChargeDebug
             buttonItem7.ImageOptions.Image = Properties.Resources.在线升级;
             buttonItem8.ImageOptions.Image = Properties.Resources.用户切换;
             buttonItem9.ImageOptions.Image = Properties.Resources.校准管理;
-            buttonItem10.ImageOptions.Image = Properties.Resources.测试管理;
+            buttonItem10.ImageOptions.Image = Properties.Resources.绝缘耐压;
             buttonItem11.ImageOptions.Image = Properties.Resources.数据分析;
             logButton.ImageOptions.Image = Properties.Resources.日志管理;
         }

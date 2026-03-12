@@ -1601,6 +1601,7 @@ namespace ChargeDebug.Service
                         {
                             Name = reader["Name"].ToString(),
                             ChineseName = reader["ChineseName"].ToString(),
+                            Field_Type = reader["Field_Type"].ToString(),
                             Unit = reader["Unit"].ToString(),
                             Type_Table = reader["Type_Table"].ToString(),
                             Type_Chart = reader["Type_Chart"].ToString()
@@ -1653,8 +1654,8 @@ namespace ChargeDebug.Service
                             ProjectName = reader["ProjectName"].ToString(),
                             TestVoltage = Convert.ToDouble(reader["TestVoltage"]),
                             TestTime = Convert.ToDouble(reader["TestTime"]),
-                            RampUpTime = Convert.ToDouble(reader["RampUpTime"]),
-                            RampDownTime = Convert.ToDouble(reader["RampDownTime"]),
+                            RampUpTime = reader["RampUpTime"] == DBNull.Value ? double.NaN : Convert.ToDouble(reader["RampUpTime"]),
+                            RampDownTime = reader["RampDownTime"] == DBNull.Value ? double.NaN : Convert.ToDouble(reader["RampDownTime"]),
                             CurrentLimit = reader["CurrentLimit"] == DBNull.Value ? null : reader["CurrentLimit"].ToString(),
                             ResistanceLimit = reader["ResistanceLimit"] == DBNull.Value ? null : reader["ResistanceLimit"].ToString(),
                             CreateTime = reader["CreateTime"] == DBNull.Value ? (DateTime?)null : Convert.ToDateTime(reader["CreateTime"]),
@@ -1684,8 +1685,8 @@ namespace ChargeDebug.Service
                 cmd.Parameters.AddWithValue("@ProjectName", project.ProjectName);
                 cmd.Parameters.AddWithValue("@TestVoltage", project.TestVoltage);
                 cmd.Parameters.AddWithValue("@TestTime", project.TestTime);
-                cmd.Parameters.AddWithValue("@RampUpTime", project.RampUpTime);
-                cmd.Parameters.AddWithValue("@RampDownTime", project.RampDownTime);
+                cmd.Parameters.AddWithValue("@RampUpTime", (object)project.RampUpTime ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@RampDownTime", (object)project.RampDownTime ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CurrentLimit", (object)project.CurrentLimit ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ResistanceLimit", (object)project.ResistanceLimit ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreateTime", DateTime.Now);

@@ -6,6 +6,8 @@ using DataModel;
 using Log;
 using System.IO;
 using ClosedXML.Excel;
+using static DevExpress.Utils.Drawing.Helpers.NativeMethods;
+using DevExpress.XtraEditors;
 
 #pragma warning disable
 namespace ChargeDebug.Service
@@ -13,6 +15,7 @@ namespace ChargeDebug.Service
     public class DataBatchWriteManager : IDisposable
     {
         private readonly string _connectionString;
+        private readonly object _templateLock = new object();
         private readonly ConcurrentQueue<DataBatchItem> _dataQueue;
         private readonly CancellationTokenSource _cancellationTokenSource;
         private readonly SemaphoreSlim _queueSemaphore;
@@ -315,7 +318,7 @@ namespace ChargeDebug.Service
         /// </summary>
         /// <param name="fileId">文件ID</param>
         /// <returns>写入的记录数</returns>
-        public async Task<int> WriteToTargetTableAsync(int fileId)
+        public async Task<int> WriteToTargetTableAsync(int fileId, List<Template> template)
         {
             int insertedCount = 0;
 
@@ -325,6 +328,9 @@ namespace ChargeDebug.Service
                 {
                     await connection.OpenAsync();
 
+                    // 准备批量插入
+                    string insertSql = GetDynamicInsertSql(template);
+
                     // 开始事务
                     using (var transaction = connection.BeginTransaction())
                     {
@@ -333,12 +339,10 @@ namespace ChargeDebug.Service
                             // 按Sign分组获取所有记录类型的数据
                             var signGroups = await GetDataGroupedBySignAsync(connection, fileId);
 
-                            // 准备批量插入
-                            var insertSql = GetBatchInsertSql();
                             using (var cmd = new SQLiteCommand(insertSql, connection, transaction))
                             {
                                 // 添加参数
-                                AddBatchInsertParameters(cmd);
+                                AddDynamicParameters(cmd, template);
 
                                 // 处理每个Sign分组
                                 foreach (var signGroup in signGroups)
@@ -354,7 +358,7 @@ namespace ChargeDebug.Service
                                     if (recordData != null)
                                     {
                                         // 设置参数值
-                                        SetBatchInsertParameterValues(cmd, fileId, recordData);
+                                        SetDynamicParameterValues(cmd, fileId, recordData, template);
 
                                         // 执行插入
                                         await cmd.ExecuteNonQueryAsync();
@@ -388,64 +392,56 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 获取批量插入的SQL语句
         /// </summary>
-        private string GetBatchInsertSql()
+        private string GetDynamicInsertSql(List<Template> _template)
         {
-            return @"
-                INSERT INTO TargetTable 
-                (Time, AC_TotalPower, DC_TotalPower, DC1_Power, DC2_Power,
-                 DC3_Power, DC4_Power, DC1_SOC1, DC2_SOC2, DC3_SOC3, DC4_SOC4, FileID)
-                VALUES 
-                (@Time, @AC_TotalPower, @DC_TotalPower, @DC1_Power, @DC2_Power,
-                 @DC3_Power, @DC4_Power, @DC1_SOC1, @DC2_SOC2, @DC3_SOC3, @DC4_SOC4, @FileID)";
+            if (_template == null || _template.Count == 0)
+                throw new InvalidOperationException("Template 配置为空，无法生成插入语句");
+
+            // 获取所有列名（假设所有 Template 列都需要写入）
+            var columnNames = _template.Select(t => $"\"{t.Name}\"").ToList();
+            columnNames.Insert(0, "FileID"); // 在最前面插入 FileID
+
+            string columns = string.Join(", ", columnNames);
+            string parameters = string.Join(", ", columnNames.Select(c => "@" + c.Trim('"')));
+            return $"INSERT INTO TargetTable ({columns}) VALUES ({parameters})";
         }
 
         /// <summary>
         /// 添加批量插入的参数
         /// </summary>
-        private void AddBatchInsertParameters(SQLiteCommand cmd)
+        private void AddDynamicParameters(SQLiteCommand cmd, List<Template> _template)
         {
-            cmd.Parameters.Add("@Time", DbType.DateTime);
-            cmd.Parameters.Add("@AC_TotalPower", DbType.Double);
-            cmd.Parameters.Add("@DC_TotalPower", DbType.Double);
-            cmd.Parameters.Add("@FileID", DbType.Int32);
+            cmd.Parameters.Clear();
 
-            // 通道1-4的Power
-            cmd.Parameters.Add("@DC1_Power", DbType.Double);
-            cmd.Parameters.Add("@DC2_Power", DbType.Double);
-            cmd.Parameters.Add("@DC3_Power", DbType.Double);
-            cmd.Parameters.Add("@DC4_Power", DbType.Double);
+            // 添加 FileID 参数
+            cmd.Parameters.Add(new SQLiteParameter("@FileID", DbType.Int32));
 
-            // 通道1-4的SOC
-            cmd.Parameters.Add("@DC1_SOC1", DbType.Double);
-            cmd.Parameters.Add("@DC2_SOC2", DbType.Double);
-            cmd.Parameters.Add("@DC3_SOC3", DbType.Double);
-            cmd.Parameters.Add("@DC4_SOC4", DbType.Double);
+            // 为每个 Template 列添加参数，类型设为 DbType.String 以兼容 SQLite 的动态类型
+            foreach (var template in _template)
+            {
+                cmd.Parameters.Add(new SQLiteParameter("@" + template.Name, DbType.String));
+            }
         }
 
         /// <summary>
         /// 设置批量插入的参数值
         /// </summary>
-        private void SetBatchInsertParameterValues(
-            SQLiteCommand cmd,
-            int fileId,
-            TargetTableRecordData recordData)
+        private void SetDynamicParameterValues(SQLiteCommand cmd, int fileId, Dictionary<string, object> recordData, List<Template> _template)
         {
-            cmd.Parameters["@Time"].Value = recordData.CreateTime ?? (object)DBNull.Value;
-            cmd.Parameters["@AC_TotalPower"].Value = recordData.AC_TotalPower ?? (object)DBNull.Value;
-            cmd.Parameters["@DC_TotalPower"].Value = recordData.DC_TotalPower ?? (object)DBNull.Value;
             cmd.Parameters["@FileID"].Value = fileId;
 
-            // 通道1-4的Power
-            cmd.Parameters["@DC1_Power"].Value = recordData.ChannelPowers[0] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC2_Power"].Value = recordData.ChannelPowers[1] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC3_Power"].Value = recordData.ChannelPowers[2] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC4_Power"].Value = recordData.ChannelPowers[3] ?? (object)DBNull.Value;
-
-            // 通道1-4的SOC
-            cmd.Parameters["@DC1_SOC1"].Value = recordData.ChannelSocs[0] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC2_SOC2"].Value = recordData.ChannelSocs[1] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC3_SOC3"].Value = recordData.ChannelSocs[2] ?? (object)DBNull.Value;
-            cmd.Parameters["@DC4_SOC4"].Value = recordData.ChannelSocs[3] ?? (object)DBNull.Value;
+            foreach (var template in _template)
+            {
+                string paramName = "@" + template.Name;
+                if (recordData.TryGetValue(template.Name, out object value))
+                {
+                    cmd.Parameters[paramName].Value = value ?? DBNull.Value;
+                }
+                else
+                {
+                    cmd.Parameters[paramName].Value = DBNull.Value; // 列不存在于当前记录时置空
+                }
+            }
         }
 
         /// <summary>
@@ -494,78 +490,107 @@ namespace ChargeDebug.Service
         /// <summary>
         /// 处理单个Sign分组的数据（返回数据对象，不直接插入）
         /// </summary>
-        private async Task<TargetTableRecordData> ProcessSignGroupForBatchAsync(
+        private async Task<Dictionary<string, object>> ProcessSignGroupForBatchAsync(
             Dictionary<string, List<object>> recordsByType)
         {
-            var recordData = new TargetTableRecordData();
+            var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
-            // 提取None记录的CreateTime（取第一条）
+            // --- Time (None) ---
             if (recordsByType.TryGetValue("None", out var noneRecords) && noneRecords.Count > 0)
             {
-                var firstNoneRecord = noneRecords[0] as NoneRecord;
-                recordData.CreateTime = firstNoneRecord?.CreateTime;
+                var firstNone = noneRecords[0] as NoneRecord;
+                result["Time"] = firstNone?.CreateTime;
+            }
+            else
+            {
+                result["Time"] = null;
             }
 
-            // 提取Cal7记录的Power（汇总所有记录的Power）
+            // --- AC_TotalPower (Cal7) ---
             if (recordsByType.TryGetValue("Cal7", out var cal7Records) && cal7Records.Count > 0)
             {
-                recordData.AC_TotalPower = 0;
-                foreach (Cal7Record record in cal7Records.Cast<Cal7Record>())
-                {
-                    if (record.Power.HasValue)
-                    {
-                        recordData.AC_TotalPower += record.Power.Value;
-                    }
-                }
+                decimal? totalAc = 0;
+                foreach (Cal7Record rec in cal7Records.Cast<Cal7Record>())
+                    if (rec.Power.HasValue) totalAc += rec.Power.Value;
+                result["AC_TotalPower"] = totalAc;
+            }
+            else
+            {
+                result["AC_TotalPower"] = null;
             }
 
-            // 处理Cal5记录的通道数据
+            // --- DC 相关列 (Cal5) ---
+            decimal? totalDc = 0;
             if (recordsByType.TryGetValue("Cal5", out var cal5Records) && cal5Records.Count > 0)
             {
-                recordData.DC_TotalPower = 0;
-
-                // 按通道分组处理
-                var channelGroups = cal5Records
-                    .Cast<Cal5Record>()
+                var cal5List = cal5Records.Cast<Cal5Record>().ToList();
+                var channelGroups = cal5List
                     .GroupBy(r => r.ChannelNum ?? 0)
-                    .Where(g => g.Key >= 1 && g.Key <= 4);
+                    .Where(g => g.Key >= 1 && g.Key <= 4)
+                    .ToDictionary(g => g.Key, g => g.ToList());
 
-                foreach (var group in channelGroups)
+                for (int ch = 1; ch <= 4; ch++)
                 {
-                    int channelIndex = group.Key - 1; // 转换为0-based索引
+                    string powerCol = $"DC{ch}_Power";
+                    string socCol = $"DC{ch}_SOC";
+                    string emsstaCol = $"DC{ch}_EMSStatus";
+                    string emsmodeCol = $"DC{ch}_EMSMode";
 
-                    // 计算该通道的总Power
-                    double? channelPower = null;
-                    foreach (var record in group)
+                    if (channelGroups.TryGetValue(ch, out var records))
                     {
-                        if (record.Power.HasValue)
+                        // 功率总和
+                        decimal? chPower = null;
+                        double? chSOC = null;
+                        string chEMSStatus = null;
+                        string chEMSMode = null;
+                        foreach (var rec in records)
                         {
-                            channelPower = (channelPower ?? 0) + record.Power.Value;
+                            // 功率
+                            if (rec.Power.HasValue)
+                                chPower = rec.Power;
+
+                            // SOC
+                            if (rec.SOC.HasValue)
+                                chSOC = rec.SOC;
+
+                            // EMSStatus
+                            if (!string.IsNullOrEmpty(rec.EMSStatus))
+                                chEMSStatus = rec.EMSStatus;
+
+                            // EMSMode
+                            if (!string.IsNullOrEmpty(rec.EMSMode))
+                                chEMSMode = rec.EMSMode;
                         }
-                    }
 
-                    // 计算该通道的平均SOC（如果有多个记录）
-                    double? channelSoc = null;
-                    if (group.Any(r => r.SOC.HasValue))
+                        result[powerCol] = chPower;
+                        result[socCol] = chSOC;
+                        result[emsstaCol] = chEMSStatus;
+                        result[emsmodeCol] = chEMSMode;
+                        if (chPower.HasValue) totalDc += chPower.Value;
+                    }
+                    else
                     {
-                        channelSoc = group
-                            .Where(r => r.SOC.HasValue)
-                            .Average(r => r.SOC.Value);
+                        result[powerCol] = null;
+                        result[socCol] = null;
+                        result[emsstaCol] = null;
+                        result[emsmodeCol] = null;
                     }
-
-                    // 更新总功率
-                    if (channelPower.HasValue)
-                    {
-                        recordData.DC_TotalPower += channelPower.Value;
-                    }
-
-                    // 存储通道数据
-                    recordData.ChannelPowers[channelIndex] = channelPower;
-                    recordData.ChannelSocs[channelIndex] = channelSoc;
+                }
+                result["DC_TotalPower"] = totalDc;
+            }
+            else
+            {
+                result["DC_TotalPower"] = null;
+                for (int ch = 1; ch <= 4; ch++)
+                {
+                    result[$"DC{ch}_Power"] = null;
+                    result[$"DC{ch}_SOC"] = null; 
+                    result[$"DC{ch}_EMSStatus"] = null;
+                    result[$"DC{ch}_EMSMode"] = null;
                 }
             }
 
-            return recordData;
+            return result;
         }
 
         /// <summary>
@@ -808,9 +833,9 @@ namespace ChargeDebug.Service
         {
             string sql = @"
                 INSERT INTO RecordType_Cal5 
-                (FileID, CreateTime, ChannelNum, SOH, Current, Power, ChargeEnergy, Voltage, DeviceStatus, SOC, DisChargeEnergy, KeyValue, Sign)
+                (FileID, CreateTime, ChannelNum, SOH, Current, Power, EMSStatus, ChargeEnergy, Voltage, DeviceStatus, SOC, DisChargeEnergy, EMSMode, KeyValue, Sign)
                 VALUES 
-                (@FileID, @CreateTime, @ChannelNum, @SOH, @Current, @Power, @ChargeEnergy, @Voltage, @DeviceStatus, @SOC, @DisChargeEnergy, @KeyValue, @Sign)";
+                (@FileID, @CreateTime, @ChannelNum, @SOH, @Current, @Power, @EMSStatus, @ChargeEnergy, @Voltage, @DeviceStatus, @SOC, @DisChargeEnergy, @EMSMode, @KeyValue, @Sign)";
 
             using (var cmd = new SQLiteCommand(sql, transaction.Connection, transaction))
             {
@@ -821,11 +846,13 @@ namespace ChargeDebug.Service
                 cmd.Parameters.Add("@SOH", DbType.Double);
                 cmd.Parameters.Add("@Current", DbType.Double);
                 cmd.Parameters.Add("@Power", DbType.Double);
+                cmd.Parameters.Add("@EMSStatus", DbType.String);
                 cmd.Parameters.Add("@ChargeEnergy", DbType.Double);
                 cmd.Parameters.Add("@Voltage", DbType.Double);
                 cmd.Parameters.Add("@DeviceStatus", DbType.String);
                 cmd.Parameters.Add("@SOC", DbType.Double);
                 cmd.Parameters.Add("@DisChargeEnergy", DbType.Double);
+                cmd.Parameters.Add("@EMSMode", DbType.String);
                 cmd.Parameters.Add("@KeyValue", DbType.String);
                 cmd.Parameters.Add("@Sign", DbType.Int32);
 
@@ -837,11 +864,13 @@ namespace ChargeDebug.Service
                     cmd.Parameters["@SOH"].Value = record.SOH ?? (object)DBNull.Value;
                     cmd.Parameters["@Current"].Value = record.Current ?? (object)DBNull.Value;
                     cmd.Parameters["@Power"].Value = record.Power ?? (object)DBNull.Value;
+                    cmd.Parameters["@EMSStatus"].Value = record.EMSStatus ?? (object)DBNull.Value;
                     cmd.Parameters["@ChargeEnergy"].Value = record.ChargeEnergy ?? (object)DBNull.Value;
                     cmd.Parameters["@Voltage"].Value = record.Voltage ?? (object)DBNull.Value;
                     cmd.Parameters["@DeviceStatus"].Value = record.DeviceStatus ?? (object)DBNull.Value;
                     cmd.Parameters["@SOC"].Value = record.SOC ?? (object)DBNull.Value;
                     cmd.Parameters["@DisChargeEnergy"].Value = record.DischargeEnergy ?? (object)DBNull.Value;
+                    cmd.Parameters["@EMSMode"].Value = record.EMSMode ?? (object)DBNull.Value;
                     cmd.Parameters["@KeyValue"].Value = record.KeyValue ?? (object)DBNull.Value;
                     cmd.Parameters["@Sign"].Value = record.Sign ?? (object)DBNull.Value;
 

@@ -153,6 +153,13 @@ namespace ChargeDebug.Form
         private bool _hasACChannel = false;
         private bool _hasDCChannel = false;
 
+        // 风扇控制相关字段
+        private uint _fanCanId = 0x0400A0CC;          // 风扇控制CAN ID
+        private System.Threading.Timer _fanTimer;                       // 风扇循环定时器
+        private bool _fanCycleActive;                   // 风扇循环是否激活
+        private bool _fanIsRunning;                     // 当前风扇是否运行
+        private readonly object _fanLock = new object(); // 线程锁
+
         public ConfigurationData ProtectionParameters { get; set; }
 
         public event Action<string> FaultDetected; // 专门用于故障通知的事件
@@ -477,7 +484,9 @@ namespace ChargeDebug.Form
             var shutDown = new ToolStripMenuItem("停止测试");
             var clearfault = new ToolStripMenuItem("清除故障");
             var lowvoltage = new ToolStripMenuItem("电压低档");
-            var gavoltage = new ToolStripMenuItem("电压高档");
+            var gavoltage = new ToolStripMenuItem("风扇启动");
+            var fanStop = new ToolStripMenuItem("风扇停止");
+            
 
             dataselection.Click += ShowSignalSelector;
             parameterset.Click += ParameterSet;
@@ -485,8 +494,9 @@ namespace ChargeDebug.Form
             clearfault.Click += Clearfault;
             lowvoltage.Click += Wvoltage;
             gavoltage.Click += Gavoltage;
+            fanStop.Click += FanStop;
 
-            contextMenu.Items.AddRange(new[] { dataselection, parameterset, shutDown, clearfault });
+            contextMenu.Items.AddRange(new[] { dataselection, parameterset, shutDown, clearfault, gavoltage, fanStop });
 
             // 根据通道类型动态创建启动菜单项
             // 如果包含AC通道，添加AC启动选项
@@ -2648,22 +2658,93 @@ namespace ChargeDebug.Form
         }
 
         /// <summary>
-        /// 电压高档切换
+        /// 风扇启动（开始120秒转/停循环）
         /// </summary>
         private void Gavoltage(object? sender, EventArgs e)
         {
-            if (_voltageCanId != 0)
+            lock (_fanLock)
             {
-                byte[] data = new byte[8];
-                data[0] = 0x02;
-                CANManager.Instance.SendCommand(
+                if (_fanCycleActive)
+                {
+                    // 如果循环已激活，先停止当前循环再重新开始
+                    StopFanCycle();
+                }
+
+                // 开始新的循环
+                _fanCycleActive = true;
+                _fanIsRunning = true;
+                SendFanCommand(true); // 发送启动指令
+
+                // 设置120秒后切换状态
+                _fanTimer?.Dispose();
+                _fanTimer = new System.Threading.Timer(FanTimerCallback, null, 120000, Timeout.Infinite);
+            }
+        }
+
+        /// <summary>
+        /// 停止风扇循环
+        /// </summary>
+        private void FanStop(object? sender, EventArgs e)
+        {
+            lock (_fanLock)
+            {
+                StopFanCycle();
+            }
+        }
+
+        /// <summary>
+        /// 内部停止循环逻辑
+        /// </summary>
+        private void StopFanCycle()
+        {
+            if (_fanCycleActive)
+            {
+                _fanCycleActive = false;
+                _fanTimer?.Dispose();
+                _fanTimer = null;
+                SendFanCommand(false); // 确保风扇停止
+                LogService.Log("风扇循环已停止");
+            }
+        }
+
+        /// <summary>
+        /// 风扇定时器回调，每120秒切换一次状态
+        /// </summary>
+        private void FanTimerCallback(object? state)
+        {
+            lock (_fanLock)
+            {
+                if (!_fanCycleActive) return;
+
+                // 切换运行状态
+                _fanIsRunning = !_fanIsRunning;
+                SendFanCommand(_fanIsRunning);
+
+                // 重新设置定时器
+                _fanTimer?.Dispose();
+                _fanTimer = new System.Threading.Timer(FanTimerCallback, null, 120000, Timeout.Infinite);
+            }
+        }
+
+        /// <summary>
+        /// 发送风扇控制指令
+        /// </summary>
+        /// <param name="start">true=启动(0xF0,0x08)，false=停止(0xF0,0x00)</param>
+        private void SendFanCommand(bool start)
+        {
+            byte[] data = new byte[8];
+            data[0] = 0xF0;
+            data[1] = start ? (byte)0x08 : (byte)0x00;
+            // 其余字节默认为0
+
+            CANManager.Instance.SendCommand(
                 _equipment.DeviceIndex,
                 _equipment.CanIndex,
-                _voltageCanId,
+                _fanCanId,
                 data
-                );
-            }
-            XtraMessageBox.Show("电压高档位切换成功");
+            );
+
+            LogService.Log($"发送风扇指令: {(start ? "启动" : "停止")}");
         }
 
         #endregion
@@ -3798,6 +3879,9 @@ namespace ChargeDebug.Form
                 // 释放读取故障定时器
                 _readFaultTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 _readFaultTimer?.Dispose();
+
+                StopFanCycle();
+                _fanTimer?.Dispose();
 
                 // 注销CAN通道
                 CANManager.Instance.UnregisterChannel(

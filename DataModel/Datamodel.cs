@@ -231,28 +231,17 @@ namespace DataModel
     {
         public string Name { get; set; }
         public string ChineseName { get; set; }
+        public string Field_Type { get; set; }
         public string Unit { get; set; }
         public string Type_Table { get; set; }
         public string Type_Chart { get; set; }
-    }
-
-    /// <summary>
-    /// 批量插入的数据容器类
-    /// </summary>
-    public class TargetTableRecordData
-    {
-        public DateTime? CreateTime { get; set; }
-        public double? AC_TotalPower { get; set; }
-        public double? DC_TotalPower { get; set; }
-        public double?[] ChannelPowers { get; set; } = new double?[4] { null, null, null, null };
-        public double?[] ChannelSocs { get; set; } = new double?[4] { null, null, null, null };
     }
 
     public class Cal7Record
     {
         public DateTime CreateTime { get; set; }
         public int? ChannelNum { get; set; }
-        public double? Power { get; set; }
+        public decimal? Power { get; set; }
         public double? ChargeEnergy { get; set; }
         public double? DischargeEnergy { get; set; }
         public int? DeviceStatus { get; set; }
@@ -286,12 +275,14 @@ namespace DataModel
         public int? ChannelNum { get; set; }
         public double? SOH { get; set; }
         public double? Current { get; set; }
-        public double? Power { get; set; }
+        public decimal? Power { get; set; }
+        public string EMSStatus { get; set; }
         public double? ChargeEnergy { get; set; }
         public double? Voltage { get; set; }
         public int? DeviceStatus { get; set; }
         public double? SOC { get; set; }
         public double? DischargeEnergy { get; set; }
+        public string EMSMode { get; set; }
         public string KeyValue { get; set; }
         public int? Sign { get; set; }
     }

@@ -27,7 +27,7 @@ namespace CommunicationProtocols
         private const string COMMAND_TERMINATOR = "\r\n";
 
         // 响应读取超时（毫秒）
-        private const int RESPONSE_TIMEOUT_MS = 2000;
+        private const int RESPONSE_TIMEOUT_MS = 1000;
 
         private readonly object _commLock = new object();
 
@@ -71,7 +71,7 @@ namespace CommunicationProtocols
                 RS232Manager.Instance.ReadBuffer(_portName, true);
 
                 // 发送 *IDN? 查询仪器标识
-                string idn = QueryString("*IDN?");
+                string idn = GetIdn();
                 if (string.IsNullOrEmpty(idn) ||
                     (!idn.Contains("CHROMA") && !idn.Contains("19572") && !idn.Contains("Chroma")))
                 {
@@ -119,7 +119,7 @@ namespace CommunicationProtocols
                 try
                 {
                     // 清空输入缓冲区
-                    RS232Manager.Instance.ReadBuffer(_portName, true);
+                    //RS232Manager.Instance.ReadBuffer(_portName, true);
 
                     // 发送命令（自动添加结束符）
                     string fullCommand = command + COMMAND_TERMINATOR;
@@ -127,6 +127,7 @@ namespace CommunicationProtocols
                     if (!sent)
                         throw new Exception("发送命令失败");
 
+                    Thread.Sleep(RESPONSE_TIMEOUT_MS);
                     // 等待并读取一行响应
                     byte[] response = RS232Manager.Instance.ReadBuffer(_portName, true);
                     if (response.Length == 0)
@@ -233,7 +234,7 @@ namespace CommunicationProtocols
         /// 设置指定步骤的测试电流 (A)
         /// </summary>
         public void SetStepGBLevel(int step, double current) =>
-            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LEVEL {current:F3}");
+            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LEVEL {current}");
 
         /// <summary>
         /// 查询指定步骤的测试电流 (A)
@@ -245,7 +246,7 @@ namespace CommunicationProtocols
         /// 设置指定步骤的接地电阻上限 (Ohm)
         /// </summary>
         public void SetStepGBLimitHigh(int step, double limit) =>
-            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LIMIT:HIGH {limit:F3}");
+            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LIMIT:HIGH {limit}");
 
         /// <summary>
         /// 查询指定步骤的接地电阻上限 (Ohm)
@@ -257,7 +258,7 @@ namespace CommunicationProtocols
         /// 设置指定步骤的接地电阻下限 (Ohm)
         /// </summary>
         public void SetStepGBLimitLow(int step, double limit) =>
-            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LIMIT:LOW {limit:F3}");
+            SendCommandNoResponse($":SOURce:SAFETy:STEP{step}:GB:LIMIT:LOW {limit}");
 
         /// <summary>
         /// 查询指定步骤的接地电阻下限 (Ohm)
@@ -660,9 +661,9 @@ namespace CommunicationProtocols
                 throw new InvalidOperationException("未连接到设备");
 
             // 获取步骤数量
-            int stepCount = GetStepNumber();
-            if (stepCount == 0)
-                throw new InvalidOperationException("没有设定任何 STEP，无法测试");
+            //int stepCount = GetStepNumber();
+            //if (stepCount == 0)
+            //    throw new InvalidOperationException("没有设定任何 STEP，无法测试");
 
             // 启动测试
             StartTest();
@@ -676,7 +677,7 @@ namespace CommunicationProtocols
                 while ((DateTime.Now - start).TotalSeconds < timeoutSeconds)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    Thread.Sleep(200); // 每 200ms 查询一次
+                    Thread.Sleep(1000); // 每 1s 查询一次
 
                     string status = GetStatus();
                     if (status == "STOPPED")
@@ -719,17 +720,28 @@ namespace CommunicationProtocols
         public Chroma19572StepResult PerformSingleStepTest(int step, double current, double highLimit, double lowLimit, double time,
                                                             CancellationToken cancellationToken = default)
         {
-            // 先清除所有步骤（可选），或仅设置指定步骤
-            // 此处简单处理：先设置该步骤，确保其他步骤为空或忽略
-            // 根据实际需求，可能需要先删除其他步骤或仅使用一个步骤
-            // 这里假设工作记忆中仅有一个步骤，或者我们只关心该步骤的结果
+            var result = new Chroma19572StepResult();
+            int number = GetStepNumber();
+            if (number > 0)
+            {
+                for (int i = number; i >= 1; i--)
+                {
+                    DeleteStep(i);
+                }
 
-            SetStepGBLevel(step, current);
-            SetStepGBLimitHigh(step, highLimit);
-            SetStepGBLimitLow(step, lowLimit);
-            SetStepGBTime(step, time);
+                SetStepGBLevel(step, current);
+                SetStepGBLimitHigh(step, highLimit);
+                SetStepGBLimitLow(step, lowLimit);
+                SetStepGBTime(step, time);
 
-            return PerformTest((int)(time), cancellationToken); // 额外加 5 秒缓冲
+                result = PerformTest((int)(time + 2), cancellationToken); // 额外加 5 秒缓冲
+            }
+            else
+            {
+                result = null;
+            }
+
+            return result;
         }
 
         /// <summary>

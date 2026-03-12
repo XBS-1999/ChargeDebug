@@ -63,7 +63,7 @@ namespace ChargeDebug.Form
             this.MinimizeBox = false;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
 
-            labelId = new LabelControl { Text = "序号:", Location = new Point(80, 22) };
+            labelId = new LabelControl { Text = "序号:", Location = new Point(65, 22) };
             txtId = new TextEdit { Location = new Point(185, 17), Width = 120 };
             // 设置序号文本框为只读，禁止编辑
             txtId.Properties.ReadOnly = true;
@@ -71,19 +71,19 @@ namespace ChargeDebug.Form
             labelProjectName = new LabelControl { Text = "项目名称:", Location = new Point(370, 22) };
             cmbProjectName = new ComboBoxEdit { Location = new Point(475, 17), Width = 120 };
             cmbProjectName.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cmbProjectName.Properties.Items.AddRange(new[] { "AC耐压测试", "DC耐压测试", "绝缘电阻测试" });
+            cmbProjectName.Properties.Items.AddRange(new[] { "AC耐压测试", "DC耐压测试", "绝缘电阻测试", "等电位测试" });
             cmbProjectName.SelectedIndex = 0;
             cmbProjectName.SelectedIndexChanged += CmbProjectName_SelectedIndexChanged;
 
-            labelTestVoltage = new LabelControl { Text = "测试电压:", Location = new Point(80, 62) };
+            labelTestVoltage = new LabelControl { Text = "测试电压/测试电流:", Location = new Point(65, 62) };
             txtTestVoltage = new TextEdit { Location = new Point(185, 57), Width = 120 };
-            LabelControl unitTestVoltage = new LabelControl { Text = "V", Location = new Point(310, 62) };
+            LabelControl unitTestVoltage = new LabelControl { Text = "V/A", Location = new Point(310, 62) };
 
             labelTestTime = new LabelControl { Text = "测试时间:", Location = new Point(370, 62) };
             txtTestTime = new TextEdit { Location = new Point(475, 57), Width = 120 };
             LabelControl unitTestTime = new LabelControl { Text = "S", Location = new Point(600, 62) };
 
-            labelRampUpTime = new LabelControl { Text = "电压上升时间:", Location = new Point(80, 102) };
+            labelRampUpTime = new LabelControl { Text = "电压上升时间:", Location = new Point(65, 102) };
             txtRampUpTime = new TextEdit { Location = new Point(185, 97), Width = 120 };
             LabelControl unitRampUpTime = new LabelControl { Text = "S", Location = new Point(310, 102) };
 
@@ -91,7 +91,7 @@ namespace ChargeDebug.Form
             txtRampDownTime = new TextEdit { Location = new Point(475, 97), Width = 120 };
             LabelControl unitRampDownTime = new LabelControl { Text = "S", Location = new Point(600, 102) };
 
-            labelCurrentLimit = new LabelControl { Text = "电流上下限范围:", Location = new Point(80, 142) };
+            labelCurrentLimit = new LabelControl { Text = "电流上下限范围:", Location = new Point(65, 142) };
             txtCurrentLimit = new TextEdit { Location = new Point(185, 137), Width = 120 };
             LabelControl unitCurrentLimit = new LabelControl { Text = "mA", Location = new Point(310, 142) };
 
@@ -143,13 +143,32 @@ namespace ChargeDebug.Form
         {
             if (projectType == "绝缘电阻测试")
             {
+                txtResistanceLimit.Enabled = true;
+                txtRampUpTime.Enabled = true;
+                txtRampDownTime.Enabled = true;
+
                 txtCurrentLimit.Enabled = false;
                 txtCurrentLimit.Text = string.Empty;
+            }
+            else if (projectType == "等电位测试")
+            {
                 txtResistanceLimit.Enabled = true;
+
+                txtCurrentLimit.Enabled = false;
+                txtCurrentLimit.Text = string.Empty;
+
+                txtRampUpTime.Enabled = false;
+                txtRampUpTime.Text = string.Empty;
+
+                txtRampDownTime.Enabled = false;
+                txtRampDownTime.Text = string.Empty;
             }
             else // AC耐压测试 或 DC耐压测试
             {
                 txtCurrentLimit.Enabled = true;
+                txtRampUpTime.Enabled = true;
+                txtRampDownTime.Enabled = true;
+
                 txtResistanceLimit.Enabled = false;
                 txtResistanceLimit.Text = string.Empty;
             }
@@ -198,18 +217,23 @@ namespace ChargeDebug.Form
                 return;
             }
 
-            if (!double.TryParse(txtRampUpTime.Text, out double rampUp))
+            double rampUp = double.NaN;
+            double rampDown = double.NaN;
+            if (cmbProjectName.Text != "等电位测试")
             {
-                XtraMessageBox.Show("电压上升时间必须是有效数字！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                txtRampUpTime.Focus();
-                return;
-            }
+                if (!double.TryParse(txtRampUpTime.Text, out rampUp) && cmbProjectName.Text != "等电位测试")
+                {
+                    XtraMessageBox.Show("电压上升时间必须是有效数字！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    txtRampUpTime.Focus();
+                    return;
+                }
 
-            if (!double.TryParse(txtRampDownTime.Text, out double rampDown))
-            {
-                XtraMessageBox.Show("电压下降时间必须是有效数字！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                txtRampDownTime.Focus();
-                return;
+                if (!double.TryParse(txtRampDownTime.Text, out rampDown) && cmbProjectName.Text != "等电位测试")
+                {
+                    XtraMessageBox.Show("电压下降时间必须是有效数字！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    txtRampDownTime.Focus();
+                    return;
+                }
             }
 
             // 保存数据

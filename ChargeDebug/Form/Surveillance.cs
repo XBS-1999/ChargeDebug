@@ -44,7 +44,6 @@ namespace ChargeDebug.Form
             //InitializeUI();
             // 修改Load事件处理
             this.Load += (s, e) => AddDynamicUserControls();
-
         }
 
         private void InitializeUI()

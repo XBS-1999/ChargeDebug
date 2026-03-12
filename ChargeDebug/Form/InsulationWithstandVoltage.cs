@@ -511,24 +511,38 @@ namespace ChargeDebug.Form
                     string projectName = row["ProjectName"].ToString();
                     double testVoltage = Convert.ToDouble(row["TestVoltage"]);
                     double testTime = Convert.ToDouble(row["TestTime"]);
-                    double rampUp = Convert.ToDouble(row["RampUpTime"]);
-                    double rampDown = Convert.ToDouble(row["RampDownTime"]);
+                    double rampUp = 0, rampDown = 0;
                     double limitHigh = 0, limitLow = 0;
                     if (projectName == "AC耐压测试" || projectName == "DC耐压测试")
                     {
+                        rampUp = Convert.ToDouble(row["RampUpTime"]);
+                        rampDown = Convert.ToDouble(row["RampDownTime"]);
                         string[] current = row["CurrentLimit"].ToString().Split('-');
                         limitHigh = Convert.ToDouble(current[1]);
                         limitLow = Convert.ToDouble(current[0]);
                     }
-                    else if (projectName == "绝缘电阻测试" || projectName == "等电位测试")
+                    else if (projectName == "绝缘电阻测试")
                     {
+                        rampUp = Convert.ToDouble(row["RampUpTime"]);
+                        rampDown = Convert.ToDouble(row["RampDownTime"]);
                         string[] resistance = row["ResistanceLimit"].ToString().Split('-');
                         limitHigh = Convert.ToDouble(resistance[1]);
                         limitLow = Convert.ToDouble(resistance[0]);
                     }
+                    else if(projectName == "等电位测试")
+                    {
+                        string[] resistance = row["ResistanceLimit"].ToString().Split('-');
+                        limitHigh = Convert.ToDouble(resistance[1]) / 1000.0;
+                        limitLow = Convert.ToDouble(resistance[0]) / 1000.0;
+                    }
 
                     // 计算预计总时间（秒）
                     double totalExpectedSeconds = rampUp + testTime + rampDown + 1;
+
+                    if (projectName == "等电位测试")
+                    {
+                        totalExpectedSeconds += 7;
+                    }
 
                     // 更新标签
                     progressLabel.Text = $"正在测试：{projectName}";
@@ -541,43 +555,124 @@ namespace ChargeDebug.Form
                     {
                         if (testCompleted) return;
                         double elapsed = (DateTime.Now - startTime).TotalSeconds;
-                        double ratio = Math.Min(elapsed / (rampUp + testTime + rampDown + 1), 1.0);
+                        double ratio = Math.Min(elapsed / (totalExpectedSeconds), 1.0);
                         int pos = (int)(completedProjects * 100 + ratio * 100);
                         pos = Math.Min(pos, progressBar.Properties.Maximum);
                         progressBar.Invoke(() => progressBar.Position = pos);
                     };
 
                     // 使用 Task.Run 在后台执行测试
-                    var testTask = Task.Run(() =>
+                    var testTask = Task.Run<object>(() =>
                     {
                         if (projectName == "AC耐压测试")
                         {
                             var comm = Chroma19073_RS232Communicator.Instance;
-                            comm.Connect(voltageDevice.ComPort);   // 注意：实际项目中应复用连接
-                            return comm.PerformACWithstandTest(testVoltage, limitHigh, limitLow,
+                            try
+                            {
+                                if (!comm.Connect(voltageDevice.ComPort,
+                                                  baudRate: int.Parse(voltageDevice.BaudRate),
+                                                  dataBits: int.Parse(voltageDevice.DataBits),
+                                                  stopBits: voltageDevice.StopBits,
+                                                  parity: voltageDevice.Parity,
+                                                  flowControl: voltageDevice.FlowControl))
+                                {
+                                    throw new Exception("连接绝缘耐压表失败");
+                                }
+
+                                // 连接成功后，可执行一些预设配置（根据实际需要）
+                                // 例如：设置系统参数（蜂鸣器时间、屏幕显示等）
+                                // comm.SetSystemSetting(...); 
+
+                                // 执行测试
+                                return comm.PerformACWithstandTest(testVoltage, limitHigh, limitLow,
                                                                    rampUp, testTime, rampDown, 0, 1, _testCts.Token);
+                            }
+                            finally
+                            {
+                                if (comm.IsConnected)
+                                    comm.Disconnect();
+                            }
                         } 
                         else if (projectName == "DC耐压测试")
                         {
                             var comm = Chroma19073_RS232Communicator.Instance;
-                            comm.Connect(voltageDevice.ComPort);   // 注意：实际项目中应复用连接
-                            return comm.PerformDCWithstandTest(testVoltage, limitHigh, limitLow,
-                                                               rampUp, testTime, rampDown, 0, false, 1, _testCts.Token);
+                            try
+                            {
+                                if (!comm.Connect(voltageDevice.ComPort,
+                                                  baudRate: int.Parse(voltageDevice.BaudRate),
+                                                  dataBits: int.Parse(voltageDevice.DataBits),
+                                                  stopBits: voltageDevice.StopBits,
+                                                  parity: voltageDevice.Parity,
+                                                  flowControl: voltageDevice.FlowControl))
+                                {
+                                    throw new Exception("连接绝缘耐压表失败");
+                                }
+
+                                // 连接成功后，可执行一些预设配置
+
+                                return comm.PerformDCWithstandTest(testVoltage, limitHigh, limitLow,
+                                                                   rampUp, testTime, rampDown, 0, false, 1, _testCts.Token);
+                            }
+                            finally
+                            {
+                                if (comm.IsConnected)
+                                    comm.Disconnect();
+                            }
                         }
                         else if (projectName == "绝缘电阻测试")
                         {
                             var comm = Chroma19073_RS232Communicator.Instance;
-                            comm.Connect(voltageDevice.ComPort);   // 注意：实际项目中应复用连接
-                            return comm.PerformInsulationTest(testVoltage, limitHigh, limitLow,
-                                                              rampUp, testTime, rampDown, 1, _testCts.Token);
+                            try
+                            {
+                                if (!comm.Connect(voltageDevice.ComPort,
+                                                  baudRate: int.Parse(voltageDevice.BaudRate),
+                                                  dataBits: int.Parse(voltageDevice.DataBits),
+                                                  stopBits: voltageDevice.StopBits,
+                                                  parity: voltageDevice.Parity,
+                                                  flowControl: voltageDevice.FlowControl))
+                                {
+                                    throw new Exception("连接绝缘耐压表失败");
+                                }
+
+                                // 执行绝缘电阻测试
+                                return comm.PerformInsulationTest(testVoltage, limitHigh, limitLow,
+                                                                  rampUp, testTime, rampDown, 1, _testCts.Token);
+                            }
+                            finally
+                            {
+                                if (comm.IsConnected)
+                                    comm.Disconnect();
+                            }
                         }
-                        //else if (projectName == "等电位测试")
-                        //{
-                        //    var comm = Chroma19572_RS232Communicator.Instance;
-                        //    comm.Connect(voltmeterDevice.ComPort);
-                        //    return comm.PerformSingleStepTest(1, testVoltage, limitHigh, limitLow,
-                        //                                      testTime, _testCts.Token);
-                        //}
+                        else if (projectName == "等电位测试")
+                        {
+                            var comm = Chroma19572_RS232Communicator.Instance;
+                            try
+                            {
+                                if (!comm.Connect(voltmeterDevice.ComPort,
+                                                  baudRate: int.Parse(voltmeterDevice.BaudRate),
+                                                  dataBits: int.Parse(voltmeterDevice.DataBits),
+                                                  stopBits: voltmeterDevice.StopBits,
+                                                  parity: voltmeterDevice.Parity,
+                                                  flowControl: voltmeterDevice.FlowControl))
+                                {
+                                    throw new Exception("连接等电位表失败");
+                                }
+
+                                // 连接成功后发送其他指令（示例）
+                                //comm.SetGBFrequency(50.0);
+                                //comm.SetGBVoltage(6.0);
+                                //comm.SetSoftwareAGC(true);
+                                //comm.SetFailContinuity(false);
+                                return comm.PerformSingleStepTest(1, testVoltage, limitHigh, limitLow,
+                                                                  testTime, _testCts.Token);
+                            }
+                            finally
+                            {
+                                if (comm.IsConnected)
+                                    comm.Disconnect();
+                            }
+                        }
                         else
                         {
                             throw new NotSupportedException($"未知项目类型: {projectName}");
@@ -588,11 +683,24 @@ namespace ChargeDebug.Form
 
                     try
                     {
-                        var result = await testTask;
-                        // 成功
-                        row["TestData"] = (result.Mode == "IR") ? $"{result.InsulationResistance} GΩ"
-                         : $"{result.ActualCurrent} mA";
-                        row["TestResult"] = result.Passed ? "通过" : $"失败：{result.FailReason}";
+                        object result = await testTask;
+
+                        if (result is Chroma19073Result r19073)
+                        {
+                            row["TestData"] = (r19073.Mode == "IR") ? $"{r19073.InsulationResistance} GΩ"
+                                                                    : $"{r19073.ActualCurrent} mA";
+                            row["TestResult"] = r19073.Passed ? "通过" : $"失败：{r19073.FailReason}";
+                        }
+                        else if (result is Chroma19572StepResult r19572)
+                        {
+                            row["TestData"] = $"{r19572.MeasureMeter:F3} Ω";
+                            row["TestResult"] = r19572.Passed ? "通过" : $"失败：{r19572.FailReason}";
+                        }
+                        else
+                        {
+                            row["TestData"] = DBNull.Value;
+                            row["TestResult"] = $"未知结果类型: {result?.GetType()}";
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -676,7 +784,7 @@ namespace ChargeDebug.Form
             AddGridColumn("电压上升时间(s)", "RampUpTime", 120);
             AddGridColumn("电压下降时间(s)", "RampDownTime", 120);
             AddGridColumn("电流上下限范围(mA)", "CurrentLimit", 150);
-            AddGridColumn("电阻上下限范围(MΩ)", "ResistanceLimit", 150);
+            AddGridColumn("电阻上下限范围(MΩ/mΩ)", "ResistanceLimit", 150);
             AddGridColumn("测试数据", "TestData", 150);
             AddGridColumn("测试结果", "TestResult", 150);
 
