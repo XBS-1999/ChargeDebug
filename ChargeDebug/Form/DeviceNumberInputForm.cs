@@ -15,17 +15,17 @@ namespace ChargeDebug.Form
         public string DeviceNumber { get; private set; }
         public bool OverwriteExisting { get; private set; }
 
-        public DeviceNumberInputForm()
+        public DeviceNumberInputForm(string text)
         {
             InitializeComponent();
-            InitializeUI();
+            InitializeUI(text);
         }
 
         // 初始化控件
-        private void InitializeUI()
+        private void InitializeUI(string text)
         {
             // 窗体设置
-            this.Text = "输入设备编号";
+            this.Text = $"输入{text}";
             this.Size = new Size(400, 150);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -35,7 +35,7 @@ namespace ChargeDebug.Form
 
             // 设备编号标签
             lblDeviceNumber = new LabelControl();
-            lblDeviceNumber.Text = "设备编号:";
+            lblDeviceNumber.Text = $"{text}:";
             lblDeviceNumber.Location = new Point(10, 25);
             lblDeviceNumber.Parent = this;
 

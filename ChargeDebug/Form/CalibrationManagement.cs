@@ -348,7 +348,7 @@ namespace ChargeDebug.Form
             FilterSignalsByType("电压");
 
             // 1. 弹出设备编号输入对话框
-            using (var inputForm = new DeviceNumberInputForm())
+            using (var inputForm = new DeviceNumberInputForm("测试名称"))
             {
                 if (inputForm.ShowDialog() != DialogResult.OK)
                 {
@@ -519,7 +519,7 @@ namespace ChargeDebug.Form
             FilterSignalsByType("电流");
 
             // 1. 弹出设备编号输入对话框
-            using (var inputForm = new DeviceNumberInputForm())
+            using (var inputForm = new DeviceNumberInputForm("测试名称"))
             {
                 if (inputForm.ShowDialog() != DialogResult.OK)
                 {
@@ -862,7 +862,7 @@ namespace ChargeDebug.Form
                         }
 
                         // 弹出设备编号输入对话框
-                        using (var inputForm = new DeviceNumberInputForm())
+                        using (var inputForm = new DeviceNumberInputForm("测试名称"))
                         {
                             if (inputForm.ShowDialog() == DialogResult.OK)
                             {
@@ -940,7 +940,7 @@ namespace ChargeDebug.Form
             try
             {
                 // 弹出设备编号输入对话框
-                using (var inputForm = new DeviceNumberInputForm())
+                using (var inputForm = new DeviceNumberInputForm("测试名称"))
                 {
                     if (inputForm.ShowDialog() == DialogResult.OK)
                     {

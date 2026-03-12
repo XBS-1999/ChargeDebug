@@ -13,6 +13,12 @@ using DevExpress.XtraGrid;
 using DevExpress.XtraGrid.Views.Grid;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.XtraGrid.Views.Grid.ViewInfo;
+using DevExpress.DataProcessing.InMemoryDataProcessor;
+using DevExpress.Map.OpenGL;
+using System.IO;
+using DevExpress.Export;
+using DevExpress.XtraPrinting;
+using ExcelDataReader;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -274,7 +280,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnStopCalibration.Right + 10, 10)
             };
-            //btnImportData.Click += BtnImportData_Click;
+            btnImportData.Click += BtnImportData_Click;
             buttonPanel.Controls.Add(btnImportData);
 
             SimpleButton btnExportData = new SimpleButton
@@ -283,7 +289,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnImportData.Right + 10, 10)
             };
-            //btnExportData.Click += BtnExportData_Click;
+            btnExportData.Click += BtnExportData_Click;
             buttonPanel.Controls.Add(btnExportData);
 
             // 新增查询数据按钮
@@ -293,7 +299,7 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnExportData.Right + 10, 10)
             };
-            //btnQueryData.Click += BtnQueryData_Click;
+            btnQueryData.Click += BtnQueryData_Click;
             buttonPanel.Controls.Add(btnQueryData);
 
             btnClearQuery = new SimpleButton
@@ -302,10 +308,232 @@ namespace ChargeDebug.Form
                 Size = new Size(80, 30),
                 Location = new Point(btnQueryData.Right + 10, 10)
             };
-            //btnClearQuery.Click += BtnClearQuery_Click;
+            btnClearQuery.Click += BtnClearQuery_Click;
             buttonPanel.Controls.Add(btnClearQuery);
 
             return buttonPanel;
+        }
+
+        private void BtnClearQuery_Click(object? sender, EventArgs e)
+        {
+            // 重新加载所有项目（即清除查询过滤）
+            LoadProjects();
+        }
+
+        private void BtnQueryData_Click(object? sender, EventArgs e)
+        {
+            string keyword = XtraInputBox.Show("请输入项目名称（支持模糊查询）", "查询", "");
+            if (string.IsNullOrWhiteSpace(keyword))
+                return;
+
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    conn.Open();
+                    // 构建模糊查询SQL
+                    string sql = @"SELECT * FROM TestProject 
+                           WHERE ProjectName LIKE @keyword 
+                           ORDER BY ProjectId";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@keyword", $"%{keyword}%");
+                        SQLiteDataAdapter adapter = new SQLiteDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        adapter.Fill(dt);
+
+                        // 添加测试结果相关列（与LoadProjects保持一致）
+                        if (!dt.Columns.Contains("TestData"))
+                            dt.Columns.Add("TestData", typeof(string));
+                        if (!dt.Columns.Contains("TestResult"))
+                            dt.Columns.Add("TestResult", typeof(string));
+
+                        gridControl.DataSource = dt;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                XtraMessageBox.Show($"查询失败：{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnExportData_Click(object? sender, EventArgs e)
+        {
+            if (gridView.RowCount == 0)
+            {
+                XtraMessageBox.Show("没有数据可导出", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (SaveFileDialog saveDialog = new SaveFileDialog())
+            {
+                saveDialog.Filter = "Excel文件|*.xlsx";
+                saveDialog.Title = "导出数据";
+                saveDialog.FileName = $"测试项目_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+                if (saveDialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                try
+                {
+                    // 使用DevExpress内置导出功能
+                    gridView.ExportToXlsx(saveDialog.FileName, new XlsxExportOptionsEx
+                    {
+                        ExportType = ExportType.Default,
+                        TextExportMode = TextExportMode.Value,
+                        ShowGridLines = true,
+                        SheetName = "测试项目"
+                    });
+                    XtraMessageBox.Show($"导出成功！\n文件保存至：{saveDialog.FileName}", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"导出失败：{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BtnImportData_Click(object? sender, EventArgs e)
+        {
+            // 选择Excel文件
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "Excel文件|*.xls;*.xlsx";
+                openFileDialog.Title = "选择要导入的Excel文件";
+                if (openFileDialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                // 注册编码提供程序（用于支持中文等）
+                System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+                DataTable excelTable = null;
+                using (var stream = File.Open(openFileDialog.FileName, FileMode.Open, FileAccess.Read))
+                {
+                    // 根据文件扩展名选择读取器
+                    IExcelDataReader reader = null;
+                    if (openFileDialog.FileName.EndsWith(".xls"))
+                        reader = ExcelReaderFactory.CreateBinaryReader(stream);
+                    else if (openFileDialog.FileName.EndsWith(".xlsx"))
+                        reader = ExcelReaderFactory.CreateOpenXmlReader(stream);
+
+                    if (reader == null)
+                    {
+                        XtraMessageBox.Show("无法识别的Excel文件格式", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    // 将Excel数据读取到DataSet（默认第一个sheet）
+                    var result = reader.AsDataSet(new ExcelDataSetConfiguration()
+                    {
+                        ConfigureDataTable = (_) => new ExcelDataTableConfiguration() { UseHeaderRow = true } // 第一行作为列名
+                    });
+                    reader.Close();
+
+                    if (result.Tables.Count == 0)
+                    {
+                        XtraMessageBox.Show("Excel文件中没有数据", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    excelTable = result.Tables[0];
+                }
+
+                // 验证必要列是否存在
+                string[] requiredColumns = { "ProjectName", "TestVoltage", "TestTime", "RampUpTime", "RampDownTime", "CurrentLimit", "ResistanceLimit" };
+                foreach (string col in requiredColumns)
+                {
+                    if (!excelTable.Columns.Contains(col))
+                    {
+                        XtraMessageBox.Show($"Excel中缺少必要的列：{col}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+
+                // 准备插入数据库
+                List<TestProjectModel> projects = new List<TestProjectModel>();
+                foreach (DataRow row in excelTable.Rows)
+                {
+                    // 跳过全空行
+                    if (row.ItemArray.All(field => field is DBNull || string.IsNullOrWhiteSpace(field?.ToString())))
+                        continue;
+
+                    TestProjectModel project = new TestProjectModel
+                    {
+                        ProjectName = row["ProjectName"].ToString(),
+                        TestVoltage = Convert.ToDouble(row["TestVoltage"]),
+                        TestTime = Convert.ToDouble(row["TestTime"]),
+                        RampUpTime = Convert.ToDouble(row["RampUpTime"]),
+                        RampDownTime = Convert.ToDouble(row["RampDownTime"]),
+                        CurrentLimit = row["CurrentLimit"].ToString(),
+                        ResistanceLimit = row["ResistanceLimit"].ToString()
+                    };
+                    projects.Add(project);
+                }
+
+                if (projects.Count == 0)
+                {
+                    XtraMessageBox.Show("没有有效数据可导入", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // 确认导入
+                if (XtraMessageBox.Show($"即将导入 {projects.Count} 条项目，继续吗？", "确认导入",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    return;
+
+                try
+                {
+                    using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                    {
+                        conn.Open();
+                        using (var trans = conn.BeginTransaction())
+                        {
+                            foreach (var proj in projects)
+                            {
+                                // 获取新的ProjectId（自动递增）
+                                string maxSql = "SELECT MAX(ProjectId) FROM TestProject";
+                                int newId = 1;
+                                using (var cmd = new SQLiteCommand(maxSql, conn, trans))
+                                {
+                                    object result = cmd.ExecuteScalar();
+                                    if (result != DBNull.Value)
+                                        newId = Convert.ToInt32(result) + 1;
+                                }
+                                proj.ProjectId = newId;
+
+                                // 插入项目（可复用SQLite_Service.AddTestProject，但需传入事务）
+                                // 这里直接实现插入，避免修改现有服务类
+                                string insertSql = @"INSERT INTO TestProject 
+                                    (ProjectId, ProjectName, TestVoltage, TestTime, RampUpTime, RampDownTime, CurrentLimit, ResistanceLimit)
+                                    VALUES 
+                                    (@ProjectId, @ProjectName, @TestVoltage, @TestTime, @RampUpTime, @RampDownTime, @CurrentLimit, @ResistanceLimit)";
+
+                                using (var cmd = new SQLiteCommand(insertSql, conn, trans))
+                                {
+                                    cmd.Parameters.AddWithValue("@ProjectId", proj.ProjectId);
+                                    cmd.Parameters.AddWithValue("@ProjectName", proj.ProjectName);
+                                    cmd.Parameters.AddWithValue("@TestVoltage", proj.TestVoltage);
+                                    cmd.Parameters.AddWithValue("@TestTime", proj.TestTime);
+                                    cmd.Parameters.AddWithValue("@RampUpTime", proj.RampUpTime);
+                                    cmd.Parameters.AddWithValue("@RampDownTime", proj.RampDownTime);
+                                    cmd.Parameters.AddWithValue("@CurrentLimit", proj.CurrentLimit);
+                                    cmd.Parameters.AddWithValue("@ResistanceLimit", proj.ResistanceLimit);
+                                    cmd.ExecuteNonQuery();
+                                }
+                            }
+
+                            trans.Commit();
+                        }
+                    }
+
+                    LoadProjects(); // 刷新网格
+                    XtraMessageBox.Show($"成功导入 {projects.Count} 条项目", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    XtraMessageBox.Show($"导入失败：{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
         private void BtnStopCalibration_Click(object? sender, EventArgs e)
@@ -476,7 +704,7 @@ namespace ChargeDebug.Form
 
             // 3. 输入设备编号
             string deviceNumber;
-            using (var inputForm = new DeviceNumberInputForm())
+            using (var inputForm = new DeviceNumberInputForm("测试名称"))
             {
                 if (inputForm.ShowDialog() != DialogResult.OK)
                     return;
@@ -701,6 +929,12 @@ namespace ChargeDebug.Form
                             row["TestData"] = DBNull.Value;
                             row["TestResult"] = $"未知结果类型: {result?.GetType()}";
                         }
+
+                        // ============ 新增：将当前项目结果写入数据库 ============
+                        SaveTestResultToDatabase(deviceNumber, Convert.ToInt32(row["Id"]),
+                                                 startTime, row["TestData"].ToString(),
+                                                 row["TestResult"].ToString());
+                        // =====================================================
                     }
                     catch (OperationCanceledException)
                     {
@@ -741,6 +975,40 @@ namespace ChargeDebug.Form
             // 6. 恢复按钮状态
             progressLabel.Text = "测试完成";
             XtraMessageBox.Show("所有项目测试完成！", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void SaveTestResultToDatabase(string deviceNumber, int projectId,
+                                      DateTime testTime, string testData, string testResult)
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                {
+                    conn.Open();
+                    string sql = @"
+                        INSERT INTO TestRecord 
+                        (DeviceNumber, ProjectId, TestTime, TestData, TestResult, Operator)
+                        VALUES 
+                        (@DeviceNumber, @ProjectId, @TestTime, @TestData, @TestResult, @Operator)";
+
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
+                        cmd.Parameters.AddWithValue("@ProjectId", projectId);
+                        cmd.Parameters.AddWithValue("@TestTime", testTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@TestData", testData ?? "");
+                        cmd.Parameters.AddWithValue("@TestResult", testResult ?? "");
+                        cmd.Parameters.AddWithValue("@Operator", "admin"); 
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 记录日志或弹出提示（可选）
+                XtraMessageBox.Show($"保存测试结果到数据库失败：{ex.Message}", "警告",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         /// <summary>
