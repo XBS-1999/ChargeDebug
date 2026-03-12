@@ -15,7 +15,7 @@ namespace ChargeDebug.Form
         private ProgressBarControl progressBar;
 
         // 左侧控件声明
-        private ComboBoxEdit cbDevice;
+        private CheckedComboBoxEdit cbDevice;  // 原为 ComboBoxEdit
         private ComboBoxEdit cbChannel;
         private ComboBoxEdit cbCpu;
         private ButtonEdit btnSelectFile;
@@ -62,7 +62,7 @@ namespace ChargeDebug.Form
             //清除所有旧布局
             this.Controls.Clear();
             InitializeUI();
-            cbDevice.SelectedIndexChanged += CbDevice_SelectedIndexChanged;
+            cbDevice.EditValueChanged += CbDevice_EditValueChanged;
             cbChannel.SelectedIndexChanged += CbChannel_SelectedIndexChanged;
             cbCpu.SelectedIndexChanged += CbCpu_SelectedIndexChanged;
         }
@@ -95,7 +95,12 @@ namespace ChargeDebug.Form
             splitContainer.Panel2.Controls.Add(txtInfoDisplay);
 
             // 初始化左侧控件
-            cbDevice = new ComboBoxEdit();
+            cbDevice = new CheckedComboBoxEdit();
+            cbDevice.Properties.DropDownRows = 50;                 // 下拉显示行数
+            cbDevice.Properties.SelectAllItemVisible = true;       // 显示全选/全不选
+            //cbDevice.Properties.ShowSeparator = true;               // 选中项之间显示分隔符
+            //cbDevice.EditValueChanged += CbDevice_EditValueChanged; // 选中变化事件
+
             cbChannel = new ComboBoxEdit();
             cbCpu = new ComboBoxEdit();
             btnSelectFile = new ButtonEdit();
@@ -159,6 +164,34 @@ namespace ChargeDebug.Form
             progressItem.TextVisible = false; // 隐藏标签文本
         }
 
+        private void CbDevice_EditValueChanged(object? sender, EventArgs e)
+        {
+            var selectedDevices = GetSelectedDevices();
+            if (selectedDevices.Count == 0) return;
+
+            // 收集所有选中设备的通道
+            HashSet<string> channelSet = new HashSet<string>();
+            foreach (var device in selectedDevices)
+            {
+                int acBase = Convert.ToInt32(device.ACAddress.Substring(device.ACAddress.Length - 1));
+                int dcBase = Convert.ToInt32(device.DCAddress.Substring(device.DCAddress.Length - 1));
+
+                for (int i = 0; i < device.ACNumber; i++)
+                    channelSet.Add($"AC{acBase + i + 1}");
+                for (int i = 0; i < device.DCNumber; i++)
+                    channelSet.Add($"DC{dcBase + i + 1}");
+            }
+
+            // 更新通道下拉框
+            cbChannel.Properties.Items.Clear();
+            cbChannel.Properties.Items.AddRange(channelSet.ToArray());
+
+            if (cbChannel.Properties.Items.Count > 0)
+                cbChannel.SelectedIndex = 0; // 默认选择第一个
+            else
+                cbChannel.SelectedIndex = -1;
+        }
+
         // 提取文件验证逻辑到独立方法
         private bool ValidateFile(out string errorMessage)
         {
@@ -196,72 +229,42 @@ namespace ChargeDebug.Form
 
         private void GenerateDeviceOptions()
         {
-            // 清空设备下拉框并建立设备映射
             cbDevice.Properties.Items.Clear();
-            deviceMap.Clear();
+            deviceMap.Clear(); // 仍可保留映射
 
             foreach (var item in upgradeonlineList)
             {
                 if (item != null)
                 {
                     string displayText = $"{item.DeviceName}";
-                    cbDevice.Properties.Items.Add(displayText);
-                    deviceMap[displayText] = item;
+                    // 创建 CheckedListBoxItem，第二个参数表示初始未选中
+                    var checkItem = new CheckedListBoxItem(displayText, false);
+                    // 将设备对象存入 Tag 属性
+                    checkItem.Tag = item;
+                    cbDevice.Properties.Items.Add(checkItem);
+                    deviceMap[displayText] = item; // 如果仍需要快速查找可以保留
                 }
-            }
-
-            if (cbDevice.Properties.Items.Count > 0)
-            {
-                cbDevice.SelectedIndex = 0;
-                // 默认选中第一个设备时加载通道
-                LoadChannelsForSelectedDevice();
             }
         }
 
-        private void LoadChannelsForSelectedDevice()
+        private List<EquipmentModel> GetSelectedDevices()
         {
-            // 清空现有通道
-            cbChannel.Properties.Items.Clear();
-
-            if (cbDevice.SelectedItem == null) return;
-
-            // 获取当前选中的设备
-            var selectedDevice = deviceMap[cbDevice.SelectedItem.ToString()];
-            AppendInfo($"已选择设备: {selectedDevice.DeviceName}");
-
-            int acnum = Convert.ToInt32(selectedDevice.ACAddress.Substring(selectedDevice.ACAddress.Length - 1));
-            int dcnum = Convert.ToInt32(selectedDevice.DCAddress.Substring(selectedDevice.DCAddress.Length - 1));
-
-            // 添加AC通道
-            for (int i = 0; i < selectedDevice.ACNumber; i++)
+            List<EquipmentModel> selected = new List<EquipmentModel>();
+            foreach (CheckedListBoxItem item in cbDevice.Properties.Items)
             {
-                acnum++;
-                cbChannel.Properties.Items.Add($"AC{acnum}");
+                if (item.CheckState == CheckState.Checked)
+                {
+                    selected.Add(item.Tag as EquipmentModel);
+                }
             }
-
-            // 添加DC通道
-            for (int i = 0; i < selectedDevice.DCNumber; i++)
-            {
-                dcnum++;
-                cbChannel.Properties.Items.Add($"DC{dcnum}");
-            }
-
-            // 默认选择第一个通道
-            if (cbChannel.Properties.Items.Count > 0)
-            {
-                cbChannel.SelectedIndex = 0;
-
-                // 获取当前选中的设备
-                string channelText = cbChannel.SelectedItem?.ToString();
-                AppendInfo($"已选择通道: {channelText}");
-            }
+            return selected;
         }
 
         // 添加设备选择变更事件
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            cbDevice.SelectedIndexChanged += CbDevice_SelectedIndexChanged;
+            cbDevice.EditValueChanged += CbDevice_EditValueChanged;
             cbChannel.SelectedIndexChanged += CbChannel_SelectedIndexChanged;
             cbCpu.SelectedIndexChanged += CbCpu_SelectedIndexChanged;
         }
@@ -274,12 +277,6 @@ namespace ChargeDebug.Form
             string cpuText = cbCpu.SelectedItem?.ToString();
             AppendInfo($"已选择CPU型号: {cpuText}");
         }
-
-        private void CbDevice_SelectedIndexChanged(object? sender, EventArgs e)
-        {
-            LoadChannelsForSelectedDevice(); // 刷新通道
-        }
-
 
         private void CbChannel_SelectedIndexChanged(object? sender, EventArgs e)
         {
@@ -564,162 +561,204 @@ namespace ChargeDebug.Form
 
         private async void StartUpgrade()
         {
-            // 如果正在升级中，不执行新的升级操作
-            if (_isUpgrading)
+            if (_isUpgrading) return;
+
+            // 步骤1: 全局文件验证
+            if (!ValidateFile(out string errorMessage))
             {
-                AppendInfo("⚠️ 升级操作正在进行中，请等待完成");
+                AppendInfo(errorMessage);
+                XtraMessageBox.Show(errorMessage, "文件验证失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
+            var selectedDevices = GetSelectedDevices();
+            if (selectedDevices.Count == 0)
+            {
+                AppendInfo("❌ 请至少选择一个设备");
+                return;
+            }
+
+            string selectedChannel = cbChannel.SelectedItem?.ToString();
+            if (string.IsNullOrEmpty(selectedChannel))
+            {
+                AppendInfo("❌ 请选择通道");
+                return;
+            }
+
+            // 过滤出真正拥有该通道的设备
+            var validDevices = selectedDevices.Where(d => DeviceHasChannel(d, selectedChannel)).ToList();
+            if (validDevices.Count == 0)
+            {
+                AppendInfo($"❌ 没有设备包含通道 {selectedChannel}");
+                return;
+            }
+
+            // 解析 HEX 文件，获取每个设备的块数（所有设备使用同一文件）
+            string filePath = btnSelectFile.Text;
+            if (!hexFileCache.TryGetValue(filePath, out HexFileData hexData))
+            {
+                hexData = ParseHexFile(filePath, cbCpu.SelectedItem?.ToString() ?? "");
+                hexFileCache[filePath] = hexData;
+            }
+            int blocksPerDevice = hexData.Blocks.Count;
+            int totalBlocksOverall = validDevices.Count * blocksPerDevice;
+
+            _isUpgrading = true;
+            _cancellationTokenSource = new CancellationTokenSource();
+            var token = _cancellationTokenSource.Token;
+
+            btnUpgrade.Enabled = false;
+            btnStopUpgrade.Enabled = true;
+            progressBar.Visible = true;
+            progressBar.Properties.Maximum = totalBlocksOverall;
+            progressBar.Properties.Step = 1;
+            progressBar.EditValue = 0;
+
+            // 并发控制：同时最多升级 10 个设备
+            using var semaphore = new SemaphoreSlim(10);
+            int completedBlocks = 0;   // 线程安全计数器
+
+            // 定义块完成回调（更新进度条）
+            Action blockCompleted = () =>
+            {
+                int current = Interlocked.Increment(ref completedBlocks);
+                this.Invoke((Action)(() => { progressBar.EditValue = current; }));
+            };
+
             try
             {
-                // 显示并重置进度条
-                progressBar.Visible = true;
-                progressBar.EditValue = 0;
-
-                // 步骤1: 文件验证
-                if (!ValidateFile(out string errorMessage))
+                var tasks = validDevices.Select(async device =>
                 {
-                    AppendInfo(errorMessage);
-                    XtraMessageBox.Show(errorMessage, "文件验证失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                AppendInfo("✅ 文件验证通过，开始升级流程...");
-
-                // 获取设备信息
-                EquipmentModel device = deviceMap[cbDevice.SelectedItem.ToString()];
-                string channel = cbChannel.SelectedItem.ToString();
-                string cpuType = cbCpu.SelectedItem.ToString();
-                string filePath = btnSelectFile.Text;
-                string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
-
-                // 设置升级状态
-                _isUpgrading = true;
-                _cancellationTokenSource = new CancellationTokenSource();
-                var cancellationToken = _cancellationTokenSource.Token;
-
-                // 更新按钮状态
-                btnUpgrade.Enabled = false;
-                btnStopUpgrade.Enabled = true;
-
-                try
-                {
-                    // ========== 步骤1: 进入Boot模式 ==========
-                    AppendInfo("正在进入Boot模式...");
-
-                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                        new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                        "进入Bootloader指令", "进入Bootloader", cancellationToken))
+                    await semaphore.WaitAsync(token);
+                    try
                     {
-                        AppendInfo("⚠️ 尝试再次进入Boot模式...");
+                        token.ThrowIfCancellationRequested();
+                        AppendInfo($"========== 开始升级设备: {device.DeviceName} ==========");
 
-                        // 增加延迟后重试
-                        await Task.Delay(500, cancellationToken);
+                        // 传入块完成回调
+                        await UpgradeSingleDeviceAsync(device, selectedChannel, token, blockCompleted);
 
-                        if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                            new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                            "进入Bootloader指令", "进入Bootloader", cancellationToken))
-                        {
-                            throw new Exception("进入Boot模式失败");
-                        }
+                        AppendInfo($"✅ 设备 {device.DeviceName} 升级完成");
                     }
-
-                    // ========== 步骤2: 发送请求升级指令 (0x01) ==========
-                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                        new byte[] { 0x01, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
-                        "请求升级指令", "请求升级", cancellationToken))
+                    catch (OperationCanceledException)
                     {
-                        throw new Exception("请求升级失败");
+                        AppendInfo($"🛑 设备 {device.DeviceName} 升级被取消");
+                        throw;
                     }
-
-                    // ========== 步骤3: 发送启动升级指令 (0x03) ==========
-                    if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                        new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
-                        "启动升级指令", "启动升级", cancellationToken))
+                    catch (Exception ex)
                     {
-                        AppendInfo("⚠️ 启动升级第一次失败，尝试第二次...");
-
-                        await Task.Delay(500, cancellationToken);
-
-                        if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
-                            new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
-                            "启动升级指令", "启动升级", cancellationToken))
-                        {
-                            throw new Exception("启动升级失败");
-                        }
+                        AppendInfo($"❌ 设备 {device.DeviceName} 升级失败: {ex.Message}");
                     }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
 
-                    // ========== 步骤4-6: 分块传输固件数据 ==========
-                    await TransferFirmwareDataInBlocks(device, channelKey, filePath, cancellationToken);
-
-                    AppendInfo("✅ 升级流程全部完成！");
-                }
-                catch (OperationCanceledException)
-                {
-                    AppendInfo("🛑 升级操作已被用户取消");
-                    // 不需要抛出异常，这是正常取消
-                }
-                catch (Exception ex)
-                {
-                    AppendInfo($"❌ 升级过程中发生错误: {ex.Message}");
-                    throw; // 重新抛出异常，由外层处理
-                }
-                finally
-                {
-                    // 恢复按钮状态
-                    btnUpgrade.Enabled = true;
-                    btnStopUpgrade.Enabled = false;
-                    progressBar.Visible = false;
-
-                    // 重置升级状态
-                    _isUpgrading = false;
-                    _cancellationTokenSource?.Dispose();
-                    _cancellationTokenSource = null;
-                }
+                await Task.WhenAll(tasks);
+                AppendInfo("所有设备处理完毕");
+            }
+            catch (OperationCanceledException)
+            {
+                AppendInfo("🛑 批量升级已被用户取消");
             }
             catch (Exception ex)
             {
-                // 统一处理所有异常
-                progressBar.Visible = false;
-                AppendInfo($"❌ 升级失败: {ex.Message}");
-
-                // 恢复按钮状态
+                AppendInfo($"❌ 批量升级异常: {ex.Message}");
+                XtraMessageBox.Show($"升级异常: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
                 btnUpgrade.Enabled = true;
                 btnStopUpgrade.Enabled = false;
+                progressBar.Visible = false;
                 _isUpgrading = false;
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
-
-                // 显示错误消息框
-                XtraMessageBox.Show($"升级失败: {ex.Message}", "错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private async Task UpgradeSingleDeviceAsync(EquipmentModel device, string channel, CancellationToken token, Action blockCompleted)
+        {
+            string cpuType = cbCpu.SelectedItem?.ToString();
+            string filePath = btnSelectFile.Text;
+
+            // ========== 步骤1: 进入Boot模式 ==========
+            if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                "进入Bootloader指令", "进入Bootloader", token))
+            {
+                AppendInfo($"⚠️ 设备 {device.DeviceName} 尝试再次进入Boot模式...");
+
+                // 增加延迟后重试
+                await Task.Delay(500, token);
+
+                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                    new byte[] { 0x05, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    "进入Bootloader指令", "进入Bootloader", token))
+                {
+                    throw new Exception($"设备 {device.DeviceName} 进入Boot模式失败");
+                }
+            }
+
+            // ========== 步骤2: 发送请求升级指令 (0x01) ==========
+            if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                       new byte[] { 0x01, GetCpuByte(cpuType), GetChannelByte(channel), 0x00, 0x00, 0x00, 0x00, 0x00 },
+                       "请求升级指令", "请求升级", token))
+            {
+                throw new Exception($"设备 {device.DeviceName} 请求升级失败");
+            }
+
+            // ========== 步骤3: 发送启动升级指令 (0x03) ==========
+            if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                "启动升级指令", "启动升级", token))
+            {
+                AppendInfo($"⚠️ 设备 {device.DeviceName}启动升级第一次失败，尝试第二次...");
+
+                await Task.Delay(500, token);
+
+                if (!await SendAndVerifyCommand(device, 0x0000AA01, 0x0000BB01,
+                    new byte[] { 0x03, 0xA1, 0xB2, 0xC3, 0xD4, 0x00, 0x00, 0x00 },
+                    "启动升级指令", "启动升级", token))
+                {
+                    throw new Exception($"设备 {device.DeviceName} 启动升级失败");
+                }
+            }
+
+            // ========== 步骤4-6: 分块传输固件数据 ==========
+            string channelKey = CANManager.GetChannelKey(device.DeviceIndex, device.CanIndex);
+            await TransferFirmwareDataInBlocks(device, channelKey, filePath, token, blockCompleted);
+        }
+
+        // 辅助方法：判断设备是否有指定通道
+        private bool DeviceHasChannel(EquipmentModel device, string channel)
+        {
+            int acBase = Convert.ToInt32(device.ACAddress.Substring(device.ACAddress.Length - 1));
+            int dcBase = Convert.ToInt32(device.DCAddress.Substring(device.DCAddress.Length - 1));
+
+            if (channel.StartsWith("AC"))
+            {
+                int num = int.Parse(channel.Substring(2));
+                return num > acBase && num <= acBase + device.ACNumber;
+            }
+            else if (channel.StartsWith("DC"))
+            {
+                int num = int.Parse(channel.Substring(2));
+                return num > dcBase && num <= dcBase + device.DCNumber;
+            }
+            return false;
         }
 
         private async void StopUpgrade()
         {
-            if (!_isUpgrading || _cancellationTokenSource == null)
-            {
-                AppendInfo("⚠️ 当前没有正在进行的升级操作");
-                return;
-            }
-
-            AppendInfo("🛑 正在停止升级操作...");
-
-            // 请求取消
+            if (!_isUpgrading || _cancellationTokenSource == null) return;
+            AppendInfo("🛑 正在停止批量升级...");
             _cancellationTokenSource.Cancel();
-
-            // 禁用停止按钮，防止重复点击
             btnStopUpgrade.Enabled = false;
-
-            // 等待一小段时间让操作有机会停止
-            await Task.Delay(500);
-
-            AppendInfo("✅ 升级操作已停止");
         }
 
-        private async Task TransferFirmwareDataInBlocks(EquipmentModel device, string channelKey, string filePath, CancellationToken cancellationToken)
+        private async Task TransferFirmwareDataInBlocks(EquipmentModel device, string channelKey, string filePath, CancellationToken cancellationToken, Action blockCompleted)
         {
             try
             {
@@ -739,7 +778,7 @@ namespace ChargeDebug.Form
                     bool blockSuccess = false;
                     int retryCount = 0;
                     const int maxRetries = 5;
-                    int times = 20;
+                    int times = 25;
 
                     // 重试机制：最多尝试5次
                     while (!blockSuccess && retryCount < maxRetries)
@@ -767,11 +806,11 @@ namespace ChargeDebug.Form
                         {
                             retryCount++;
                             times += 5;
-                            AppendInfo($"❌ 第 {block.BlockIndex} 包数据第 {retryCount} 次重试失败: {ex.Message}");
+                            AppendInfo($"❌ 设备 {device.DeviceName} 第 {block.BlockIndex} 包数据第 {retryCount} 次重试失败: {ex.Message}");
 
                             if (retryCount >= maxRetries)
                             {
-                                AppendInfo($"❌ 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
+                                AppendInfo($"❌ 设备 {device.DeviceName} 第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，停止升级！");
                                 throw new Exception($"第 {block.BlockIndex} 包数据重试{maxRetries}次均失败，升级已停止。", ex);
                             }
 
@@ -780,22 +819,21 @@ namespace ChargeDebug.Form
                         }
                     }
 
-                    // 更新进度条
-                    int progress = (i + 1) * 100 / hexData.Blocks.Count;
-                    this.Invoke((Action)(() => { progressBar.EditValue = progress; }));
+                    // 每成功完成一个块，调用回调更新总体进度
+                    blockCompleted?.Invoke();
 
-                    await Task.Delay(5, cancellationToken);
+                    await Task.Delay(20, cancellationToken);
                 }
-                AppendInfo("✅ 所有数据包传输完成，升级成功！");
+                AppendInfo($"✅ 设备 {device.DeviceName} 所有数据包传输完成，升级成功！");
             }
             catch (OperationCanceledException)
             {
-                AppendInfo("🛑 数据传输已被取消");
+                AppendInfo($"🛑 设备 {device.DeviceName} 数据传输已被取消");
                 throw; // 重新抛出取消异常
             }
             catch (Exception ex)
             {
-                AppendInfo($"❌ 数据传输异常: {ex.Message}");
+                AppendInfo($"❌ 设备 {device.DeviceName} 数据传输异常: {ex.Message}");
                 throw; // 重新抛出异常，由 StartUpgrade 方法处理
             }
         }
@@ -809,19 +847,19 @@ namespace ChargeDebug.Form
                                    (uint)blockData.Length,
                                    cancellationToken)) // 这里传入字节长度
             {
-                throw new Exception($"第 {blockIndex} 包数据地址和长度设置失败");
+                throw new Exception($"设备 {device.DeviceName} 第 {blockIndex} 包数据地址和长度设置失败");
             }
 
             // 2. 发送数据
             if (!await SendDataPackets(device, channelKey, blockData, blockIndex, totalBlocks, times, cancellationToken))
             {
-                throw new Exception($"第 {blockIndex} 包数据传输失败");
+                throw new Exception($"设备 {device.DeviceName} 第 {blockIndex} 包数据传输失败");
             }
 
             // 3. 校验数据
             if (!await VerifyDataBlock(device, channelKey, blockIndex, totalBlocks, cancellationToken))
             {
-                throw new Exception($"第 {blockIndex} 包数据校验失败");
+                throw new Exception($"设备 {device.DeviceName} 第 {blockIndex} 包数据校验失败");
             }
         }
 
@@ -869,13 +907,13 @@ namespace ChargeDebug.Form
                     }
                     else
                     {
-                        AppendInfo($"❌ 地址和包数设置失败: 错误代码 0x{response.data[1]:X2}");
+                        AppendInfo($"❌ 设备 {device.DeviceName} 地址和包数设置失败: 错误代码 0x{response.data[1]:X2}");
                         return false;
                     }
                 }
                 else
                 {
-                    AppendInfo("❌ 未收到地址和包数设置的响应");
+                    AppendInfo($"❌ 设备 {device.DeviceName} 未收到地址和包数设置的响应");
                     return false;
                 }
             }
@@ -885,7 +923,7 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                AppendInfo($"❌ 地址和包数设置异常: {ex.Message}");
+                AppendInfo($"❌ 设备 {device.DeviceName} 地址和包数设置异常: {ex.Message}");
                 return false;
             }
         }
@@ -942,9 +980,9 @@ namespace ChargeDebug.Form
                     //           $"CAN ID: 0x{0x0000AA02:X8} | 数据: {hexDataStr}");
 
                     // 更新进度
-                    int packetProgress = (packetIndex + 1) * 100 / packetsNeeded;
-                    int totalProgress = (blockIndex - 1) * 100 / totalBlocks +
-                                         packetIndex * 100 / (totalBlocks * packetsNeeded);
+                    //int packetProgress = (packetIndex + 1) * 100 / packetsNeeded;
+                    //int totalProgress = (blockIndex - 1) * 100 / totalBlocks +
+                    //                     packetIndex * 100 / (totalBlocks * packetsNeeded);
 
                     // 添加少量延迟防止CAN总线过载
                     await Task.Delay(times, cancellationToken);
@@ -1011,18 +1049,18 @@ namespace ChargeDebug.Form
                     ushort receivedBlockIndex = (ushort)(verifyResponse.data[0] | (verifyResponse.data[1] << 8));
                     if ((receivedBlockIndex == blockIndex - 1) && (verifyResponse.data[2] == 0x00))
                     {
-                        AppendInfo($"✅ 第 {blockIndex} 包数据烧写成功");
+                        AppendInfo($"✅ 设备 {device.DeviceName} 第 {blockIndex} 包数据烧写成功");
                         return true;
                     }
                     else
                     {
-                        AppendInfo($"❌ 块 {blockIndex} 校验失败: 错误代码 0x{verifyResponse.data[2]:X2}-{receivedBlockIndex + 1}");
+                        AppendInfo($"❌ 设备 {device.DeviceName} 块 {blockIndex} 校验失败: 错误代码 0x{verifyResponse.data[2]:X2}-{receivedBlockIndex + 1}");
                         return false;
                     }
                 }
                 else
                 {
-                    AppendInfo("❌ 未收到块校验响应");
+                    AppendInfo($"❌ 设备 {device.DeviceName} 未收到块校验响应");
                     return false;
                 }
             }
@@ -1032,7 +1070,7 @@ namespace ChargeDebug.Form
             }
             catch (Exception ex)
             {
-                AppendInfo($"❌ 块校验异常: {ex.Message}");
+                AppendInfo($"❌ 设备 {device.DeviceName} 块校验异常: {ex.Message}");
                 return false;
             }
         }
@@ -1078,7 +1116,7 @@ namespace ChargeDebug.Form
             int maxRetries = 5;
             int retryCount = 0;
 
-            while (retryCount < maxRetries)
+            while (retryCount <= maxRetries)
             {
                 try
                 {
@@ -1096,7 +1134,7 @@ namespace ChargeDebug.Form
                     );
 
                     string hexData = BitConverter.ToString(data).Replace("-", " ");
-                    AppendInfo($"{device.DeviceNumber} | 发送{commandName} | " +
+                    AppendInfo($"设备 {device.DeviceName} | 发送{commandName} | " +
                                $"CAN ID: 0x{sendCanId:X8} | 数据: {hexData}");
 
                     // 接收响应
@@ -1106,12 +1144,12 @@ namespace ChargeDebug.Form
                     if (canId == receiveCanId)
                     {
                         string responseHex = BitConverter.ToString(response.data).Replace("-", " ");
-                        AppendInfo($"{device.DeviceNumber} | 接收响应 | " +
+                        AppendInfo($"设备 {device.DeviceName} | 接收响应 | " +
                                    $"CAN ID: 0x{canId:X8} | 数据: {responseHex}");
 
                         if (response.data[0] == data[0] && response.data[1] == 0x00)
                         {
-                            AppendInfo($"✅ {operationName}成功");
+                            AppendInfo($"✅ 设备 {device.DeviceName} {operationName}成功");
                             return true;
                         }
                         else
@@ -1132,23 +1170,23 @@ namespace ChargeDebug.Form
                 }
                 catch (OperationCanceledException)
                 {
-                    AppendInfo($"❌ {operationName}被取消");
+                    AppendInfo($"❌ 设备 {device.DeviceName} {operationName}被取消");
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    AppendInfo($"❌ {operationName}异常: {ex.Message}");
+                    AppendInfo($"❌ 设备 {device.DeviceName} {operationName}异常: {ex.Message}");
                 }
 
                 // 重试前等待
                 retryCount++;
-                if (retryCount < maxRetries)
+                if (retryCount <= maxRetries)
                 {
-                    AppendInfo($"↻ {operationName} 重试中 ({retryCount}/{maxRetries})...");
+                    AppendInfo($"↻ 设备 {device.DeviceName} {operationName} 重试中 ({retryCount}/{maxRetries})...");
                     await Task.Delay(100, cancellationToken); // 指数退避
                 }
             }
-            AppendInfo($"❌ {operationName} 失败: 超过最大重试次数({maxRetries})");
+            AppendInfo($"❌ 设备 {device.DeviceName} {operationName} 失败: 超过最大重试次数({maxRetries})");
             return false;
         }
 
