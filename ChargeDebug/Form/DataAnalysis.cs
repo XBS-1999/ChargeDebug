@@ -14,19 +14,9 @@ using DataModel;
 using DevExpress.XtraTab;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.LookAndFeel;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
-using System.Windows.Forms;
-using System.Threading;
 using DevExpress.DataProcessing;
-using DevExpress.Office.Utils;
-using DevExpress.Data.Linq.Helpers;
-using DevExpress.XtraCharts.Native;
-using DevExpress.XtraGrid.Views.Items;
 using DevExpress.XtraPrinting;
-using DevExpress.XtraPrintingLinks;
-using DevExpress.Export;
-using ClosedXML.Excel;
 
 #pragma warning disable
 namespace ChargeDebug.Form
