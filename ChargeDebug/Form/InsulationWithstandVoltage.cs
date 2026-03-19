@@ -791,6 +791,7 @@ namespace ChargeDebug.Form
             progressLabel.Text = "准备开始测试...";
 
             _testCts = new CancellationTokenSource();
+            bool stoppedByError = false; // 标记是否因错误中断
 
             // 5. 遍历每个项目
             try
@@ -1011,14 +1012,33 @@ namespace ChargeDebug.Form
                     }
                     catch (OperationCanceledException)
                     {
+                        // 用户取消：保存取消状态，然后重新抛出（由外层处理退出）
+                        progressTimer.Stop(); // 立即停止计时器
                         row["TestResult"] = "用户取消";
                         row["TestData"] = DBNull.Value;
-                        throw;   // 重新抛出，让外层捕获并终止循环
+                        SaveTestResultToDatabase(deviceNumber, Convert.ToInt32(row["Id"]),
+                                                 startTime, "", "用户取消");
+                        // 更新进度条：认为当前项目已“完成”（取消也算一个完成单位）
+                        completedProjects++;
+                        progressBar.Position = completedProjects * 100;
+                        throw; // 重新抛出，让外层捕获并退出循环
                     }
                     catch (Exception ex)
                     {
+                        // 普通错误：保存失败状态，然后终止所有测试（break）
+                        progressTimer.Stop();
                         row["TestResult"] = $"失败：{ex.Message}";
                         row["TestData"] = DBNull.Value;
+                        SaveTestResultToDatabase(deviceNumber, Convert.ToInt32(row["Id"]),
+                                                 startTime, "", $"失败：{ex.Message}");
+
+                        // 更新进度条
+                        completedProjects++;
+                        progressBar.Position = completedProjects * 100;
+
+                        // 标记错误中断，跳出循环
+                        stoppedByError = true;
+                        break;
                     }
                     finally
                     {
@@ -1043,6 +1063,20 @@ namespace ChargeDebug.Form
                 _testCts = null;
                 btnVoltageCalibration.Enabled = true;
                 btnStopCalibration.Enabled = false;
+            }
+
+            // 根据中断原因显示不同提示
+            if (stoppedByError)
+            {
+                progressLabel.Text = "测试因错误停止";
+                XtraMessageBox.Show("测试过程中发生错误，已停止后续测试。", "错误中断",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            else
+            {
+                progressLabel.Text = "测试完成";
+                XtraMessageBox.Show("所有项目测试完成！", "完成",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
 
             // 6. 恢复按钮状态
