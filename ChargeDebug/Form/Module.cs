@@ -560,12 +560,12 @@ namespace ChargeDebug.Form
         /// </summary>
         private void ChkRealTimeSave_CheckedChanged(object sender, EventArgs e)
         {
-            if (_acRunStatus == 0x01 || _acRunStatus == 0x02 || _dcRunStatus == 0x01 || _dcRunStatus == 0x02)
-            {
-                XtraMessageBox.Show($"设备运行中，数据已开启保存！", "错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
+            //if (_acRunStatus == 0x01 || _acRunStatus == 0x02 || _dcRunStatus == 0x01 || _dcRunStatus == 0x02)
+            //{
+            //    XtraMessageBox.Show($"设备运行中，数据已开启保存！", "错误",
+            //        MessageBoxButtons.OK, MessageBoxIcon.Error);
+            //    return;
+            //}
 
             bool shouldSave = _chkRealTimeSave.Checked;
 

@@ -281,10 +281,10 @@ namespace ChargeDebug.Form
                 // 根据 Field_Type 决定列类型，若为空则默认 TEXT
                 string columnType = string.IsNullOrEmpty(item.Field_Type) ? "TEXT" : item.Field_Type.ToUpperInvariant();
                 // 可选：对特殊列（如 Time）强制 TEXT，避免用户误配置
-                if (item.Name.Equals("Time", StringComparison.OrdinalIgnoreCase))
-                {
-                    columnType = "TEXT";
-                }
+                //if (item.Name.Equals("Time", StringComparison.OrdinalIgnoreCase))
+                //{
+                //    columnType = "TEXT";
+                //}
                 columnDefinitions.Add($"\"{item.Name}\" {columnType}");
             }
 
@@ -487,7 +487,7 @@ namespace ChargeDebug.Form
                     string sql = @"
                        SELECT * FROM TargetTable 
                         WHERE FileID = @FileID 
-                        ORDER BY strftime('%Y-%m-%d %H:%M:%S', REPLACE(Time, '/', '-'))";
+                        ORDER BY Time";
 
                     using (var cmd = new SQLiteCommand(sql, conn))
                     {

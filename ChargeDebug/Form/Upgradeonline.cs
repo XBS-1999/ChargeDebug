@@ -956,14 +956,14 @@ namespace ChargeDebug.Form
                     byte[] swappedData = new byte[8];
                     for (int i = 0; i < 8; i += 2)
                     {
-                        if (i + 1 < 8) // 确保有下一个字节可以交换
+                        if (i + 1 < 8)      // 确保有下一个字节可以交换
                         {
                             swappedData[i] = packetData[i + 1];
                             swappedData[i + 1] = packetData[i];
                         }
                         else
                         {
-                            swappedData[i] = packetData[i]; // 奇数位置保留原值
+                            swappedData[i] = packetData[i];    // 奇数位置保留原值
                         }
                     }
 

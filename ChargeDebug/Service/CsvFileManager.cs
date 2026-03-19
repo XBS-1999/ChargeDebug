@@ -57,7 +57,7 @@ namespace ChargeDebug.Service
                             if (time.HasValue)
                             {
                                 startTime = time.Value < startTime ? time.Value : startTime;
-                                endTime = time.Value > endTime ? time.Value : endTime;
+                                //endTime = time.Value > endTime ? time.Value : endTime;
                                 hasValidTime = true;
                             }
                         }
@@ -76,7 +76,7 @@ namespace ChargeDebug.Service
                                 var time = ExtractTimeFromCsvLine(line);
                                 if (time.HasValue)
                                 {
-                                    startTime = time.Value < startTime ? time.Value : startTime;
+                                    //startTime = time.Value < startTime ? time.Value : startTime;
                                     endTime = time.Value > endTime ? time.Value : endTime;
                                     hasValidTime = true;
                                 }
@@ -118,7 +118,6 @@ namespace ChargeDebug.Service
                 return groups;
 
             // 设置时间连贯性阈值（例如：1s）
-            TimeSpan continuityThreshold = TimeSpan.FromSeconds(1);
 
             var currentGroup = new List<FileTimeInfo> { fileInfos[0] };
 
@@ -131,7 +130,7 @@ namespace ChargeDebug.Service
                 var timeGap = (int)(currentFile.StartTime - previousFile.EndTime).TotalSeconds;
 
                 // 允许时间重叠（负值）或微小间隙（在1秒内）
-                if (timeGap <= 1)
+                if (timeGap <= 2)
                 {
                     // 时间连贯，加入当前组
                     currentGroup.Add(currentFile);

@@ -70,6 +70,29 @@ namespace ChargeDebug.Form
             LoadProjects();  // 加载数据库中的项目
         }
 
+        // 1. 提取项目列配置方法
+        private void AddProjectColumns()
+        {
+            gridView.Columns.Clear();
+            AddGridColumn("序号", "ProjectId", 50);
+            AddGridColumn("项目名称", "ProjectName", 150);
+            AddGridColumn("测试电压(V)", "TestVoltage", 100);
+            AddGridColumn("测试时间(s)", "TestTime", 100);
+            AddGridColumn("电压上升时间(s)", "RampUpTime", 120);
+            AddGridColumn("电压下降时间(s)", "RampDownTime", 120);
+            AddGridColumn("电流上下限范围(mA)", "CurrentLimit", 150);
+            AddGridColumn("电阻上下限范围(MΩ/mΩ)", "ResistanceLimit", 150);
+            AddGridColumn("测试数据", "TestData", 150);
+            AddGridColumn("测试结果", "TestResult", 150);
+
+            // 设置所有列居中
+            foreach (GridColumn col in gridView.Columns)
+            {
+                col.AppearanceCell.TextOptions.HAlignment = HorzAlignment.Center;
+                col.AppearanceHeader.TextOptions.HAlignment = HorzAlignment.Center;
+            }
+        }
+
         private void LoadProjects()
         {
             try
@@ -84,6 +107,9 @@ namespace ChargeDebug.Form
                         dt.Columns.Add("TestData", typeof(string));
                     if (!dt.Columns.Contains("TestResult"))
                         dt.Columns.Add("TestResult", typeof(string));
+
+                    // 重新配置项目列
+                    AddProjectColumns();
 
                     gridControl.DataSource = dt;
                     gridView.ExpandAllGroups(); // 如果有分组可展开，此处无分组
@@ -322,39 +348,85 @@ namespace ChargeDebug.Form
 
         private void BtnQueryData_Click(object? sender, EventArgs e)
         {
-            string keyword = XtraInputBox.Show("请输入项目名称（支持模糊查询）", "查询", "");
-            if (string.IsNullOrWhiteSpace(keyword))
-                return;
-
             try
             {
-                using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
+                // 弹出设备编号输入对话框
+                using (var inputForm = new DeviceNumberInputForm("测试名称"))
                 {
-                    conn.Open();
-                    // 构建模糊查询SQL
-                    string sql = @"SELECT * FROM TestProject 
-                           WHERE ProjectName LIKE @keyword 
-                           ORDER BY ProjectId";
-                    using (var cmd = new SQLiteCommand(sql, conn))
+                    if (inputForm.ShowDialog() == DialogResult.OK)
                     {
-                        cmd.Parameters.AddWithValue("@keyword", $"%{keyword}%");
-                        SQLiteDataAdapter adapter = new SQLiteDataAdapter(cmd);
-                        DataTable dt = new DataTable();
-                        adapter.Fill(dt);
+                        string deviceNumber = inputForm.DeviceNumber;
+                        if (string.IsNullOrWhiteSpace(deviceNumber))
+                        {
+                            XtraMessageBox.Show("设备编号不能为空！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
 
-                        // 添加测试结果相关列（与LoadProjects保持一致）
-                        if (!dt.Columns.Contains("TestData"))
-                            dt.Columns.Add("TestData", typeof(string));
-                        if (!dt.Columns.Contains("TestResult"))
-                            dt.Columns.Add("TestResult", typeof(string));
+                        // 查询测试记录
+                        DataTable dt = GetTestRecordsByDeviceNumber(deviceNumber);
 
+                        // 清除现有列，以便自动生成测试记录列
+                        gridView.Columns.Clear();
+
+                        // 绑定数据并自动生成列
                         gridControl.DataSource = dt;
+                        gridView.PopulateColumns();
+
+                        // 设置列样式
+                        foreach (GridColumn col in gridView.Columns)
+                        {
+                            col.AppearanceCell.TextOptions.HAlignment = HorzAlignment.Center;
+                            col.AppearanceHeader.TextOptions.HAlignment = HorzAlignment.Center;
+                        }
+
+                        // 优化列显示（可选）
+                        if (gridView.Columns["Id"] != null)
+                            gridView.Columns["Id"].Visible = false; // 隐藏ID列
+                        if (gridView.Columns["DeviceNumber"] != null)
+                            gridView.Columns["DeviceNumber"].Caption = "设备编号";
+                        if (gridView.Columns["CreateTime"] != null)
+                            gridView.Columns["CreateTime"].Caption = "测试时间";
+                        if (gridView.Columns["Operator"] != null)
+                            gridView.Columns["Operator"].Caption = "操作员";
+
+                        if (dt.Rows.Count == 0)
+                        {
+                            XtraMessageBox.Show($"未找到设备编号为“{deviceNumber}”的测试记录。", "查询结果",
+                                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                XtraMessageBox.Show($"查询失败：{ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                XtraMessageBox.Show($"查询数据失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // 3. 查询测试记录的方法
+        private DataTable GetTestRecordsByDeviceNumber(string deviceNumber)
+        {
+            string connectionString = $"Data Source={sqladdress};Version=3;";
+            string sql = @"SELECT Id, DeviceNumber, ProjectName, TestVoltage, TestTime, 
+                          RampUpTime, RampDownTime, CurrentLimit, ResistanceLimit,
+                          CreateTime, UpdateTime, TestData, TestResult, Operator
+                           FROM TestRecord 
+                           WHERE DeviceNumber LIKE @DeviceNumber
+                           ORDER BY CreateTime DESC";
+
+            using (var conn = new SQLiteConnection(connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@DeviceNumber", "%" + deviceNumber + "%");
+                    using (var adapter = new SQLiteDataAdapter(cmd))
+                    {
+                        DataTable dt = new DataTable();
+                        adapter.Fill(dt);
+                        return dt;
+                    }
+                }
             }
         }
 
@@ -713,6 +785,7 @@ namespace ChargeDebug.Form
 
             // 4. 初始化进度条：最大值 = 项目数 * 100（每个项目100%）
             btnVoltageCalibration.Enabled = false;
+            btnStopCalibration.Enabled = true;
             progressBar.Properties.Maximum = selectedRows.Length * 100;
             progressBar.Position = 0;
             progressLabel.Text = "准备开始测试...";
@@ -985,27 +1058,71 @@ namespace ChargeDebug.Form
                 using (var conn = new SQLiteConnection($"Data Source={sqladdress};Version=3;"))
                 {
                     conn.Open();
-                    string sql = @"
-                        INSERT INTO TestRecord 
-                        (DeviceNumber, ProjectId, TestTime, TestData, TestResult, Operator)
-                        VALUES 
-                        (@DeviceNumber, @ProjectId, @TestTime, @TestData, @TestResult, @Operator)";
 
-                    using (var cmd = new SQLiteCommand(sql, conn))
+                    // 1. 根据 projectId 查询项目详细信息
+                    string selectSql = @"SELECT ProjectName, TestVoltage, TestTime, RampUpTime, 
+                                        RampDownTime, CurrentLimit, ResistanceLimit
+                                         FROM TestProject WHERE Id = @ProjectId";
+
+                    TestProjectModel project = null;
+                    using (var selectCmd = new SQLiteCommand(selectSql, conn))
+                    {
+                        selectCmd.Parameters.AddWithValue("@ProjectId", projectId);
+                        using (var reader = selectCmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                project = new TestProjectModel
+                                {
+                                    ProjectName = reader["ProjectName"].ToString(),
+                                    TestVoltage = Convert.ToDouble(reader["TestVoltage"]),
+                                    TestTime = Convert.ToDouble(reader["TestTime"]),
+                                    RampUpTime = Convert.ToDouble(reader["RampUpTime"]),
+                                    RampDownTime = Convert.ToDouble(reader["RampDownTime"]),
+                                    CurrentLimit = reader["CurrentLimit"].ToString(),
+                                    ResistanceLimit = reader["ResistanceLimit"].ToString()
+                                };
+                            }
+                        }
+                    }
+
+                    if (project == null)
+                    {
+                        throw new Exception($"未找到 ProjectId = {projectId} 的项目信息");
+                    }
+
+
+                    // 2. 插入测试记录
+                    string insertSql = @"
+                            INSERT INTO TestRecord 
+                            (DeviceNumber, ProjectName, TestVoltage, TestTime, RampUpTime, RampDownTime, 
+                             CurrentLimit, ResistanceLimit, CreateTime, UpdateTime, TestData, TestResult, Operator)
+                            VALUES 
+                            (@DeviceNumber, @ProjectName, @TestVoltage, @TestTime, @RampUpTime, @RampDownTime,
+                             @CurrentLimit, @ResistanceLimit, @CreateTime, @UpdateTime, @TestData, @TestResult, @Operator)";
+
+                    using (var cmd = new SQLiteCommand(insertSql, conn))
                     {
                         cmd.Parameters.AddWithValue("@DeviceNumber", deviceNumber);
-                        cmd.Parameters.AddWithValue("@ProjectId", projectId);
-                        cmd.Parameters.AddWithValue("@TestTime", testTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@ProjectName", project.ProjectName);
+                        cmd.Parameters.AddWithValue("@TestVoltage", project.TestVoltage);
+                        cmd.Parameters.AddWithValue("@TestTime", project.TestTime);
+                        cmd.Parameters.AddWithValue("@RampUpTime", project.RampUpTime);
+                        cmd.Parameters.AddWithValue("@RampDownTime", project.RampDownTime);
+                        cmd.Parameters.AddWithValue("@CurrentLimit", project.CurrentLimit);
+                        cmd.Parameters.AddWithValue("@ResistanceLimit", project.ResistanceLimit);
+                        cmd.Parameters.AddWithValue("@CreateTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@UpdateTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                         cmd.Parameters.AddWithValue("@TestData", testData ?? "");
                         cmd.Parameters.AddWithValue("@TestResult", testResult ?? "");
-                        cmd.Parameters.AddWithValue("@Operator", "admin"); 
+                        cmd.Parameters.AddWithValue("@Operator", "admin");  // 可根据实际登录用户修改
                         cmd.ExecuteNonQuery();
                     }
                 }
             }
             catch (Exception ex)
             {
-                // 记录日志或弹出提示（可选）
+                // 记录日志或弹出提示
                 XtraMessageBox.Show($"保存测试结果到数据库失败：{ex.Message}", "警告",
                                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }

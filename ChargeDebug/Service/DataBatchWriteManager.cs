@@ -419,7 +419,18 @@ namespace ChargeDebug.Service
             // 为每个 Template 列添加参数，类型设为 DbType.String 以兼容 SQLite 的动态类型
             foreach (var template in _template)
             {
-                cmd.Parameters.Add(new SQLiteParameter("@" + template.Name, DbType.String));
+                if (template.Field_Type == "datetime")
+                {
+                    cmd.Parameters.Add(new SQLiteParameter("@" + template.Name, DbType.DateTime));
+                }
+                else if(template.Field_Type == "double")
+                {
+                    cmd.Parameters.Add(new SQLiteParameter("@" + template.Name, DbType.Double));
+                }
+                else
+                {
+                    cmd.Parameters.Add(new SQLiteParameter("@" + template.Name, DbType.String));
+                }
             }
         }
 
