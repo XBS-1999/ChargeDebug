@@ -69,6 +69,66 @@ namespace ChargeDebug
         {
             try
             {
+                // 步骤1: 发送保护参数52YCC
+                bool protectparameters = await SendProtectionParams52YCC(configData);
+                if (!protectparameters)
+                {
+                    return false;
+                }
+
+                // 步骤2: 发送保护参数62YCC
+                bool protectparameters1 = await SendProtectionParams62YCC(configData);
+                if (!protectparameters1)
+                {
+                    return false;
+                }
+
+                // 步骤3: 发送控制参数32YCC
+                bool controlparameters = await SendControlParams32YCC(configData);
+                if (!controlparameters)
+                {
+                    return false;
+                }
+
+                // 步骤3: 发送工步参数22YCC
+                bool processparameters = await SendStepParams22YCC(configData);
+                if (!processparameters)
+                {
+                    return false;
+                }
+
+                if (!flagbit)
+                {
+                    return true;
+                }
+
+                //等待设备启动成功
+                LogService.Log("等待设备启动:30S");
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+                while (stopwatch.ElapsedMilliseconds < 30000)
+                {
+                    if (_dcRunStatus == 0x02)
+                    {
+                        LogService.Log("状态变为0x02，设备启动完成。");
+                        return true;
+                    }
+                    await Task.Delay(200); // 每100ms检查一次，可根据需要调整间隔
+                }
+
+                LogService.Log($"等待超时，当前状态:{_dcRunStatus}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"设备启动失败: {ex.Message}");
+            }
+        }
+
+        public async Task<bool> DeviceSetParameters(ConfigurationData configData, bool flagbit)
+        {
+            try
+            {
                 if (flagbit)
                 {
                     // 步骤1: 发送保护参数52YCC
@@ -367,18 +427,21 @@ namespace ChargeDebug
                 }
 
                 //return true;
-                LogService.Log("等待设备启动:20S");
-                await Task.Delay(20000);
-                LogService.Log($"状态:{_dcRunStatus}");
-                //监控运行状态是否变化
-                if (_dcRunStatus == 0x02) //启动过程中
+                LogService.Log("等待设备启动:30S");
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+                while (stopwatch.ElapsedMilliseconds < 30000)
                 {
-                    return true;
+                    if (_dcRunStatus == 0x02)
+                    {
+                        LogService.Log("状态变为0x02，设备启动完成。");
+                        return true;
+                    }
+                    await Task.Delay(200); // 每100ms检查一次，可根据需要调整间隔
                 }
-                else
-                {
-                    return false;
-                }
+
+                LogService.Log($"等待超时，当前状态:{_dcRunStatus}");
+                return false;
             }
             catch (Exception ex)
             {
@@ -459,8 +522,6 @@ namespace ChargeDebug
                 throw new Exception($"设备设置参数: {ex.Message}");
             }
         }
-
-
 
         /// <summary>
         /// 发送保护参数52YCC

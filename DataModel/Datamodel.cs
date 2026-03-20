@@ -218,15 +218,6 @@ namespace DataModel
         public long FileSize { get; set; }
     }
 
-    public class CenterBottomData
-    {
-        public string Type { get; set; }
-
-        public int X { get; set; }
-
-        public decimal Y { get; set; }
-    }
-
     public class Template
     {
         public string Name { get; set; }

@@ -579,7 +579,7 @@ namespace ChargeDebug.Form
                             channelColumn.DisplayFormat.FormatType = FormatType.None;
                         }
                         //channelColumn.DisplayFormat.FormatString = "F1";
-                        
+
                     }
 
                     // 设置内容居中
@@ -595,6 +595,8 @@ namespace ChargeDebug.Form
             dataGridView.OptionsView.ShowAutoFilterRow = false;
             dataGridView.OptionsView.ShowFooter = true;
             dataGridView.OptionsBehavior.Editable = false;
+
+            dataGridView.OptionsView.ColumnAutoWidth = false;
 
             // 设置行高
             dataGridView.RowHeight = 26;
@@ -1080,22 +1082,6 @@ namespace ChargeDebug.Form
                                     XlsxExportOptionsEx xlsxOptions = new XlsxExportOptionsEx();
                                     xlsxOptions.ExportType = DevExpress.Export.ExportType.DataAware;
                                     dataGridView.ExportToXlsx(fileName, xlsxOptions);
-
-                                    // 使用 ClosedXML 创建工作簿
-                                    //using (var workbook = new XLWorkbook())
-                                    //{
-                                    //    // 添加工作表，命名为“数据”
-                                    //    var worksheet = workbook.Worksheets.Add("数据");
-
-                                    //    // 将 DataTable 导入工作表（包括列标题）
-                                    //    worksheet.Cell(1, 1).InsertTable(dt);
-
-                                    //    // 可选：调整列宽以适应内容
-                                    //    worksheet.Columns().AdjustToContents();
-
-                                    //    // 保存文件
-                                    //    workbook.SaveAs(fileName);
-                                    //}
                                     break;
                                 case ".csv":
                                     CsvExportOptionsEx csvOptions = new CsvExportOptionsEx();

@@ -546,12 +546,16 @@ namespace ChargeDebug.Service
                     string socCol = $"DC{ch}_SOC";
                     string emsstaCol = $"DC{ch}_EMSStatus";
                     string emsmodeCol = $"DC{ch}_EMSMode";
+                    string chargenergyCol = $"DC{ch}_ChargEnergy";
+                    string dischargenergyCol = $"DC{ch}_DisChargEnergy";
 
                     if (channelGroups.TryGetValue(ch, out var records))
                     {
                         // 功率总和
                         decimal? chPower = null;
                         double? chSOC = null;
+                        double? chChargEnergy = null;
+                        double? chDisChargEnergy = null;
                         string chEMSStatus = null;
                         string chEMSMode = null;
                         foreach (var rec in records)
@@ -563,6 +567,14 @@ namespace ChargeDebug.Service
                             // SOC
                             if (rec.SOC.HasValue)
                                 chSOC = rec.SOC;
+
+                            // 充电能量
+                            if (rec.ChargeEnergy.HasValue)
+                                chChargEnergy = rec.ChargeEnergy;
+
+                            // 放电能量
+                            if (rec.DischargeEnergy.HasValue)
+                                chDisChargEnergy = rec.DischargeEnergy;
 
                             // EMSStatus
                             if (!string.IsNullOrEmpty(rec.EMSStatus))
@@ -577,6 +589,8 @@ namespace ChargeDebug.Service
                         result[socCol] = chSOC;
                         result[emsstaCol] = chEMSStatus;
                         result[emsmodeCol] = chEMSMode;
+                        result[chargenergyCol] = chChargEnergy;
+                        result[dischargenergyCol ] = chDisChargEnergy;
                         if (chPower.HasValue) totalDc += chPower.Value;
                     }
                     else
@@ -585,6 +599,8 @@ namespace ChargeDebug.Service
                         result[socCol] = null;
                         result[emsstaCol] = null;
                         result[emsmodeCol] = null;
+                        result[chargenergyCol] = null;
+                        result[dischargenergyCol] = null;
                     }
                 }
                 result["DC_TotalPower"] = totalDc;
@@ -598,6 +614,8 @@ namespace ChargeDebug.Service
                     result[$"DC{ch}_SOC"] = null; 
                     result[$"DC{ch}_EMSStatus"] = null;
                     result[$"DC{ch}_EMSMode"] = null;
+                    result[$"DC{ch}_ChargEnergy"] = null;
+                    result[$"DC{ch}_DisChargEnergy"] = null;
                 }
             }
 

@@ -2073,7 +2073,7 @@ namespace ChargeDebug.Form
                             // ============ 新增结束 ============
 
                             // 开始启动
-                            bool run = await _startupManager.StartDeviceAsync(_protectionParameters, true);
+                            bool run = await _startupManager.StartDeviceAsync(_protectionParameters, false);
 
                             if (run)
                             {
@@ -2406,11 +2406,11 @@ namespace ChargeDebug.Form
                     return;
                 }
 
-                // 比较参数是否有变化
+                // 比较保护参数是否有变化
                 bool hasChanges = CompareParameters(currentParams, newParams);
 
                 // 发送新的参数
-                bool success = await _startupManager.StartDeviceAsync(newParams, hasChanges);
+                bool success = await _startupManager.DeviceSetParameters(newParams, hasChanges);
 
                 if (success)
                 {
@@ -2433,12 +2433,14 @@ namespace ChargeDebug.Form
                     }
                     else
                     {
+                        await _startupManager.StopDeviceAsync();
                         LogService.Log("DC参数发送失败");
                         XtraMessageBox.Show("DC参数发送失败");
                     }
                 }
                 else
                 {
+                    await _startupManager.StopDeviceAsync();
                     LogService.Log("DC参数发送失败");
                     XtraMessageBox.Show("DC参数发送失败");
                 }

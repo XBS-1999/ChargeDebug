@@ -33,11 +33,13 @@ namespace ChargeDebug.Form
         private TreeList treeList;
         private List<EquipmentModel> equipmentList;
         private StartupManager startupManager;
+        private StartupManager voltagestartupManager;
 
         // 组合框控件
         private ComboBoxEdit cbVoltageSource;
         private ComboBoxEdit cbVoltmeter;
         private ComboBoxEdit cbAmmeter;
+        private ComboBoxEdit cbVoltageChannel;
 
         private SimpleButton btnVoltageCalibration;
         private SimpleButton btnCurrentCalibration;
@@ -80,6 +82,7 @@ namespace ChargeDebug.Form
             this.sqladdress = sqladdress;
             InitializeComponent();
             InitializeUI();
+            LoadVoltageChannel();
             this.Load += CalibrationManagement_Load;
 
             // 订阅数据接收事件
@@ -100,6 +103,37 @@ namespace ChargeDebug.Form
         private void CalibrationManagement_Load(object? sender, EventArgs e)
         {
             LoadData();
+        }
+
+        private void LoadVoltageChannel()
+        {
+            // 清空现有项
+            cbVoltageChannel.Properties.Items.Clear();
+
+            var voltagechannel = equipmentList
+                .Where(e => e.DeviceType == "充放电设备")
+                .ToList();
+
+            foreach ( var voltage in voltagechannel )
+            {
+                //获取AC,DC起始地址
+                //int acnum = Convert.ToInt32(voltage.ACAddress.Substring(voltage.ACAddress.Length - 1));
+                int dcnum = Convert.ToInt32(voltage.DCAddress.Substring(voltage.DCAddress.Length - 1));
+
+                //for (int i = 0; i < voltage.ACNumber; i++)
+                //{
+                //    acnum++;
+                //    cbVoltageChannel.Properties.Items.Add($"{voltage.DeviceName}-AC{acnum}");
+                //}
+
+                // 只处理DC通道
+                for (int i = 0; i < voltage.DCNumber; i++)
+                {
+                    dcnum++;
+                    cbVoltageChannel.Properties.Items.Add($"{voltage.DeviceName}-DC{dcnum}");
+                }
+            }
+            cbVoltageChannel.SelectedIndex = 0;
         }
 
         #endregion
@@ -177,6 +211,7 @@ namespace ChargeDebug.Form
             // 清除所有旧布局
             this.Controls.Clear();
             InitializeUI();
+            LoadVoltageChannel();
             // 加载数据
             LoadData();
         }
@@ -1202,7 +1237,7 @@ namespace ChargeDebug.Form
         /// </summary>
         /// <param name="equipment">设备模型</param>
         /// <returns>启动是否成功</returns>
-        private async Task<bool> StartEquipment(EquipmentModel equipment, string title)
+        private async Task<bool> StartEquipment(EquipmentModel equipment, string title, StartupManager manager = null)
         {
             try
             {
@@ -1211,7 +1246,7 @@ namespace ChargeDebug.Form
                 {
                     case "ZCAN_CANETTCP":
                         // 使用CAN启动设备
-                        bool can = await StartDeviceAsync(equipment, title);
+                        bool can = await StartDeviceAsync(equipment, title, manager);
                         if (!can)
                         {
                             return false;
@@ -1884,6 +1919,7 @@ namespace ChargeDebug.Form
         public async Task<bool> ExecuteCurrentCalibration(CancellationToken cancellationToken)
         {
             EquipmentModel currentSource = null;
+            EquipmentModel voltageSource = null;
             EquipmentModel ammeter = null;
 
             try
@@ -1895,9 +1931,16 @@ namespace ChargeDebug.Form
                 // 1. 获取选中的设备
                 string? currentSourceName = InitializeCurrentSourceModule();
                 string? ammeterName = cbAmmeter.SelectedItem?.ToString();
+                string? voltageSourceName = cbVoltageChannel.SelectedItem?.ToString();
                 if (string.IsNullOrEmpty(currentSourceName) || string.IsNullOrEmpty(ammeterName))
                 {
                     XtraMessageBox.Show("请先选择所有必要的校准设备!");
+                    return false;
+                }
+
+                if (currentSourceName == voltageSourceName)
+                {
+                    XtraMessageBox.Show($"恒压源和电流源属于同一个通道\n {currentSourceName} = {voltageSourceName}");
                     return false;
                 }
 
@@ -1909,8 +1952,16 @@ namespace ChargeDebug.Form
                     return false;
                 }
 
+                voltagestartupManager = FindStartupManager(voltageSourceName);
+                if (voltagestartupManager == null)
+                {
+                    LogService.Log($"找不到设备 {voltageSourceName} 的启动管理器");
+                    return false;
+                }
+
                 // 2. 从设备列表中查找设备信息
                 currentSource = equipmentList.FirstOrDefault(e => e.DeviceName == currentSourceName.Split("-")[0]);
+                voltageSource = equipmentList.FirstOrDefault(e => e.DeviceName == voltageSourceName.Split("-")[0]);
                 ammeter = equipmentList.FirstOrDefault(e => e.DeviceName == ammeterName);
                 if (currentSource == null || ammeter == null)
                 {
@@ -1956,7 +2007,7 @@ namespace ChargeDebug.Form
                     LogService.Log("设备启动失败，请检查设备连接!");
                     return false;
                 }
-                LogService.Log("所有校准设备启动成功，开始电压校准流程!");
+                LogService.Log("电流表启动成功，开始电流校准流程!");
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.StartingEquipment, "开始设置参数:");
@@ -1984,13 +2035,13 @@ namespace ChargeDebug.Form
                 //}
 
                 // 8. 开机/启用输出
-                //LogService.Log("启用电流源输出..."); 
-                //bool outputEnabled = await StartEquipment(currentSource, currentSourceName);
-                //if (!outputEnabled)
-                //{
-                //    XtraMessageBox.Show("启用输出失败!");
-                //    return false;
-                //}
+                LogService.Log("启用恒压源输出...");
+                bool outputEnabled = await StartEquipment(voltageSource, voltageSourceName, voltagestartupManager);
+                if (!outputEnabled)
+                {
+                    LogService.Log("启用恒压源输出失败!");
+                    return false;
+                }
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.SetParameters, "开始获取校准点:");
@@ -2000,6 +2051,8 @@ namespace ChargeDebug.Form
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.HandlePoint, "开始校准电流:");
+
+                await Task.Delay(1000, cancellationToken);
 
                 // 10. 遍历每个校准点进行校准
                 bool calibrationSuccess = await ProcessCalibrationPoints(
@@ -2016,6 +2069,15 @@ namespace ChargeDebug.Form
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.BeforeCalibration, "开始验证电流:");
+
+                //再次启动恒压源
+                LogService.Log("启用恒压源输出...");
+                bool outputEnabled1 = await StartEquipment(voltageSource, voltageSourceName, voltagestartupManager);
+                if (!outputEnabled1)
+                {
+                    LogService.Log("启用恒压源输出失败!");
+                    return false;
+                }
 
                 // 11. 进行校准后验证
                 bool verificationSuccess = await PerformPostCalibrationVerification(
@@ -2047,7 +2109,16 @@ namespace ChargeDebug.Form
             {
                 // 停止电流源设备
                 LogService.Log("关闭电流源输出...");
-                await startupManager.SetParameters(0x00, 0.0, 0.0);
+
+                //先停机恒流设备
+                await startupManager.StopDeviceAsync();
+
+                await Task.Delay(1000, cancellationToken);
+
+                //在停机恒压设备
+                await voltagestartupManager.StopDeviceAsync();
+
+                await Task.Delay(1000, cancellationToken);
 
                 if (_calibrationCancellationRequested)
                 {
@@ -2055,7 +2126,7 @@ namespace ChargeDebug.Form
                 }
                 else
                 {
-                    UpdateProgress(ProgressStage.Completed, "电压校准完成!");
+                    UpdateProgress(ProgressStage.Completed, "电流校准完成!");
                 }
             }
         }
@@ -2083,31 +2154,57 @@ namespace ChargeDebug.Form
             }
         }
 
-        public async Task<bool> StartDeviceAsync(EquipmentModel equipment, string _title)
+        public async Task<bool> StartDeviceAsync(EquipmentModel equipment, string _title, StartupManager manager)
         {
             try
             {
-                // 显示启动配置对话框
-                using (var configForm = new StartConfiguration(_title, "启动配置", false))
+                if (manager == startupManager)  //恒流启动
                 {
-                    if (configForm.ShowDialog() == DialogResult.OK)
+                    using (var configForm = new StartConfiguration(_title, "启动配置", false))
                     {
-                        // 获取用户设置的配置数据StartCurrent
-                        _protectionParameters = configForm.Configuration;
-
-                        bool success = await startupManager.StartCurrent(_protectionParameters);
-                        if (!success)
+                        if (configForm.ShowDialog() == DialogResult.OK)
                         {
-                            LogService.Log("设备启动失败!");
+                            // 获取用户设置的配置数据StartCurrent
+                            _protectionParameters = configForm.Configuration;
+
+                            bool success = await startupManager.StartCurrent(_protectionParameters);
+                            if (!success)
+                            {
+                                LogService.Log("设备启动失败!");
+                                return false;
+                            }
+                        }
+                        else
+                        {
                             return false;
                         }
                     }
-                    else
+                }
+                else if (manager == voltagestartupManager)  //恒压启动
+                {
+                    using (var configForm = new StartConfiguration(_title, "启动配置", true))
                     {
-                        return false;
+                        if (configForm.ShowDialog() == DialogResult.OK)
+                        {
+                            // 获取用户设置的配置数据StartCurrent
+                            _protectionParameters = configForm.Configuration;
+
+                            bool success = await voltagestartupManager.StartDeviceAsync(_protectionParameters, true);
+                            if (!success)
+                            {
+                                LogService.Log("设备启动失败!");
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            return false;
+                        }
                     }
                 }
-
+                else
+                    return false;
+                 
                 return true;
             }
             catch (Exception ex)
@@ -2276,7 +2373,7 @@ namespace ChargeDebug.Form
                     if (type == "电流")
                     {
                         LogService.Log("启用电流源输出...");
-                        bool outputEnabled = await StartEquipment(voltageSource, currentSourceName);
+                        bool outputEnabled = await StartEquipment(voltageSource, currentSourceName, startupManager);
                         if (!outputEnabled)
                         {
                             //XtraMessageBox.Show("启用输出失败!");
@@ -2450,7 +2547,13 @@ namespace ChargeDebug.Form
 
                         LogService.Log("关闭电流源输出...");
 
+                        //先停机恒流设备
                         await startupManager.SetParameters(0x00, 0.0, 0.0);
+
+                        await Task.Delay(1000, cancellationToken);
+
+                        //在停机恒压设备
+                        await voltagestartupManager.SetParameters(0x00, 0.0, 0.0);
 
                         await Task.Delay(1000, cancellationToken);
                     }
@@ -3021,7 +3124,7 @@ namespace ChargeDebug.Form
                     if (type == "电流")
                     {
                         LogService.Log("启用电流源输出...");
-                        bool outputEnabled = await StartEquipment(voltageSource, currentSourceName);
+                        bool outputEnabled = await StartEquipment(voltageSource, currentSourceName, startupManager);
                         if (!outputEnabled)
                         {
                             XtraMessageBox.Show("启用输出失败!");
@@ -5964,7 +6067,7 @@ namespace ChargeDebug.Form
 
             cbVoltageSource = new ComboBoxEdit
             {
-                Size = new Size(160, 30),
+                Size = new Size(120, 30),
                 Location = new Point(lblVoltageSource.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
@@ -5989,7 +6092,7 @@ namespace ChargeDebug.Form
 
             cbVoltmeter = new ComboBoxEdit
             {
-                Size = new Size(160, 30),
+                Size = new Size(120, 30),
                 Location = new Point(lblVoltmeter.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
@@ -6013,7 +6116,7 @@ namespace ChargeDebug.Form
 
             cbAmmeter = new ComboBoxEdit
             {
-                Size = new Size(160, 30),
+                Size = new Size(120, 30),
                 Location = new Point(lblAmmeter.Right + 10, 10),
                 Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
             };
@@ -6027,12 +6130,28 @@ namespace ChargeDebug.Form
             cbAmmeter.SelectedIndex = 0;
             buttonPanel.Controls.Add(cbAmmeter);
 
+            // 恒压通道
+            LabelControl lblVoltageChannel = new LabelControl
+            {
+                Text = "恒压通道:",
+                Location = new Point(cbAmmeter.Right + 10, 15)
+            };
+            buttonPanel.Controls.Add(lblVoltageChannel);
+
+            cbVoltageChannel = new ComboBoxEdit
+            {
+                Size = new Size(120, 30),
+                Location = new Point(lblVoltageChannel.Right + 10, 10),
+                Properties = { TextEditStyle = TextEditStyles.DisableTextEditor }
+            };
+            buttonPanel.Controls.Add(cbVoltageChannel);
+
             // 添加按钮到面板
             SimpleButton btnAddSignal = new SimpleButton
             {
                 Text = "添加信号",
                 Size = new Size(80, 30),
-                Location = new Point(cbAmmeter.Right + 50, 10)
+                Location = new Point(cbVoltageChannel.Right + 50, 10)
             };
             btnAddSignal.Click += BtnAddSignal_Click;
             buttonPanel.Controls.Add(btnAddSignal);
