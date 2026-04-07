@@ -958,8 +958,8 @@ namespace ChargeDebug.Form
                 // 发送写入指令
                 CANManager.Instance.SendCommand(tabInfo.DeviceIndex, tabInfo.CanIndex, writeCANID, writeData);
 
-                // 等待100ms
-                await Task.Delay(100);
+                // 等待200ms
+                await Task.Delay(200);
 
                 // 发送读取指令
                 byte[] readData = new byte[8];
