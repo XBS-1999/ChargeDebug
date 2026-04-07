@@ -3,6 +3,7 @@ using ClosedXML.Excel;
 using CommunicationProtocols;
 using DataModel;
 using DevExpress.DataProcessing;
+using DevExpress.Office.Services.Implementation;
 using DevExpress.Pdf.Native.BouncyCastle.Asn1.Tsp;
 using DevExpress.Utils;
 using DevExpress.XtraEditors;
@@ -2644,6 +2645,10 @@ namespace ChargeDebug.Form
                             UpdateTreeNodeCalibrationFactors(firstPoint.DeviceName, firstPoint.SignalName,
                                 newScaleFactor, newZeroFactor);
 
+                            const int maxRetryCount = 3;
+                            int retryCount = 0;
+                            bool writeSuccess = false;
+
                             // 将新的校准系数写入设备
                             if (scaleFactorSignal != null && zeroFactorSignal != null)
                             {
@@ -2659,20 +2664,37 @@ namespace ChargeDebug.Form
                                 //    return false;
                                 //}
 
-                                bool writeSuccess = await WriteCalibrationFactors(
-                                    firstPoint.DeviceName,
-                                    scaleFactorSignal, zeroFactorSignal,
-                                    newScaleFactor, newZeroFactor);
+                                // 循环重试写入
+                                while (retryCount < maxRetryCount)
+                                {
+                                    retryCount++;
+                                    writeSuccess = await WriteCalibrationFactors(
+                                        firstPoint.DeviceName,
+                                        scaleFactorSignal, zeroFactorSignal,
+                                        newScaleFactor, newZeroFactor);
 
-                                if (writeSuccess)
-                                {
-                                    LogService.Log("校准系数写入设备成功");
+                                    if (writeSuccess)
+                                    {
+                                        LogService.Log($"校准系数写入设备成功，第 {retryCount} 次尝试成功");
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        LogService.Log($"校准系数写入设备失败，第 {retryCount} 次尝试失败，准备重试");
+
+                                        if (retryCount >= maxRetryCount)
+                                            break;
+
+                                        await Task.Delay(200);
+                                    }
                                 }
-                                else
-                                {
-                                    LogService.Log("校准系数写入设备失败");
-                                    return false;
-                                }
+                            }
+
+                            // 3次都失败
+                            if (!writeSuccess)
+                            {
+                                LogService.Log($"校准系数写入设备连续 {maxRetryCount} 次失败，写入终止");
+                                return false;
                             }
 
                             // 验证校准结果
@@ -5834,7 +5856,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 等待并接收响应帧
-                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, baseCanId, 1000);
+                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, baseCanId, 2000);
 
                 if (response.IsEmpty())
                 {

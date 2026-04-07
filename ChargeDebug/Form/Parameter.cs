@@ -971,7 +971,7 @@ namespace ChargeDebug.Form
                 CANManager.Instance.SendCommand(tabInfo.DeviceIndex, tabInfo.CanIndex, readCANID, readData);
 
                 // 等待并接收响应
-                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCANID, 1000);
+                var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCANID, 2000);
 
                 uint formattedCanId = response.can_id & 0x1FFFFFFF;  // 提取标准CAN ID
                 // 检查响应有效性
