@@ -2284,8 +2284,16 @@ namespace ChargeDebug.Form
                 }
                 else
                 {
-                    XtraMessageBox.Show("请先启动设备再进行参数设置", "提示",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (_dcRunStatus == 0x02)   //DC运行中
+                    {
+                        OpenDCParameterConfiguration();
+                    }
+                    else
+                    {
+                        OpenACParameterConfiguration();
+                    }
+                    //XtraMessageBox.Show("请先启动设备再进行参数设置", "提示",
+                    //    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
 
                 //// 检查是否已有窗体实例存在

@@ -2625,6 +2625,12 @@ namespace ChargeDebug.Form
                             var (scaleFactor, zeroFactor) = CalculateCalibrationFactors(measuredValues, actualValues);
                             int scalePlaces = CANManager.Instance.GetNumberOfDecimalPlaces(scaleFactorSignal.Factor);
                             int zeroPlaces = CANManager.Instance.GetNumberOfDecimalPlaces(zeroFactorSignal.Factor);
+
+                            if (firstPoint.SignalName.Contains("相电压"))
+                            {
+                                zeroFactor = zeroFactor * 1.11;
+                            }
+
                             double newScaleFactor = Math.Round(scaleFactor * originalScaleFactor, scalePlaces);
                             double newZeroFactor = Math.Round(zeroFactor + originalZeroFactor, zeroPlaces);
 

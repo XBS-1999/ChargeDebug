@@ -506,6 +506,15 @@ namespace ChargeDebug.Service
         {
             var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
+            decimal? totalAc = 0;
+            decimal? totalDc = 0;
+            decimal? chPower = null;
+            double? chSOC = null;
+            double? chChargEnergy = null;
+            double? chDisChargEnergy = null;
+            string chEMSStatus = null;
+            string chEMSMode = null;
+
             // --- Time (None) ---
             if (recordsByType.TryGetValue("None", out var noneRecords) && noneRecords.Count > 0)
             {
@@ -520,7 +529,6 @@ namespace ChargeDebug.Service
             // --- AC_TotalPower (Cal7) ---
             if (recordsByType.TryGetValue("Cal7", out var cal7Records) && cal7Records.Count > 0)
             {
-                decimal? totalAc = 0;
                 foreach (Cal7Record rec in cal7Records.Cast<Cal7Record>())
                     if (rec.Power.HasValue) totalAc += rec.Power.Value;
                 result["AC_TotalPower"] = totalAc;
@@ -531,7 +539,6 @@ namespace ChargeDebug.Service
             }
 
             // --- DC 相关列 (Cal5) ---
-            decimal? totalDc = 0;
             if (recordsByType.TryGetValue("Cal5", out var cal5Records) && cal5Records.Count > 0)
             {
                 var cal5List = cal5Records.Cast<Cal5Record>().ToList();
@@ -552,12 +559,6 @@ namespace ChargeDebug.Service
                     if (channelGroups.TryGetValue(ch, out var records))
                     {
                         // 功率总和
-                        decimal? chPower = null;
-                        double? chSOC = null;
-                        double? chChargEnergy = null;
-                        double? chDisChargEnergy = null;
-                        string chEMSStatus = null;
-                        string chEMSMode = null;
                         foreach (var rec in records)
                         {
                             // 功率
@@ -618,6 +619,9 @@ namespace ChargeDebug.Service
                     result[$"DC{ch}_DisChargEnergy"] = null;
                 }
             }
+
+            // --- 产线功率列 ---
+            result["Consumption_Power"] = totalAc - totalDc;
 
             return result;
         }

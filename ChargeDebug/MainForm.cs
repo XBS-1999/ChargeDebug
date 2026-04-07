@@ -38,6 +38,9 @@ namespace ChargeDebug
         private BarButtonItem buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, buttonItem11;
         private BarButtonItem logButton, skinButton;
 
+        // 电压温度采集仪按钮
+        private BarButtonItem btnVoltageTempMonitor;
+
         // 页面缓存字典
         private Dictionary<Type, XtraUserControl> pages = new Dictionary<Type, XtraUserControl>();
         #endregion
@@ -345,6 +348,7 @@ namespace ChargeDebug
             buttonItem9 = new BarButtonItem { Caption = "校准管理" };
             buttonItem10 = new BarButtonItem { Caption = "绝缘耐压" };
             logButton = new BarButtonItem { Caption = "系统日志" };
+            btnVoltageTempMonitor = new BarButtonItem { Caption = "电压温度采集" };
         }
 
         /// <summary>
@@ -387,7 +391,7 @@ namespace ChargeDebug
         private void AddButtonsToGroup(RibbonPageGroup group)
         {
             group.ItemLinks.AddRange(new[] {
-                buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem9, buttonItem10, buttonItem11,
+                buttonItem1, btnVoltageTempMonitor, buttonItem2, buttonItem3, buttonItem4, buttonItem9, buttonItem10, buttonItem11,
                 buttonItem6, buttonItem7, buttonItem5, buttonItem8, logButton
             });
         }
@@ -408,7 +412,8 @@ namespace ChargeDebug
             buttonItem10.ItemClick += (s, e) => ShowPage(typeof(InsulationWithstandVoltage));
             buttonItem11.ItemClick += (s, e) => ShowPage(typeof(DataAnalysis));
             logButton.ItemClick += (s, e) => ShowPage(typeof(LogViewer));
-            buttonItem8.ItemClick += (s, e) => SwitchUser(); 
+            buttonItem8.ItemClick += (s, e) => SwitchUser();
+            btnVoltageTempMonitor.ItemClick += (s, e) => ShowPage(typeof(VoltageTempMonitor));
         }
 
         /// <summary>
@@ -447,6 +452,8 @@ namespace ChargeDebug
             RegisterPage(typeof(TestManagement), new TestManagement());
             RegisterPage(typeof(DataAnalysis), new DataAnalysis(dbPath));
             RegisterPage(typeof(InsulationWithstandVoltage), new InsulationWithstandVoltage(dbPath, equipmentList));
+
+            RegisterPage(typeof(VoltageTempMonitor), new VoltageTempMonitor());
         }
         #endregion
 
