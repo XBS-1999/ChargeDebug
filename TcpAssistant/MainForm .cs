@@ -1217,7 +1217,7 @@ namespace TcpAssistant
                     tcpHelper.Send(true, packetData.ToArray());
 
                     // 等待并验证响应
-                    var response = await tcpHelper.ReceiveCommandAsync(command, 2000);
+                    var response = await tcpHelper.ReceiveCommandAsync(command, 3000);
 
                     if (response != null)
                     {

@@ -1138,7 +1138,7 @@ namespace ChargeDebug.Form
                                $"CAN ID: 0x{sendCanId:X8} | 数据: {hexData}");
 
                     // 接收响应
-                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 2000);
+                    var response = await CANManager.Instance.ReceiveFrameAsync(channelKey, receiveCanId, 5000);
                     uint canId = response.can_id & 0x1FFFFFFF;
 
                     if (canId == receiveCanId)
