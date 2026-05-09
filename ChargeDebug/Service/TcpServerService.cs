@@ -248,23 +248,23 @@ namespace ChargeDebug.Service
             int channelOffset = clientAddr * 16; // 通道偏移
 
             // 系统故障
-            if ((fault.Byte0 & 0x01) != 0) OnFaultReceived?.Invoke(clientIp, devType, "设备采集故障", 2, 0);
-            if ((fault.Byte0 & 0x02) != 0) OnFaultReceived?.Invoke(clientIp, devType, "网络通讯故障", 2, 0);
-            if ((fault.Byte0 & 0x04) != 0) OnFaultReceived?.Invoke(clientIp, devType, "硬件故障", 2, 0);
-            if ((fault.Byte0 & 0x08) != 0) OnFaultReceived?.Invoke(clientIp, devType, "DI_0故障", 2, 0);
-            if ((fault.Byte0 & 0x10) != 0) OnFaultReceived?.Invoke(clientIp, devType, "DI_1故障", 2, 0);
-            if ((fault.Byte0 & 0x20) != 0) OnFaultReceived?.Invoke(clientIp, devType, "DI_2故障", 2, 0);
-            if ((fault.Byte0 & 0x40) != 0) OnFaultReceived?.Invoke(clientIp, devType, "DI_3故障", 2, 0);
+            if ((fault.Byte0 & 0x01) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 设备采集故障");
+            if ((fault.Byte0 & 0x02) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 网络通讯故障");
+            if ((fault.Byte0 & 0x04) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 硬件故障");
+            if ((fault.Byte0 & 0x08) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} DI_0故障");
+            if ((fault.Byte0 & 0x10) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} DI_1故障");
+            if ((fault.Byte0 & 0x20) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} DI_2故障");
+            if ((fault.Byte0 & 0x40) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} DI_3故障");
 
             // 过压/过温
-            for (int ch = 0; ch < 8; ch++) if ((fault.Byte1 & (1 << ch)) != 0) OnFaultReceived?.Invoke(clientIp, devType, $"通道{ch + 1 + channelOffset}过压/过温", 1, ch + 1 + channelOffset);
-            for (int ch = 0; ch < 8; ch++) if ((fault.Byte2 & (1 << ch)) != 0) OnFaultReceived?.Invoke(clientIp, devType, $"通道{ch + 9 + channelOffset}过压/过温", 1, ch + 9 + channelOffset);
+            for (int ch = 0; ch < 8; ch++) if ((fault.Byte1 & (1 << ch)) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 通道{ch + 1 + channelOffset}过压/过温");
+            for (int ch = 0; ch < 8; ch++) if ((fault.Byte2 & (1 << ch)) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 通道{ch + 9 + channelOffset}过压/过温");
 
             // 欠压/欠温
-            for (int ch = 0; ch < 8; ch++) if ((fault.Byte3 & (1 << ch)) != 0) OnFaultReceived?.Invoke(clientIp, devType, $"通道{ch + 1 + channelOffset}欠压/欠温", 1, ch + 1 + channelOffset);
-            for (int ch = 0; ch < 8; ch++) if ((fault.Byte4 & (1 << ch)) != 0) OnFaultReceived?.Invoke(clientIp, devType, $"通道{ch + 9 + channelOffset}欠压/欠温", 1, ch + 9 + channelOffset);
+            for (int ch = 0; ch < 8; ch++) if ((fault.Byte3 & (1 << ch)) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 通道{ch + 1 + channelOffset}欠压/欠温");
+            for (int ch = 0; ch < 8; ch++) if ((fault.Byte4 & (1 << ch)) != 0) OnLog?.Invoke($"设备{clientIp}-{devType} 通道{ch + 9 + channelOffset}欠压/欠温");
 
-            OnLog?.Invoke($"{clientIp} 故障解析完成");
+            //OnLog?.Invoke($"{clientIp} 故障解析完成");
         }
         #endregion
 

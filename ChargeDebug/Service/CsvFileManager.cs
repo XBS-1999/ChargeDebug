@@ -129,20 +129,22 @@ namespace ChargeDebug.Service
                 // 检查时间是否连贯：当前文件的开始时间与前一个文件的结束时间相差在阈值内
                 var timeGap = (int)(currentFile.StartTime - previousFile.EndTime).TotalSeconds;
 
+                currentGroup.Add(currentFile);
                 // 允许时间重叠（负值）或微小间隙（在1秒内）
-                if (timeGap <= 2)
-                {
-                    // 时间连贯，加入当前组
-                    currentGroup.Add(currentFile);
-                }
-                else
-                {
-                    // 时间不连贯（超过1秒），开始新组
-                    groups.Add(currentGroup);
-                    currentGroup = new List<FileTimeInfo> { currentFile };
-                }
+                //if (timeGap <= 2)
+                //{
+                //    // 时间连贯，加入当前组
+                //    currentGroup.Add(currentFile);
+                //}
+                //else
+                //{
+                //    // 时间不连贯（超过1秒），开始新组
+                //    groups.Add(currentGroup);
+                //    currentGroup = new List<FileTimeInfo> { currentFile };
+                //}
             }
 
+            
             // 添加最后一组
             if (currentGroup.Count > 0)
             {
@@ -339,7 +341,7 @@ namespace ChargeDebug.Service
                     }
                 }
 
-                LogService.Log($"CSV文件解析完成，共检测到 {_currentSign} 个数据分组");
+                //LogService.Log($"CSV文件解析完成，共检测到 {_currentSign} 个数据分组");
                 return result;
             }
             catch (Exception ex)

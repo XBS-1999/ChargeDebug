@@ -16,6 +16,7 @@ using Log;
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
+using System.Text;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -1794,11 +1795,18 @@ namespace ChargeDebug.Form
                 // 5. 根据设备通讯类型启动设备
                 bool voltageSourceStarted = await StartEquipment(voltageSource, "");
                 bool voltmeterStarted = await StartEquipment(voltmeter, "");
-                if (!voltageSourceStarted || !voltmeterStarted)
+                if (!voltageSourceStarted)
                 {
-                    LogService.Log("设备启动失败，请检查设备连接!");
+                    LogService.Log($"{voltageSource.DeviceName}设备启动失败，请检查设备连接!");
                     return false;
                 }
+
+                if (!voltmeterStarted)
+                {
+                    LogService.Log($"{voltmeter.DeviceName}设备启动失败，请检查设备连接!");
+                    return false;
+                }
+
                 LogService.Log("所有校准设备启动成功，开始电压校准流程!");
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -4688,73 +4696,89 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 使用Task.Run将同步方法包装为异步，避免阻塞
+                // 异步包装同步串口操作，避免阻塞UI/主线程
                 return await Task.Run(() =>
                 {
-                    if (voltmeter.DeviceName == "ZYB-1T")
+                    // 1. 设备类型校验（修正原代码CanType笔误）
+                    if (voltmeter.DeviceName != "ZYB-1T")
                     {
-                        byte[] readBuffer = RS232Manager.Instance.ReadBuffer(voltmeter.ComPort);
+                        throw new NotSupportedException($"不支持的电压表类型: {voltmeter.DeviceName}");
+                    }
 
-                        // 基本帧检查
-                        if (readBuffer[0] != 0x2D || 
-                            readBuffer[0] != 0x20 ||
-                            readBuffer[9] != 0x20)
+                    // 2. 读取串口全部缓存数据（解决多帧堆积问题）
+                    RS232Manager.Instance.ClearReceiveBuffer(voltmeter.ComPort);
+                    Thread.Sleep(1000);
+                    byte[] allBuffer = RS232Manager.Instance.ReadBuffer(voltmeter.ComPort);
+
+                    // 3. 防崩溃校验：空数据/长度不足13字节直接返回NaN
+                    if (allBuffer == null || allBuffer.Length % 13 != 0)
+                    {
+                        return double.NaN;
+                    }
+
+                    // 4. 从缓冲区末尾截取最新一帧（13字节固定帧长，保证取到最新值）
+                    byte[] frameBuffer = new byte[13];
+                    Array.Copy(allBuffer, allBuffer.Length - 13, frameBuffer, 0, 13);
+
+                    // 5. 严格帧校验（完全匹配协议）
+                    // 校验1：帧尾必须是0x20（空格）
+                    if (frameBuffer[12] != 0x20)
+                    {
+                        return double.NaN;
+                    }
+                    // 校验2：符号位必须是0x2D(-)或0x20(空格)
+                    if (frameBuffer[0] != 0x2D && frameBuffer[0] != 0x20)
+                    {
+                        return double.NaN;
+                    }
+
+                    // 校验3：第4位（数组索引3）必须是小数点0x2E（协议固定格式）
+                    if (frameBuffer[5] != 0x2E)
+                    {
+                        return double.NaN;
+                    }
+
+                    // 6. 解析符号位（数组索引0）
+                    bool isPositive = frameBuffer[0] == 0x20;
+
+                    // 7. 按协议顺序拼接完整数值字符串（完全匹配字节顺序）
+                    StringBuilder valueStr = new StringBuilder();
+                    // 先加符号
+                    valueStr.Append(isPositive ? "" : "-");
+                    // 加整数部分（数组索引1、2）
+                    valueStr.Append((char)frameBuffer[1]);
+                    valueStr.Append((char)frameBuffer[2]);
+                    valueStr.Append((char)frameBuffer[3]);
+                    valueStr.Append((char)frameBuffer[4]);
+                    // 加小数点（数组索引5，已校验，直接拼接）
+                    valueStr.Append('.');
+                    // 加小数部分（数组索引6~8）
+                    for (int i = 6; i <= 8; i++)
+                    {
+                        char c = (char)frameBuffer[i];
+                        // 仅允许数字字符，非数字直接报错
+                        if (!char.IsDigit(c))
                         {
-                            LogService.Log("接收到的数据帧格式错误");
                             return double.NaN;
                         }
+                        valueStr.Append(c);
+                    }
 
-                        // 解析符号"-"
-                        bool isPositive = readBuffer[4] == 0x20;
-
-                        string valueStr = "";
-                        for (int i = 1; i <= 8; i++)
-                        {
-                            // 将字节转换为对应的ASCII字符
-                            char c = (char)readBuffer[i];
-
-                            // 处理小数点
-                            if (c == '.') // 0x2E对应ASCII的小数点
-                            {
-                                valueStr += ".";
-                            }
-                            else if (char.IsDigit(c)) // 数字字符
-                            {
-                                valueStr += c;
-                            }
-                            else
-                            {
-                                // 如果有非数字字符且不是小数点，记录警告但继续处理
-                                LogService.Log($"警告：数据部分包含非数字字符: 0x{readBuffer[i]:X2}");
-                                valueStr += c; // 仍然添加到字符串中，让TryParse处理
-                            }
-                        }
-
-                        // 转换为数字
-                        if (double.TryParse(valueStr, out double result))
-                        {
-                            // 应用符号
-                            result = isPositive ? result : -result;
-
-                            LogService.Log($"电压表测量值: {result}V");
-                            return result;
-                        }
-                        else
-                        {
-                            LogService.Log($"数值解析失败: {valueStr}");
-                            return double.NaN;
-                        }
+                    // 8. 数值转换（协议格式固定，TryParse兜底防异常）
+                    if (double.TryParse(valueStr.ToString(), out double result))
+                    {
+                        return result;
                     }
                     else
                     {
-                        throw new Exception($"不支持的电压表类型: {voltmeter.CanType}");
+                        return double.NaN;
                     }
                 });
             }
             catch (Exception ex)
             {
-                LogService.Log($"读取电压表值失败: {ex.Message}");
-                throw;
+                LogService.Log($"读取电压表{voltmeter.ComPort}值异常: {ex.Message}");
+                throw; // 保留异常向上抛出，不吞错误
             }
         }
 
