@@ -249,7 +249,7 @@ namespace CommunicationProtocols
         /// <returns>接收到的数据字节数组，如果没有数据则返回空数组</returns>
         public byte[] ReadBuffer(string? portName, bool clearBuffer = true)
         {
-            if (!_receiveBuffers.ContainsKey(portName))
+            if (string.IsNullOrEmpty(portName) || !_receiveBuffers.ContainsKey(portName))
             {
                 LogService.Log($"找不到RS232通道的接收缓冲区: {portName}");
                 return new byte[0];
@@ -275,6 +275,61 @@ namespace CommunicationProtocols
             return new byte[0];
         }
 
+        #region 新增：清空接收缓冲区方法
+        /// <summary>
+        /// 清空指定串口的接收缓冲区（线程安全）
+        /// </summary>
+        /// <param name="portName">串口名称</param>
+        /// <returns>成功返回true，失败返回false</returns>
+        public bool ClearReceiveBuffer(string portName)
+        {
+            if (string.IsNullOrEmpty(portName) || !_receiveBuffers.ContainsKey(portName))
+            {
+                LogService.Log($"清空缓冲区失败：找不到RS232通道 {portName}");
+                return false;
+            }
+
+            try
+            {
+                // 加锁保证线程安全
+                lock (_bufferLocks[portName])
+                {
+                    if (_receiveBuffers.TryGetValue(portName, out MemoryStream bufferStream))
+                    {
+                        bufferStream.SetLength(0); // 清空内存流
+                        bufferStream.Position = 0;  // 重置流位置
+                    }
+
+                    // 同时清空SerialPort硬件输入缓冲区
+                    if (_serialPorts.TryGetValue(portName, out SerialPort serialPort) && serialPort.IsOpen)
+                    {
+                        serialPort.DiscardInBuffer();
+                    }
+                }
+
+                LogService.Log($"已清空RS232通道 {portName} 的接收缓冲区");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"清空RS232通道 {portName} 缓冲区失败：{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 清空所有已注册串口的接收缓冲区（线程安全）
+        /// </summary>
+        public void ClearAllReceiveBuffers()
+        {
+            foreach (var portName in _receiveBuffers.Keys.ToList())
+            {
+                ClearReceiveBuffer(portName);
+            }
+            LogService.Log("已清空所有RS232通道的接收缓冲区");
+        }
+        #endregion
+
         /// <summary>
         /// 触发数据接收事件
         /// </summary>
@@ -292,7 +347,7 @@ namespace CommunicationProtocols
         /// <returns>成功返回true，失败返回false</returns>
         public bool SendData(string? portName, byte[] data, bool addChecksum = true)
         {
-            if (!_serialPorts.TryGetValue(portName, out SerialPort serialPort))
+            if (string.IsNullOrEmpty(portName) || !_serialPorts.TryGetValue(portName, out SerialPort serialPort))
             {
                 LogService.Log($"找不到RS232通道: {portName}");
                 return false;
