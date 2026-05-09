@@ -348,7 +348,7 @@ namespace ChargeDebug
             buttonItem9 = new BarButtonItem { Caption = "校准管理" };
             buttonItem10 = new BarButtonItem { Caption = "绝缘耐压" };
             logButton = new BarButtonItem { Caption = "系统日志" };
-            btnVoltageTempMonitor = new BarButtonItem { Caption = "电压温度采集" };
+            btnVoltageTempMonitor = new BarButtonItem { Caption = "采集仪监控" };
         }
 
         /// <summary>
@@ -357,7 +357,7 @@ namespace ChargeDebug
         private void ConfigureButtonStyles()
         {
             BarButtonItem[] buttons = { buttonItem1, buttonItem2, buttonItem3, buttonItem4, buttonItem11, buttonItem5,
-                                      buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, logButton };
+                                      buttonItem6, buttonItem7, buttonItem8, buttonItem9, buttonItem10, logButton, btnVoltageTempMonitor };
 
             foreach (var button in buttons)
             {
@@ -382,6 +382,7 @@ namespace ChargeDebug
             buttonItem10.ImageOptions.Image = Properties.Resources.绝缘耐压;
             buttonItem11.ImageOptions.Image = Properties.Resources.数据分析;
             logButton.ImageOptions.Image = Properties.Resources.日志管理;
+            btnVoltageTempMonitor.ImageOptions.Image = Properties.Resources.采集仪监控;
         }
 
         /// <summary>

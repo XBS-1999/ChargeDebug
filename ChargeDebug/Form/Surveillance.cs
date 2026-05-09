@@ -295,7 +295,7 @@ namespace ChargeDebug.Form
             InitializeUI();
             int totalWidth = 0;
             int value = 0;
-            if (channels <= 4)
+            if (channels <= 4 && channels >0)
                 value = 256 / channels;
             else
                 value = 64;

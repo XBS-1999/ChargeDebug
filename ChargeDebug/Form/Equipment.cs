@@ -267,7 +267,7 @@ namespace ChargeDebug.Form
                         EquipmentID, DeviceType, DeviceNumber, DeviceName, CanType, 
                         DeviceIP, DevicePort, ComPort, BaudRate, DataBits, Parity, StopBits,
                         DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, 
-                        CommunicationProtocols, Whether 
+                        CommunicationProtocols, CanMode, TermResistor, ArbBaud, DataBaud, Whether 
                         FROM Equipment ORDER BY [DeviceNumber] ASC";
 
                     using (var cmd = new SQLiteCommand(query, conn))
@@ -332,11 +332,13 @@ namespace ChargeDebug.Form
                             const string insertQuery = @"INSERT INTO Equipment 
                                 (DeviceNumber, DeviceName, DeviceType, CanType, 
                                 DeviceIP, DevicePort, ComPort, BaudRate, DataBits, Parity, StopBits,
-                                DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, Whether)
+                                DeviceIndex, CanIndex, ACNumber, ACAddress, DCNumber, DCAddress, CommunicationProtocols, 
+                                CanMode, TermResistor, ArbBaud, DataBaud, Whether)
                                 VALUES 
                                 (@DeviceNumber, @DeviceName, @DeviceType, @CanType, 
                                 @DeviceIP, @DevicePort, @ComPort, @BaudRate, @DataBits, @Parity, @StopBits,
-                                @DeviceIndex, @CanIndex, @ACNumber, @ACAddress, @DCNumber, @DCAddress, @CommunicationProtocols, @Whether)";
+                                @DeviceIndex, @CanIndex, @ACNumber, @ACAddress, @DCNumber, @DCAddress, @CommunicationProtocols, 
+                                @CanMode, @TermResistor, @ArbBaud, @DataBaud, @Whether)";
 
                             using (var cmd = new SQLiteCommand(insertQuery, conn))
                             {
@@ -348,7 +350,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
@@ -404,6 +406,21 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
                                     cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
                                     cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
+                                    cmd.Parameters.AddWithValue("@CanMode", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@TermResistor", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBaud", DBNull.Value);
+                                }
+                                else if(form.DeviceType == "电池BMS")
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanMode", form.CanMode);
+                                    cmd.Parameters.AddWithValue("@TermResistor", form.TermResistor);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", form.ArbBaud);
+                                    cmd.Parameters.AddWithValue("@DataBaud", form.DataBaud);
                                 }
                                 else
                                 {
@@ -411,6 +428,10 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanMode", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@TermResistor", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBaud", DBNull.Value);
                                 }
 
                                 cmd.ExecuteNonQuery();
@@ -479,6 +500,10 @@ namespace ChargeDebug.Form
                                         DCNumber = @DCNumber,
                                         DCAddress = @DCAddress,
                                         CommunicationProtocols = @CommunicationProtocols,
+                                        CanMode = @CanMode,
+                                        TermResistor = @TermResistor,
+                                        ArbBaud = @ArbBaud,
+                                        DataBaud = @DataBaud,
                                         Whether = @Whether
                                         WHERE EquipmentID = @EquipmentID";
 
@@ -492,7 +517,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
@@ -547,6 +572,21 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@ACAddress", form.ACAddress);
                                     cmd.Parameters.AddWithValue("@DCNumber", form.DCNumber);
                                     cmd.Parameters.AddWithValue("@DCAddress", form.DCAddress);
+                                    cmd.Parameters.AddWithValue("@CanMode", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@TermResistor", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBaud", DBNull.Value);
+                                }
+                                else if (form.DeviceType == "电池BMS")
+                                {
+                                    cmd.Parameters.AddWithValue("@ACNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanMode", form.CanMode);
+                                    cmd.Parameters.AddWithValue("@TermResistor", form.TermResistor);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", form.ArbBaud);
+                                    cmd.Parameters.AddWithValue("@DataBaud", form.DataBaud);
                                 }
                                 else
                                 {
@@ -554,6 +594,10 @@ namespace ChargeDebug.Form
                                     cmd.Parameters.AddWithValue("@ACAddress", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DCNumber", DBNull.Value);
                                     cmd.Parameters.AddWithValue("@DCAddress", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@CanMode", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@TermResistor", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@ArbBaud", DBNull.Value);
+                                    cmd.Parameters.AddWithValue("@DataBaud", DBNull.Value);
                                 }
 
                                 cmd.ExecuteNonQuery();

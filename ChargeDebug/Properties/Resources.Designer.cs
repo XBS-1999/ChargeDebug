@@ -179,5 +179,15 @@ namespace ChargeDebug.Properties {
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
+        
+        /// <summary>
+        ///   查找 System.Drawing.Bitmap 类型的本地化资源。
+        /// </summary>
+        internal static System.Drawing.Bitmap 采集仪监控 {
+            get {
+                object obj = ResourceManager.GetObject("采集仪监控", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
     }
 }
