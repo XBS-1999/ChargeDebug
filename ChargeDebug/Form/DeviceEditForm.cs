@@ -1,4 +1,5 @@
-﻿using DevExpress.XtraEditors;
+﻿using DevExpress.DataProcessing.InMemoryDataProcessor;
+using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using System.Data;
 using System.Data.SQLite;
@@ -43,6 +44,18 @@ namespace ChargeDebug.Form
         private LabelControl labelDCNumber;
         private LabelControl labelDCAddress;
 
+        // ========== 新增：电池BMS专用配置 ==========
+        private ComboBoxEdit cboCanMode;         // CAN模式：CAN / CAN FD
+        private ComboBoxEdit cboTermResistor;       // 终端电阻
+        private ComboBoxEdit cboArbBaud;         // 仲裁波特率
+        private ComboBoxEdit cboDataBaud;        // 数据波特率
+
+        private LabelControl labelCanMode; 
+        private LabelControl labelTermResistor;
+        private LabelControl labelArbBaud;
+
+        private LabelControl labelDataBaud;
+
         // 串口配置
         private ComboBoxEdit comPort;
         private ComboBoxEdit baudRate;
@@ -61,6 +74,7 @@ namespace ChargeDebug.Form
 
         // 分组框
         private GroupControl equipmentGroup;
+        private GroupControl bmsGroup;
         private GroupControl networkGroup;
         private GroupControl serialGroup;
 
@@ -84,6 +98,11 @@ namespace ChargeDebug.Form
         public string DCAddress => dcaddress.Text;
         public string CommunicationProtocols => communicationprotocols.Text;
         public string Whether => whether.Text;
+
+        public string CanMode => cboCanMode.Text;
+        public string TermResistor => cboTermResistor.Text;
+        public string ArbBaud => cboArbBaud.Text;
+        public string DataBaud => cboDataBaud.Text;
 
         private string dbcPath = "";
 
@@ -142,7 +161,7 @@ namespace ChargeDebug.Form
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "ZCAN_CANFDNET_200U_TCP", "ZCAN_USBCANFD_200U", "RS485-MODBUS", "USB-SCPI", "RS232" });
+            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "GCAN‑GT‑418", "ZCAN_CANFDNET_200U_TCP", "ZCAN_USBCANFD_200U", "RS485-MODBUS", "USB-SCPI", "RS232" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
 
@@ -182,6 +201,63 @@ namespace ChargeDebug.Form
                 labelACAddress, acaddress,
                 labelDCNumber, dcnumber,
                 labelDCAddress, dcaddress
+            });
+
+            bmsGroup = new GroupControl
+            {
+                Text = "BMS配置",
+                Location = new Point(0, 140),
+                Size = new Size(700, 105),
+                Visible = false // 默认隐藏
+            };
+
+            labelCanMode = new LabelControl { Text = "CAN模式:", Location = new Point(70, 32) };
+            cboCanMode = new ComboBoxEdit { Location = new Point(150, 30), Width = 150 };
+            cboCanMode.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            cboCanMode.Properties.Items.AddRange(new[] { "CAN", "CANFD" });
+            cboCanMode.SelectedIndex = 0;
+
+            // 新增：CAN/CANFD 切换控制数据波特率启用禁用
+            cboCanMode.SelectedIndexChanged += (s, e) =>
+            {
+                bool isCanFd = cboCanMode.Text == "CANFD";
+                if(isCanFd)
+                {
+                    //cboDataBaud.SelectedIndex = 2;
+                    cboDataBaud.Properties.ReadOnly = false; // CAN=只读禁用，CANFD=可编辑
+                }
+                else
+                {
+                    cboDataBaud.Text = "";
+                    cboDataBaud.Properties.ReadOnly = true;
+                }
+            };
+
+            labelTermResistor = new LabelControl { Text = "终端电阻:", Location = new Point(340, 32)};
+            cboTermResistor = new ComboBoxEdit { Location = new Point(450, 30), Width = 150};
+            cboTermResistor.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            cboTermResistor.Properties.Items.AddRange(new[] { "使能", "禁能" });
+            //cboTermResistor.SelectedIndex = 0;
+
+            labelArbBaud = new LabelControl { Text = "仲裁波特率:", Location = new Point(70, 72)};
+            cboArbBaud = new ComboBoxEdit { Location = new Point(150, 70), Width = 150};
+            cboArbBaud.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            cboArbBaud.Properties.Items.AddRange(new[] { "1000Kbps", "500Kbps", "250Kbps", "125Kbps" });
+            //cboArbBaud.SelectedIndex = 1;
+
+            labelDataBaud = new LabelControl { Text = "数据波特率:", Location = new Point(340, 72)};
+            cboDataBaud = new ComboBoxEdit { Location = new Point(450, 70), Width = 150};
+            cboDataBaud.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
+            cboDataBaud.Properties.Items.AddRange(new[] { "5000Kbps", "4000Kbps", "2000Kbps", "1000Kbps" });
+            //cboDataBaud.SelectedIndex = 2;
+            // 初始化默认CAN模式，数据波特率禁用
+            cboDataBaud.Properties.ReadOnly = true;
+
+            bmsGroup.Controls.AddRange(new Control[] {
+                labelCanMode, cboCanMode,
+                labelTermResistor, cboTermResistor,
+                labelArbBaud, cboArbBaud,
+                labelDataBaud, cboDataBaud
             });
 
             // 网口配置分组
@@ -283,7 +359,7 @@ namespace ChargeDebug.Form
                 labelCanType, cantype,
                 labelCommunicationProtocols, communicationprotocols,
                 labelWhether, whether,
-                equipmentGroup, networkGroup, serialGroup,
+                equipmentGroup, bmsGroup, networkGroup, serialGroup,
                 btnOK, btnCancel
             });
 
@@ -341,13 +417,17 @@ namespace ChargeDebug.Form
             communicationprotocols.Properties.Items.Clear();
 
             // 根据设备类型设置默认的通讯类型
-            if (selectedType == "充放电设备" || selectedType == "电池BMS")
+            if (selectedType == "充放电设备")
             {
                 cantype.SelectedIndex = 0; // 
             }
-            else
+            else if(selectedType == "电池BMS")
             {
-                cantype.SelectedIndex = 1; // RS485-MODBUS
+                cantype.SelectedIndex = 1;
+            }
+            else if(selectedType == "RS485-MODBUS")
+            {
+                cantype.SelectedIndex = 4; // RS485-MODBUS
             }
 
             // 更新UI
@@ -372,21 +452,31 @@ namespace ChargeDebug.Form
             {
                 equipmentGroup.Visible = true;
                 equipmentGroup.Location = new Point(0, 140);
+
+                bmsGroup.Visible = false;
+            }
+            else if(deviceType.Text == "电池BMS")
+            {
+                bmsGroup.Visible = true;
+                bmsGroup.Location = new Point(0, 140);
+
+                equipmentGroup.Visible = false;
             }
             else
             {
+                bmsGroup.Visible = false;
                 equipmentGroup.Visible = false;
             }
 
             // 根据通讯类型显示或隐藏网口/串口配置组
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
             {
                 // 显示网口配置，隐藏串口配置
                 networkGroup.Visible = true;
                 serialGroup.Visible = false;
 
                 // 设置位置
-                if (deviceType.Text == "充放电设备")
+                if (deviceType.Text == "充放电设备" || deviceType.Text == "电池BMS")
                 {
                     networkGroup.Location = new Point(0, 245);
                 }
@@ -402,7 +492,7 @@ namespace ChargeDebug.Form
                 //serialGroup.Visible = false;
 
                 // 设置位置
-                if (deviceType.Text == "充放电设备")
+                if (deviceType.Text == "充放电设备" || deviceType.Text == "电池BMS")
                 {
                     networkGroup.Location = new Point(0, 245);
                 }
@@ -418,7 +508,7 @@ namespace ChargeDebug.Form
                 serialGroup.Visible = true;
 
                 // 设置位置
-                if (deviceType.Text == "充放电设备")
+                if (deviceType.Text == "充放电设备" || deviceType.Text == "电池BMS")
                 {
                     serialGroup.Location = new Point(0, 245);
                 }
@@ -434,7 +524,7 @@ namespace ChargeDebug.Form
                 serialGroup.Visible = true;
 
                 // 设置位置
-                if (deviceType.Text == "充放电设备")
+                if (deviceType.Text == "充放电设备" || deviceType.Text == "电池BMS")
                 {
                     serialGroup.Location = new Point(0, 245);
                 }
@@ -452,11 +542,11 @@ namespace ChargeDebug.Form
 
             // 调整按钮位置
             int buttonY = 0;
-            if (deviceType.Text == "充放电设备")
+            if (deviceType.Text == "充放电设备" || deviceType.Text == "电池BMS")
             {
                 buttonY = equipmentGroup.Bottom;
 
-                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -477,7 +567,7 @@ namespace ChargeDebug.Form
             {
                 buttonY = 140;
 
-                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -512,7 +602,7 @@ namespace ChargeDebug.Form
 
                     // 根据通讯类型确定协议类型
                     string agreementType = "";
-                    if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_USBCANFD_200U" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+                    if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_USBCANFD_200U" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
                     {
                         agreementType = "CAN总线";
                     }
@@ -606,7 +696,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型加载相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
             {
                 deviceip.Text = row.Table.Columns.Contains("DeviceIP") ? row["DeviceIP"].ToString() : "";
                 deviceport.Text = row.Table.Columns.Contains("DevicePort") ? row["DevicePort"].ToString() : "";
@@ -638,9 +728,13 @@ namespace ChargeDebug.Form
             acaddress.Text = row["ACAddress"].ToString();
             dcnumber.Text = row["DCNumber"].ToString();
             dcaddress.Text = row["DCAddress"].ToString();
+            cboCanMode.Text = row["CanMode"].ToString();
+            cboTermResistor.Text = row["TermResistor"].ToString();
+            cboArbBaud.Text = row["ArbBaud"].ToString();
+            cboDataBaud.Text = row["DataBaud"].ToString();
             communicationprotocols.Text = row["CommunicationProtocols"].ToString();
             whether.Text = row["Whether"].ToString();
-
+               
             // 更新UI
             UpdateUI();
         }
@@ -661,15 +755,6 @@ namespace ChargeDebug.Form
                 return false;
             }
 
-            if (deviceType.Text == "充放电设备")
-            {
-                if (devicename.Text.Contains("-"))
-                {
-                    ShowError("充放电设备的设备名称不允许输入减号(-)！", devicename);
-                    return false;
-                }
-            }
-
             // 验证CAN盒类型
             if (string.IsNullOrWhiteSpace(cantype.Text))
             {
@@ -678,7 +763,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型验证相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
             {
                 // 验证IP地址格式
                 if (!string.IsNullOrWhiteSpace(deviceip.Text) &&
@@ -798,6 +883,12 @@ namespace ChargeDebug.Form
             // 如果设备类型是充放电设备，验证AC/DC配置
             if (deviceType.Text == "充放电设备")
             {
+                if (devicename.Text.Contains("-"))
+                {
+                    ShowError("充放电设备的设备名称不允许输入减号(-)！", devicename);
+                    return false;
+                }
+
                 // 验证AC通道数
                 if (string.IsNullOrWhiteSpace(acnumber.Text))
                 {
@@ -823,6 +914,30 @@ namespace ChargeDebug.Form
                 if (string.IsNullOrWhiteSpace(dcaddress.Text))
                 {
                     ShowError("DC起始地址不能为空！", dcaddress);
+                    return false;
+                }
+            }
+            else if(deviceType.Text == "电池BMS")
+            {
+                if (string.IsNullOrWhiteSpace(cboCanMode.Text))
+                {
+                    ShowError("请选择CAN模式！", cboCanMode);
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(cboTermResistor.Text))
+                {
+                    ShowError("请选择终端电阻！", cboTermResistor);
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(cboArbBaud.Text))
+                {
+                    ShowError("请选择仲裁波特率！", cboArbBaud);
+                    return false;
+                }
+                // 只有CANFD才需要校验数据波特率
+                if (cboCanMode.Text == "CANFD" && string.IsNullOrWhiteSpace(cboDataBaud.Text))
+                {
+                    ShowError("请选择数据波特率！", cboDataBaud);
                     return false;
                 }
             }
