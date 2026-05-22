@@ -93,7 +93,7 @@ namespace ChargeDebug.Form
 
             labelRunMode = new LabelControl { Text = "运行控制:", Location = new Point(startMode.Right + 50, 22) };
             runMode = new ComboBoxEdit { Location = new Point(labelRunMode.Location.X + labelRunMode.Text.Length * 13, 17), Width = 100 };
-            runMode.Properties.Items.AddRange(new[] { "恒定并网直流恒压运行", "交流恒功率运行", "停机" });
+            runMode.Properties.Items.AddRange(new[] { "恒定并网直流恒压运行", "交流恒功率运行", "电池电压恒定母线运行", "停机" });
             runMode.SelectedIndexChanged += RunMode_SelectedIndexChanged;
 
             // 动态参数面板
@@ -179,6 +179,9 @@ namespace ChargeDebug.Form
                 case "交流恒功率运行":
                     CreateConstantPowerParameters();
                     break;
+                case "电池电压恒定母线运行":
+                    CreateConstantBatteryVoltageParameters();
+                    break;
                 default:
                     LabelControl noParamsLabel = new LabelControl
                     {
@@ -219,7 +222,7 @@ namespace ChargeDebug.Form
 
         private void CreateConstantVoltageParameters()
         {
-            int yPos = 15;
+            int yPos = 17;
 
             // 设置母线电压
             LabelControl voltageLabel = new LabelControl { Text = "母线电压:", Location = new Point(30, yPos) };
@@ -267,6 +270,36 @@ namespace ChargeDebug.Form
             // 保存引用
             dynamicControls.Add("ConstantActivePower", activepowerValue);
             dynamicControls.Add("ConstantReactivePower", reactivepowerValue);
+        }
+
+        private void CreateConstantBatteryVoltageParameters()
+        {
+            int yPos = 17;
+
+            // 设置电池电压
+            LabelControl batteryVoltageLabel = new LabelControl { Text = "电池电压:", Location = new Point(30, yPos) };
+            TextEdit batteryVoltageValue = new TextEdit { Location = new Point(batteryVoltageLabel.Right - 5, yPos - 5), Width = 100 };
+            batteryVoltageValue.Validated += PositiveParameter1_Validated;
+            //voltageValue.Validating += RangeValidation;
+            batteryVoltageValue.Name = "ConstantBatteryVoltage";
+            LabelControl batteryVoltageUnit = new LabelControl { Text = "V", Location = new Point(batteryVoltageValue.Right + 5, yPos) };
+
+            // 设置无功功率
+            //LabelControl reactivepowerLabel = new LabelControl { Text = "无功功率:", Location = new Point(230, yPos) };
+            //TextEdit reactivepowerValue = new TextEdit { Location = new Point(reactivepowerLabel.Right - 5, yPos - 5), Width = 100 };
+            //reactivepowerValue.Validated += PositiveParameter1_Validated;
+            ////voltageLimitValue.Validating += RangeValidation;
+            //reactivepowerValue.Name = "ConstantReactivePower";
+            //LabelControl reactivepowerUnit = new LabelControl { Text = "KVar", Location = new Point(reactivepowerValue.Right + 5, yPos) };
+
+            dynamicParametersPanel.Controls.AddRange(new Control[]
+            {
+                batteryVoltageLabel, batteryVoltageValue, batteryVoltageUnit
+                //reactivepowerLabel, reactivepowerValue, reactivepowerUnit
+            });
+
+            // 保存引用
+            dynamicControls.Add("ConstantBatteryVoltage", batteryVoltageValue);
         }
 
         // 加载动态参数值
