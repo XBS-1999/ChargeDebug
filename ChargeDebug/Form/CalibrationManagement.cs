@@ -1361,6 +1361,32 @@ namespace ChargeDebug.Form
                         0xAA,0xAB,0x05,0xA2,0x00,0x00,0x00,0x00
                     };
                 }
+                // 新增：设置电流档位帧（适配PDF协议，完整10字节）
+                else if (type == "设置电流档位帧")
+                {
+                    // 参数校验
+                    if (parameters == null || parameters.Length == 0)
+                    {
+                        LogService.Log("设置电流档位失败：未传入档位编码参数");
+                        return false;
+                    }
+                    if (!byte.TryParse(parameters[0].ToString(), out byte rangeCode) || rangeCode > 0x15)
+                    {
+                        LogService.Log($"设置电流档位失败：档位编码{rangeCode:X2}无效，有效值范围0x00~0x15");
+                        return false;
+                    }
+
+                    // 初始化10字节完整帧
+                    command = new byte[8];
+                    command[0] = 0xAA;    // 帧头1
+                    command[1] = 0xAB;    // 帧头2
+                    command[2] = 0x05;    // 帧长度
+                    command[3] = 0xA5;    // 控制码（设置档位）
+                    command[4] = rangeCode;// 档位编码
+                    command[5] = 0x00;    // 备用
+                    command[6] = 0x00;    // 备用
+                    command[7] = 0x00;    // 备用
+                }
 
                 bool sendSuccess = RS232Manager.Instance.SendData(equipment.ComPort, command, true);
                 if (sendSuccess)
@@ -2018,7 +2044,65 @@ namespace ChargeDebug.Form
                 LogService.Log("电流表启动成功，开始电流校准流程!");
 
                 cancellationToken.ThrowIfCancellationRequested();
-                UpdateProgress(ProgressStage.StartingEquipment, "开始设置参数:");
+                UpdateProgress(ProgressStage.StartingEquipment, "开始获取校准点:");
+
+                // 1. 获取所有校准点
+                var calibrationPoints = await GetCalibrationPoints("电流", treeSignalProtocols);
+                if (calibrationPoints == null || calibrationPoints.Count == 0)
+                {
+                    LogService.Log("未获取到电流校准点！");
+                    return false;
+                }
+
+                // 从字典中取出 所有信号的所有校准点，合并成一个大列表
+                var allCalibrationPoints = calibrationPoints.Values.SelectMany(list => list).ToList();
+
+                // 读取最大电流
+                double maxCurrent = allCalibrationPoints.Max(p => p.Voltage);
+                LogService.Log($"校准点最大电流 = {maxCurrent} A");
+
+                // 3. 根据最大电流自动匹配量程（120A / 250A / 350A / 500A / 1000A）
+                byte rangeCode = 0x00;
+                string rangeName = string.Empty;
+
+                if (maxCurrent <= 120)
+                {
+                    rangeCode = 0x06;    // 120A
+                    rangeName = "120A";
+                }
+                else if (maxCurrent <= 250)
+                {
+                    rangeCode = 0x07;    // 250A
+                    rangeName = "250A";
+                }
+                else if (maxCurrent <= 350)
+                {
+                    rangeCode = 0x08;    // 350A
+                    rangeName = "350A";
+                }
+                else if (maxCurrent <= 500)
+                {
+                    rangeCode = 0x09;    // 500A
+                    rangeName = "500A";
+                }
+                else
+                {
+                    rangeCode = 0x02;    // 1000A
+                    rangeName = "1000A";
+                }
+
+                // 4. 自动设置电流表量程
+                LogService.Log($"根据最大电流 {maxCurrent}A，自动设置量程：{rangeName}（编码：0x{rangeCode:X2}）");
+                bool setRangeSuccess = await SetPparameters("设置电流档位帧", ammeter, rangeCode);
+                if (!setRangeSuccess)
+                {
+                    XtraMessageBox.Show($"自动设置电流表量程 {rangeName} 失败！");
+                    return false;
+                }
+                LogService.Log($"✅ 电流表量程 {rangeName} 设置成功");
+
+                cancellationToken.ThrowIfCancellationRequested();
+                UpdateProgress(ProgressStage.SetParameters, "开始设置参数:");
 
                 // 6. 设置设备模式
                 LogService.Log("设置电流源参数...");
@@ -2027,9 +2111,10 @@ namespace ChargeDebug.Form
                 bool setpparameters3 = await SetPparameters("设置采样速度帧", ammeter);
                 bool setpparameters4 = await SetPparameters("设置显示位数帧", ammeter);
                 bool setpparameters5 = await SetPparameters("设置 NULL 开关帧", ammeter);
+                //bool setpparameters6 = await SetPparameters("设置电流档位帧", ammeter);
                 if (!setpparameters1 || !setpparameters2 || !setpparameters3 || !setpparameters4 || !setpparameters5)
                 {
-                    XtraMessageBox.Show("设置设备模式失败!");
+                    LogService.Log("设置设备模式失败!");
                     return false;
                 }
 
@@ -2050,12 +2135,6 @@ namespace ChargeDebug.Form
                     LogService.Log("启用恒压源输出失败!");
                     return false;
                 }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                UpdateProgress(ProgressStage.SetParameters, "开始获取校准点:");
-
-                // 9. 获取校准点信息
-                var calibrationPoints = await GetCalibrationPoints("电流", treeSignalProtocols);
 
                 cancellationToken.ThrowIfCancellationRequested();
                 UpdateProgress(ProgressStage.HandlePoint, "开始校准电流:");
