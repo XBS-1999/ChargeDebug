@@ -355,27 +355,4 @@ namespace DataModel
         public DateTime? CreateTime { get; set; }
         public DateTime? UpdateTime { get; set; }
     }
-
-
-    public class DeviceData
-    {
-        public DateTime Time { get; set; }
-        public float Voltage { get; set; } // 电压
-        public float Current { get; set; } // 电流
-        public float Temp { get; set; }    // 温度
-        public float Power { get; set; }   // 功率
-        public bool IsFault { get; set; }
-        public string Status { get; set; } = "正常";
-    }
-
-    public class FaultRecordAL
-    {
-        public int Id { get; set; }
-        public DateTime CreateTime { get; set; }
-        public float Voltage { get; set; }
-        public float Current { get; set; }
-        public float Temp { get; set; }
-        public string AiResult { get; set; } = string.Empty;
-        public bool IsLearned { get; set; } // 是否已学习
-    }
 }

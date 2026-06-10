@@ -4,8 +4,7 @@ using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using System.IO;
-using System.Reflection;
-using System.Text;
+using System.Threading;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -37,22 +36,12 @@ namespace ChargeDebug.Form
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isUpgrading = false;
 
-        // 日志缓冲，解决高频刷屏闪烁
-        private StringBuilder _logBuffer = new StringBuilder();
-        private System.Windows.Forms.Timer _logTimer;
-
         public Upgradeonline(List<EquipmentModel> equipmentList)
         {
             DeviceConfig(equipmentList);
             //upgradeonlineList = equipmentList;
             InitializeComponent();
             InitializeUI();
-
-            // 初始化日志防抖定时器（100ms 刷新一次）
-            _logTimer = new System.Windows.Forms.Timer();
-            _logTimer.Interval = 100;
-            _logTimer.Tick += (s, e) => FlushLogBuffer();
-            _logTimer.Start();
         }
 
         private void DeviceConfig(List<EquipmentModel> equipmentList)
@@ -102,11 +91,7 @@ namespace ChargeDebug.Form
             txtInfoDisplay = new MemoEdit();
             txtInfoDisplay.Dock = DockStyle.Fill;
             txtInfoDisplay.Properties.ReadOnly = true;
-            txtInfoDisplay.Properties.Appearance.Font = new Font("Tahoma", 14);
-
-            txtInfoDisplay.Properties.WordWrap = false;         // 关闭自动换行（减少重绘）
-            SetDoubleBuffered(txtInfoDisplay);                  // 双缓冲
-
+            txtInfoDisplay.Properties.Appearance.Font = new Font("Tahoma", 9);
             splitContainer.Panel2.Controls.Add(txtInfoDisplay);
 
             // 初始化左侧控件
@@ -182,28 +167,12 @@ namespace ChargeDebug.Form
         private void CbDevice_EditValueChanged(object? sender, EventArgs e)
         {
             var selectedDevices = GetSelectedDevices();
-            if (selectedDevices.Count == 0)
-            {
-                AppendInfo("📶 已取消所有设备选择，通道列表已清空");
-                cbChannel.Properties.Items.Clear();
-                cbChannel.SelectedIndex = -1;
-                return;
-            }
-
-            // 输出选中设备日志
-            AppendInfo($"📶 已选择设备数量：{selectedDevices.Count} 台");
-            foreach (var dev in selectedDevices)
-            {
-                AppendInfo($"设备：{dev.DeviceName}");
-            }
+            if (selectedDevices.Count == 0) return;
 
             // 收集所有选中设备的通道
             HashSet<string> channelSet = new HashSet<string>();
             foreach (var device in selectedDevices)
             {
-
-
-
                 int acBase = Convert.ToInt32(device.ACAddress.Substring(device.ACAddress.Length - 1));
                 int dcBase = Convert.ToInt32(device.DCAddress.Substring(device.DCAddress.Length - 1));
 
@@ -218,15 +187,9 @@ namespace ChargeDebug.Form
             cbChannel.Properties.Items.AddRange(channelSet.ToArray());
 
             if (cbChannel.Properties.Items.Count > 0)
-            {
-                cbChannel.SelectedIndex = 0;
-                AppendInfo($"✅ 通道加载完成，共 {channelSet.Count} 个通道，默认选中：{cbChannel.SelectedItem}");
-            }
+                cbChannel.SelectedIndex = 0; // 默认选择第一个
             else
-            {
                 cbChannel.SelectedIndex = -1;
-                AppendInfo("⚠️ 未获取到任何可用通道");
-            }
         }
 
         // 提取文件验证逻辑到独立方法
@@ -1286,98 +1249,48 @@ namespace ChargeDebug.Form
             }
             return 0x00;
         }
-        
+
         private void AppendInfo(string message)
         {
-            string log = $"[{DateTime.Now:HH:mm:ss}] {message}\r\n";
-
             if (txtInfoDisplay.InvokeRequired)
             {
-                txtInfoDisplay.BeginInvoke(new Action(() =>
-                {
-                    lock (_logBuffer)
-                        _logBuffer.Append(log);
-                }));
+                txtInfoDisplay.BeginInvoke(new Action<string>(AppendInfo), message);
                 return;
             }
 
-            lock (_logBuffer)
-                _logBuffer.Append(log);
+            // 添加双缓冲支持
+            SetDoubleBuffered(txtInfoDisplay);
+            // 添加带时间戳的日志
+            string logMessage = $"[{DateTime.Now:HH:mm:ss}] {message}\r\n";
+
+            // 使用AppendText代替直接修改Text属性
+            txtInfoDisplay.AppendText(logMessage);
+
+            // 自动滚动到末尾
+            txtInfoDisplay.SelectionStart = txtInfoDisplay.Text.Length;
+            txtInfoDisplay.Font = new Font("Tahoma", 14, FontStyle.Regular);
+            txtInfoDisplay.ScrollToCaret();
         }
 
-        /// <summary>
-        /// 批量刷新日志，只重绘一次，彻底解决闪烁
-        /// </summary>
-        private void FlushLogBuffer()
+        // 添加双缓冲支持
+        private static void SetDoubleBuffered(Control control)
         {
-            if (txtInfoDisplay == null || _logBuffer.Length == 0)
-                return;
+            if (SystemInformation.TerminalServerSession) return;
 
-            string text;
-            lock (_logBuffer)
-            {
-                text = _logBuffer.ToString();
-                _logBuffer.Clear();
-            }
+            var prop = typeof(Control).GetProperty("DoubleBuffered",
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance);
 
-            // 【DevExpress 正确写法】用 Properties.BeginUpdate / EndUpdate
-            txtInfoDisplay.Properties.BeginUpdate();
-            try
-            {
-                txtInfoDisplay.AppendText(text);
-
-                // 只在最后一行才滚动，避免疯狂跳闪
-                if (txtInfoDisplay.SelectionStart >= txtInfoDisplay.Text.Length - 1)
-                {
-                    txtInfoDisplay.SelectionStart = txtInfoDisplay.Text.Length;
-                    txtInfoDisplay.ScrollToCaret();
-                }
-            }
-            finally
-            {
-                txtInfoDisplay.Properties.EndUpdate();
-            }
-        }
-
-        /// <summary>
-        /// 开启控件双缓冲，解决日志刷屏闪烁
-        /// </summary>
-        private void SetDoubleBuffered(Control control, bool enable = true)
-        {
-            if (control == null) return;
-
-            // 通过反射开启双缓冲（DevExpress 必须用这个方式）
-            PropertyInfo prop = typeof(Control).GetProperty(
-                "DoubleBuffered",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            if (prop != null)
-            {
-                prop.SetValue(control, enable, null);
-            }
-
-            // 额外优化：减少重绘
-            typeof(Control).InvokeMember(
-                "SetStyle",
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod,
-                null,
-                control,
-                new object[]
-                {
-            ControlStyles.OptimizedDoubleBuffer |
-            ControlStyles.AllPaintingInWmPaint |
-            ControlStyles.UserPaint,
-            true
-                });
+            prop?.SetValue(control, true, null);
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                _logTimer?.Dispose(); // 加这行
+                // 释放取消令牌源
                 _cancellationTokenSource?.Dispose();
-                components?.Dispose();
+                components.Dispose();
             }
             base.Dispose(disposing);
         }

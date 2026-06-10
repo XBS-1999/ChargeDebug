@@ -1,28 +1,21 @@
 ﻿using DevExpress.XtraBars;
 using DevExpress.XtraEditors;
-using System;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
-using System.Windows.Forms;
 
-#pragma warning disable
 namespace ChargeDebug.Form
 {
     public partial class LogViewer : XtraUserControl
     {
         private MemoEdit logMemo;
+        //private RichTextBox logBox;
         private BarManager barManager;
-        private BarButtonItem btnPause;
-
+        private BarButtonItem btnPause; // 新增暂停按钮
         private readonly Queue<string> logQueue = new Queue<string>();
-        private const int MaxLines = 2000;      // 最大日志行数，防止无限膨胀
-        private const int BatchSize = 50;       // 批量渲染
-        private const int UpdateInterval = 100; // 刷新间隔
-
-        private readonly StringBuilder logBuffer = new StringBuilder();
         private System.Windows.Forms.Timer updateTimer;
-        private bool isPaused;
+        private const int UpdateInterval = 100;
+        private readonly StringBuilder logBuffer = new StringBuilder();
+        private bool isPaused; // 暂停状态标志
         private bool needsScroll;
 
         public LogViewer()
@@ -42,16 +35,17 @@ namespace ChargeDebug.Form
 
         private void InitializeUI()
         {
-            // 日志控件
+            // 创建日志显示区域 - 启用双缓冲
             logMemo = new MemoEdit();
             logMemo.Dock = DockStyle.Fill;
             logMemo.Properties.ReadOnly = true;
             logMemo.Properties.WordWrap = false;
             logMemo.Properties.ScrollBars = ScrollBars.Both;
             logMemo.Font = new Font("Tahoma", 12, FontStyle.Regular);
+            // 启用双缓冲
             SetDoubleBuffered(logMemo);
 
-            // 工具栏
+            // 创建工具栏
             barManager = new BarManager();
             barManager.Form = this;
 
@@ -59,63 +53,53 @@ namespace ChargeDebug.Form
             bar.DockStyle = BarDockStyle.Top;
             barManager.Bars.Add(bar);
 
+            // 只保留暂停/继续按钮
             btnPause = new BarButtonItem(barManager, "暂停显示");
             bar.ItemLinks.Add(btnPause);
+
+            // 绑定按钮点击事件
             btnPause.ItemClick += (s, e) => TogglePause();
 
+            // 添加控件
             this.Controls.Add(logMemo);
 
             if (this.components == null)
                 this.components = new System.ComponentModel.Container();
-            this.components.Add(barManager);
+            this.components.Add(barManager); // 确保工具栏可见
         }
 
+        // 新增：切换暂停状态的方法
         private void TogglePause()
         {
             isPaused = !isPaused;
             btnPause.Caption = isPaused ? "继续显示" : "暂停显示";
             updateTimer.Enabled = !isPaused;
+
+            // 恢复时处理积压的日志
             if (!isPaused) ProcessLogQueue();
         }
 
         private void ProcessLogQueue()
         {
-            // 安全判断：控件未创建、暂停、无日志 → 直接返回
-            if (!IsHandleCreated || logMemo == null || logQueue.Count == 0 || isPaused)
-                return;
+            if (logQueue.Count == 0 || isPaused) return; // 暂停时跳过处理
+
+            int processed = 0;
+            const int maxBatch = 10;
 
             lock (logQueue)
             {
-                // 限制最大行数，防止内存爆炸
-                while (logQueue.Count > MaxLines)
-                    logQueue.Dequeue();
-
-                // 批量拼接日志
-                int take = Math.Min(BatchSize, logQueue.Count);
-                for (int i = 0; i < take; i++)
+                while (logQueue.Count > 0 && processed < maxBatch)
                 {
-                    logBuffer.AppendLine(logQueue.Dequeue());
-                }
-
-                // 安全追加文本（修复空引用）
-                if (logBuffer.Length > 0)
-                {
-                    // 用安全的 AppendText，不使用 MaskBox
-                    logMemo.AppendText(logBuffer.ToString());
-                    logBuffer.Clear();
+                    logMemo.AppendText(logQueue.Dequeue() + "\r\n");
+                    processed++;
                     needsScroll = true;
                 }
             }
 
-            // 自动滚动到底
             if (needsScroll)
             {
-                try
-                {
-                    logMemo.SelectionStart = logMemo.Text.Length;
-                    logMemo.ScrollToCaret();
-                }
-                catch { }
+                logMemo.SelectionStart = logMemo.Text.Length;
+                logMemo.ScrollToCaret();
                 needsScroll = false;
             }
         }
@@ -128,22 +112,12 @@ namespace ChargeDebug.Form
             }
         }
 
-        // 清空日志
-        public void ClearLog()
-        {
-            lock (logQueue) logQueue.Clear();
-            if (logMemo != null) logMemo.Clear();
-        }
-
+        // 启用双缓冲的辅助方法
         private static void SetDoubleBuffered(Control control)
         {
-            try
-            {
-                typeof(Control).InvokeMember("DoubleBuffered",
-                    BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
-                    null, control, new object[] { true });
-            }
-            catch { }
+            typeof(Control).InvokeMember("DoubleBuffered",
+                BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
+                null, control, new object[] { true });
         }
     }
 }
