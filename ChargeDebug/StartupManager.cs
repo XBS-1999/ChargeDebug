@@ -258,6 +258,24 @@ namespace ChargeDebug
                         }
                         break;
 
+                    case "电池电压恒定母线运行":
+                        data[0] = 0x11;
+                        data[3] = 0x00;
+                        data[4] = 0x00;
+                        data[5] = 0x00;
+                        data[6] = 0x00;
+                        data[7] = 0x00;
+                        if (configData.DynamicParameters.TryGetValue("ConstantBatteryVoltage", out string? batteryVoltageValueStr) &&
+                                double.TryParse(batteryVoltageValueStr, out double batteryVoltageValue))
+                        {
+                            // 控制参数1
+                            int controlparameters1 = (int)(batteryVoltageValue * 10);
+
+                            data[1] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                            data[2] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+                        }
+                        break;
+
                     default:
                         data[0] = 0x00;
                         data[1] = 0x00;

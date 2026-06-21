@@ -1520,6 +1520,10 @@ namespace ChargeDebug.Form
                             mode = 0x02;
                             break;
 
+                        case "电池电压恒定母线运行":
+                            mode = 0x11;
+                            break;
+
                         case "停机":
                             mode = 0x00;
                             break;
