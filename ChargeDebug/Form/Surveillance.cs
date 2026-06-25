@@ -1,8 +1,10 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
 using DevExpress.XtraEditors;
+using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
+using DevExpress.XtraPrinting.Export;
 using System.Data.SQLite;
 
 #pragma warning disable
@@ -56,10 +58,51 @@ namespace ChargeDebug.Form
 
         private void InitializeUI()
         {
+            // 1. 顶部按钮面板（独立于Layout，固定在最上方，不会滚动）
+            PanelControl panelTopBar = new PanelControl();
+            panelTopBar.Dock = DockStyle.Top;
+            panelTopBar.Height = 50;
+
+            panelTopBar.BorderStyle = BorderStyles.NoBorder;
+            // 消除下边距
+            panelTopBar.Margin = new System.Windows.Forms.Padding(0);
+
+            btnStartTest = new SimpleButton
+            {
+                Text = "开始测试",
+                Width = 100,
+                Height = 30,
+                Location = new Point(600, 10),
+                Enabled = true
+            };
+            btnStopTest = new SimpleButton
+            {
+                Text = "停止测试",
+                Width = 100,
+                Height = 30,
+                Location = new Point(750, 10),
+                Enabled = true
+            };
+
+            btnStartTest.Click += btnStartTest_Click;
+            btnStopTest.Click += btnStopTest_Click;
+
+            panelTopBar.Controls.Add(btnStartTest);
+            panelTopBar.Controls.Add(btnStopTest);
+            panelControl1.Controls.Add(panelTopBar);
+            panelControl1.BorderStyle = BorderStyles.NoBorder;
+            panelControl1.Margin = new System.Windows.Forms.Padding(0);
+            panelControl1.Padding = new System.Windows.Forms.Padding(0);
+
+            // 2. 下方布局区域（填满剩余所有空间）
             layoutControl = new LayoutControl();
             layoutControl.Dock = DockStyle.Fill;
             layoutControl.AllowCustomization = false;
-            this.Controls.Add(layoutControl);
+            panelControl2.Controls.Add(layoutControl);
+
+            panelControl2.BorderStyle = BorderStyles.NoBorder;
+            panelControl2.Margin = new System.Windows.Forms.Padding(0);
+            panelControl2.Padding = new System.Windows.Forms.Padding(0);
 
             //主组：垂直布局
             rootGroup = new LayoutControlGroup
@@ -74,40 +117,9 @@ namespace ChargeDebug.Form
             topSpaceItem = new EmptySpaceItem
             {
                 SizeConstraintsType = SizeConstraintsType.Custom,
-                MaxSize = new Size(0, 40),
-                MinSize = new Size(0, 40)
+                MaxSize = new Size(0, 30),
+                MinSize = new Size(0, 30)
             };
-
-            // 创建顶部横向布局组，嵌入到顶部空白区域
-            LayoutControlGroup topBtnGroup = new LayoutControlGroup
-            {
-                GroupBordersVisible = false,
-                TextVisible = false,
-                DefaultLayoutType = LayoutType.Horizontal
-            };
-
-            btnStartTest = new SimpleButton
-            {
-                Text = "开始测试",
-                Width = 50,
-                Height = 30,
-                Enabled = false
-            };
-            btnStopTest = new SimpleButton
-            {
-                Text = "停止测试",
-                Width = 50,
-                Height = 30,
-                Enabled = true
-            };
-
-            btnStartTest.Click += btnStartTest_Click;
-            btnStopTest.Click += btnStopTest_Click;
-
-            topBtnGroup.Add(new LayoutControlItem { Control = btnStartTest, TextVisible = false });
-            topBtnGroup.Add(new LayoutControlItem { Control = btnStopTest, TextVisible = false });
-            topBtnGroup.Add(new EmptySpaceItem());
-            rootGroup.Add(topBtnGroup);
             rootGroup.Add(topSpaceItem);
 
             //水平组
