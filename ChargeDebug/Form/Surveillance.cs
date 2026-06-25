@@ -17,6 +17,11 @@ namespace ChargeDebug.Form
         private EmptySpaceItem middleSpaceItem;
         private EmptySpaceItem topSpaceItem;
 
+        //顶部按钮控件
+        private SimpleButton btnStartTest;
+        private SimpleButton btnStopTest;
+        private LayoutControlGroup btnBarGroup;
+
         private List<EquipmentModel> surequipmentList = new List<EquipmentModel>();
         // 添加设备定时器字典
         private readonly Dictionary<int, System.Threading.Timer> _deviceTimers =
@@ -29,6 +34,9 @@ namespace ChargeDebug.Form
         private bool _enabled = true;
 
         private string _userPermissions;
+
+        // 全局唯一启动窗口实例
+        private static StartConfiguration _globalStartConfigForm;
 
         // 存储创建的模块引用
         private readonly List<Module> _modules = new List<Module>();
@@ -66,9 +74,40 @@ namespace ChargeDebug.Form
             topSpaceItem = new EmptySpaceItem
             {
                 SizeConstraintsType = SizeConstraintsType.Custom,
-                MaxSize = new Size(0, 70),
-                MinSize = new Size(0, 70)
+                MaxSize = new Size(0, 40),
+                MinSize = new Size(0, 40)
             };
+
+            // 创建顶部横向布局组，嵌入到顶部空白区域
+            LayoutControlGroup topBtnGroup = new LayoutControlGroup
+            {
+                GroupBordersVisible = false,
+                TextVisible = false,
+                DefaultLayoutType = LayoutType.Horizontal
+            };
+
+            btnStartTest = new SimpleButton
+            {
+                Text = "开始测试",
+                Width = 50,
+                Height = 30,
+                Enabled = false
+            };
+            btnStopTest = new SimpleButton
+            {
+                Text = "停止测试",
+                Width = 50,
+                Height = 30,
+                Enabled = true
+            };
+
+            btnStartTest.Click += btnStartTest_Click;
+            btnStopTest.Click += btnStopTest_Click;
+
+            topBtnGroup.Add(new LayoutControlItem { Control = btnStartTest, TextVisible = false });
+            topBtnGroup.Add(new LayoutControlItem { Control = btnStopTest, TextVisible = false });
+            topBtnGroup.Add(new EmptySpaceItem());
+            rootGroup.Add(topBtnGroup);
             rootGroup.Add(topSpaceItem);
 
             //水平组
@@ -79,6 +118,64 @@ namespace ChargeDebug.Form
                 DefaultLayoutType = LayoutType.Horizontal,
             };
             rootGroup.Add(horizontalGroup);
+        }
+
+        private async void btnStartTest_Click(object sender, EventArgs e)
+        {
+            var selectModules = GetAllModuleControls(this).Where(m => m.IsModuleSelected).ToList();
+            if (selectModules.Count == 0)
+            {
+                XtraMessageBox.Show("请先勾选需要启动的模块！");
+                return;
+            }
+
+            // ========== 只弹出一次全局配置窗口 ==========
+            if (_globalStartConfigForm == null || _globalStartConfigForm.IsDisposed)
+            {
+                _globalStartConfigForm = new StartConfiguration("批量启动配置", "统一参数设置", true);
+            }
+
+            if (_globalStartConfigForm.ShowDialog() != DialogResult.OK)
+                return;
+
+            // 把参数保存到静态全局变量，所有模块共用
+            Module.GlobalProtectionParam = _globalStartConfigForm.Configuration;
+
+            // ========== 循环执行所有选中模块启动 ==========
+            foreach (var mod in selectModules)
+            {
+                if (mod._hasDCChannel)
+                {
+                    await mod.RunStartWithSharedParam();
+                }
+                else if (mod._hasACChannel)
+                {
+                    await mod.RunACStartWithSharedParam();
+                }
+            }
+        }
+
+        private async void btnStopTest_Click(object sender, EventArgs e)
+        {
+            var selectModules = GetAllModuleControls(this).Where(m => m.IsModuleSelected).ToList();
+            if (selectModules.Count == 0)
+            {
+                XtraMessageBox.Show("未勾选任何模块！");
+                return;
+            }
+
+            // 全局只弹出一次确认
+            if (XtraMessageBox.Show("确定批量停止所有选中设备？", "停机确认",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            // 批量停机
+            foreach (var mod in selectModules)
+            {
+                mod.Stop(null, EventArgs.Empty);
+            }
         }
 
         private void DeviceConfig(List<EquipmentModel> equipmentList)
@@ -127,6 +224,11 @@ namespace ChargeDebug.Form
         {
             try
             {
+                if (btnStartTest != null) btnStartTest.Dispose();
+                if (btnStopTest != null) btnStopTest.Dispose();
+                btnStartTest = null;
+                btnStopTest = null;
+
                 // 释放中间空白项
                 if (middleSpaceItem != null)
                 {
@@ -177,6 +279,26 @@ namespace ChargeDebug.Form
             {
                 System.Diagnostics.Debug.WriteLine($"释放布局资源时出错: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 递归查找所有Module模块
+        /// </summary>
+        private List<Module> GetAllModuleControls(Control parent)
+        {
+            var list = new List<Module>();
+            foreach (Control c in parent.Controls)
+            {
+                if (c is Module mod)
+                {
+                    list.Add(mod);
+                }
+                else if (c.HasChildren)
+                {
+                    list.AddRange(GetAllModuleControls(c));
+                }
+            }
+            return list;
         }
 
         // 递归释放布局组中的项目
