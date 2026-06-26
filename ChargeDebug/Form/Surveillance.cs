@@ -1,10 +1,10 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
+using DevExpress.Utils.Extensions;
 using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
-using DevExpress.XtraPrinting.Export;
 using System.Data.SQLite;
 
 #pragma warning disable
@@ -18,6 +18,10 @@ namespace ChargeDebug.Form
         private EmptySpaceItem leftSpaceItem;
         private EmptySpaceItem middleSpaceItem;
         private EmptySpaceItem topSpaceItem;
+
+        private PanelControl panelControl3;
+        private PanelControl panelControl4;
+        private PanelControl panelControl5;
 
         //顶部按钮控件
         private SimpleButton btnStartTest;
@@ -58,14 +62,27 @@ namespace ChargeDebug.Form
 
         private void InitializeUI()
         {
-            // 1. 顶部按钮面板（独立于Layout，固定在最上方，不会滚动）
-            PanelControl panelTopBar = new PanelControl();
-            panelTopBar.Dock = DockStyle.Top;
-            panelTopBar.Height = 50;
+            panelControl3 = new PanelControl();
+            panelControl3.Dock = DockStyle.Fill;
+            panelControl3.BorderStyle = BorderStyles.NoBorder;
+            panelControl3.Padding = new System.Windows.Forms.Padding(0);
+            panelControl3.Margin = new System.Windows.Forms.Padding(0);
+            this.Controls.Add(panelControl3);
 
-            panelTopBar.BorderStyle = BorderStyles.NoBorder;
-            // 消除下边距
-            panelTopBar.Margin = new System.Windows.Forms.Padding(0);
+            panelControl4 = new PanelControl();
+            panelControl4.Dock = DockStyle.Fill;
+            panelControl4.BorderStyle = BorderStyles.NoBorder;
+            panelControl4.Padding = new System.Windows.Forms.Padding(0);
+            panelControl4.Margin = new System.Windows.Forms.Padding(0);
+            panelControl3.Controls.Add(panelControl4);
+
+            panelControl5 = new PanelControl();
+            panelControl5.Dock = DockStyle.Top;
+            panelControl5.Height = 50;
+            panelControl5.BorderStyle = BorderStyles.NoBorder;
+            panelControl5.Padding = new System.Windows.Forms.Padding(0);
+            panelControl5.Margin = new System.Windows.Forms.Padding(0);
+            panelControl3.Controls.Add(panelControl5);
 
             btnStartTest = new SimpleButton
             {
@@ -87,22 +104,14 @@ namespace ChargeDebug.Form
             btnStartTest.Click += btnStartTest_Click;
             btnStopTest.Click += btnStopTest_Click;
 
-            panelTopBar.Controls.Add(btnStartTest);
-            panelTopBar.Controls.Add(btnStopTest);
-            panelControl1.Controls.Add(panelTopBar);
-            panelControl1.BorderStyle = BorderStyles.NoBorder;
-            panelControl1.Margin = new System.Windows.Forms.Padding(0);
-            panelControl1.Padding = new System.Windows.Forms.Padding(0);
+            panelControl5.Controls.Add(btnStartTest);
+            panelControl5.Controls.Add(btnStopTest);
 
             // 2. 下方布局区域（填满剩余所有空间）
             layoutControl = new LayoutControl();
             layoutControl.Dock = DockStyle.Fill;
             layoutControl.AllowCustomization = false;
-            panelControl2.Controls.Add(layoutControl);
-
-            panelControl2.BorderStyle = BorderStyles.NoBorder;
-            panelControl2.Margin = new System.Windows.Forms.Padding(0);
-            panelControl2.Padding = new System.Windows.Forms.Padding(0);
+            panelControl4.Controls.Add(layoutControl);
 
             //主组：垂直布局
             rootGroup = new LayoutControlGroup
