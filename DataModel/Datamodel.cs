@@ -103,6 +103,8 @@ namespace DataModel
         public string? FunctionCode { get; set; }
         public string? RegisterAddress { get; set; }
         public int RegisterCount { get; set; }
+        public int StartBit { get; set; }
+        public int Length { get; set; }
         public string? SystemVariableName { get; set; }
         public string? Unit { get; set; }
         public string? ByteOrder { get; set; }
