@@ -83,7 +83,7 @@ namespace CommunicationProtocols
             // 建立连接
             try
             {
-                tcp.Connect(firstSig.ModbusIp, firstSig.ModbusPort);
+                //tcp.Connect(firstSig.ModbusIp, firstSig.ModbusPort);
                 //tcp.Connect(firstSig.ModbusIp, firstSig.ModbusPort);
                 _tcpChannels[channelKey] = tcp;
                 _channelSignals[channelKey] = signals;
