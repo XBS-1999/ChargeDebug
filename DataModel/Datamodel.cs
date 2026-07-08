@@ -96,6 +96,12 @@ namespace DataModel
     {
         public string? DeviceName { get; set; }
 
+        // Modbus TCP通讯参数（缺失的字段，补上即可消除报错）
+        public string ModbusIp { get; set; } = "127.0.0.1";
+        public int ModbusPort { get; set; } = 502;
+        public byte SlaveId { get; set; } = 1;
+
+
         public long SignalID { get; set; }
         public long DbcFileId { get; set; }
         public string? SignalName { get; set; }
