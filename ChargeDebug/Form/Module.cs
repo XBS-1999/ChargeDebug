@@ -231,19 +231,20 @@ namespace ChargeDebug.Form
         /// <param name="title">模块标题</param>
         /// <param name="equipment">设备模型</param>
         /// <param name="signals">信号列表</param>
-        public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
+        //public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
+        public Module(string title, EquipmentModel equip, List<SignalInfo> canSignals, List<ModbusSignal> modbusSignals, string protocolType, string userPerm)
         {
             //byte[] data = { 0x55, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // 0x55CA000000000000
             //SignalInfo signal1 = new SignalInfo { StartBit = 7, Length = 16, ByteOrder = "1"};
             //ulong result1 = CANManager.Instance.ExtractRawValue(data, signal1);
 
             //return;
-            _equipment = equipment;
+            _equipment = equip;
             _title = title;
-            _userPermissions = userPermissions;
+            _userPermissions = userPerm;
 
             // 生成设备标识键（基于设备IP和索引）
-            _deviceKey = $"{equipment.DeviceName}_{equipment.DeviceIP}_{equipment.DeviceIndex}";
+            _deviceKey = $"{_equipment.DeviceName}_{_equipment.DeviceIP}_{_equipment.DeviceIndex}";
 
             // 初始化设备文件锁
             _deviceFileLocks.GetOrAdd(_deviceKey, new object());
@@ -252,11 +253,12 @@ namespace ChargeDebug.Form
             InitializeSaveDirectories();
 
             // 根据模块标识判断通道类型
-            DetectChannelTypes(title, signals);
+            if (protocolType == "CAN总线")
+                DetectChannelTypes(title, canSignals);
 
             InitializeComponent();
             InitializeUI();
-            ProcessSignals(signals);
+            ProcessSignals(canSignals);
 
             // 初始化UI更新定时器
             _uiUpdateTimer = new System.Threading.Timer(_ =>
@@ -265,7 +267,7 @@ namespace ChargeDebug.Form
             }, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
 
             // 初始化启动管理器
-            _startupManager = new StartupManager(equipment, title);
+            _startupManager = new StartupManager(_equipment, title);
             string channelPart = ExtractStandardDeviceName(title);
             StartupManagers[channelPart] = _startupManager;
 
