@@ -84,6 +84,7 @@ namespace CommunicationProtocols
             try
             {
                 tcp.Connect(firstSig.ModbusIp, firstSig.ModbusPort);
+                //tcp.Connect(firstSig.ModbusIp, firstSig.ModbusPort);
                 _tcpChannels[channelKey] = tcp;
                 _channelSignals[channelKey] = signals;
                 LogService.Log($"Modbus通道注册成功：{channelKey}");
@@ -146,12 +147,10 @@ namespace CommunicationProtocols
                 // 全局轮询任务内分组代码替换
                 var groupBySlave = sigList.GroupBy(s => new
                 {
-                    s.SlaveId,
                     FuncByte = byte.Parse(s.FunctionCode!)
                 });
                 foreach (var group in groupBySlave)
                 {
-                    byte slaveId = group.Key.SlaveId;
                     byte funcCode = group.Key.FuncByte;
                     var groupSigs = group.ToList();
 
@@ -161,7 +160,6 @@ namespace CommunicationProtocols
 
                     // 构造标准Modbus读寄存器帧
                     byte[] req = new byte[6];
-                    req[0] = slaveId;
                     req[1] = funcCode;
                     req[2] = (byte)(minAddr >> 8);
                     req[3] = (byte)(minAddr & 0xFF);
