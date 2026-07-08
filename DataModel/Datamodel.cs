@@ -95,7 +95,6 @@ namespace DataModel
     public class ModbusSignal
     {
         public string? DeviceName { get; set; }
-
         public long SignalID { get; set; }
         public long DbcFileId { get; set; }
         public string? SignalName { get; set; }
