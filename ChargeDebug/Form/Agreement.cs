@@ -1,6 +1,7 @@
 ﻿using ChargeDebug.Service;
 using ClosedXML.Excel;
 using DataModel;
+using DevExpress.XtraBars.Docking2010.Views.Widget;
 using DevExpress.XtraEditors;
 using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraEditors.Repository;
@@ -2769,6 +2770,9 @@ namespace ChargeDebug.Form
                             signal.FunctionCode,
                             signal.RegisterAddress,
                             signal.RegisterCount,
+                            // 新增
+                            signal.StartBit,
+                            signal.Length,
                             signal.SystemVariableName,
                             signal.Unit,
                             signal.ByteOrder,
@@ -2806,14 +2810,15 @@ namespace ChargeDebug.Form
                     new TreeListColumn { Caption = "功能码", VisibleIndex = 2, Width = 100 },
                     new TreeListColumn { Caption = "寄存器地址", VisibleIndex = 3, Width = 100 },
                     new TreeListColumn { Caption = "寄存器个数", VisibleIndex = 4, Width = 100 },
-                    //new TreeListColumn { Caption = "字节数", VisibleIndex = 4, Width = 100 },
-                    new TreeListColumn { Caption = "关联系统变量名称", VisibleIndex = 5, Width = 150 },
-                    new TreeListColumn { Caption = "单位", VisibleIndex = 6, Width = 80 },
-                    new TreeListColumn { Caption = "字节顺序", VisibleIndex = 7, Width = 100 },
-                    new TreeListColumn { Caption = "符号", VisibleIndex = 8, Width = 100 },
-                    new TreeListColumn { Caption = "系数", VisibleIndex = 9, Width = 100 },
-                    new TreeListColumn { Caption = "偏移", VisibleIndex = 10, Width = 100 },
-                    new TreeListColumn { Caption = "范围", VisibleIndex = 11, Width = 100 },
+                    new TreeListColumn { Caption = "起始位", VisibleIndex = 5, Width = 80 },
+                    new TreeListColumn { Caption = "长度", VisibleIndex = 6, Width = 80 },
+                    new TreeListColumn { Caption = "关联系统变量名称", VisibleIndex = 7, Width = 150 },
+                    new TreeListColumn { Caption = "单位", VisibleIndex = 8, Width = 80 },
+                    new TreeListColumn { Caption = "字节顺序", VisibleIndex = 9, Width = 100 },
+                    new TreeListColumn { Caption = "符号", VisibleIndex = 10, Width = 100 },
+                    new TreeListColumn { Caption = "系数", VisibleIndex = 11, Width = 100 },
+                    new TreeListColumn { Caption = "偏移", VisibleIndex = 12, Width = 100 },
+                    new TreeListColumn { Caption = "范围", VisibleIndex = 13, Width = 100 },
                     new TreeListColumn { Caption = "Orders", VisibleIndex = treeList.Columns.Count, Visible = false }
                 });
             }
@@ -2868,12 +2873,14 @@ namespace ChargeDebug.Form
                             "0x00",   // 功能码
                             "0x0001", // 寄存器地址
                             "1",      // 寄存器个数
+                            0,        // 新增起始位默认0
+                            16,       // 新增长度默认16
                             "",       // 关联系统变量名称
                             "",       // 单位
-                            "Inter",       // 字节顺序
-                            "Signed",       // 符号
-                            "1",       // 系数
-                            "0",       // 偏移
+                            "Inter",  // 字节顺序
+                            "Signed", // 符号
+                            "1",      // 系数
+                            "0",      // 偏移
                             "",       // 范围
                             maxSortOrder // 排序
                         }, null);
@@ -2913,12 +2920,14 @@ namespace ChargeDebug.Form
                             "0x00",   // 功能码
                             "0x0001", // 寄存器地址
                             "1",      // 寄存器个数
+                            "0",        // 起始位
+                            "16",       // 长度
                             "",       // 关联系统变量名称
                             "",       // 单位
-                            "Inter",       // 字节顺序
-                            "Signed",       // 符号
-                            "1",       // 系数
-                            "0",       // 偏移
+                            "Inter",  // 字节顺序
+                            "Signed", // 符号
+                            "1",      // 系数
+                            "0",      // 偏移
                             "",       // 范围
                             maxSortOrder // 排序
                         }, null);
@@ -3045,19 +3054,26 @@ namespace ChargeDebug.Form
                     using (var workbook = new XLWorkbook(fileName))
                     {
                         var worksheet = workbook.Worksheet(1);
-                        var rows = worksheet.RowsUsed().Skip(1); // 跳过标题行
-
+                        var rows = worksheet.RowsUsed().Skip(1);
                         foreach (var row in rows)
                         {
                             treeList.AppendNode(new object[]
                             {
-                        row.Cell(1).Value.ToString(), // 地址
-                        row.Cell(2).Value.ToString(), // 描述
-                        row.Cell(3).Value.ToString(), // 数据类型
-                        row.Cell(4).Value.ToString(), // 读写权限
-                        row.Cell(5).Value.ToString(), // 值
-                        row.Cell(6).Value.ToString(), // 备注
-                        0 // 排序
+                                //row.Cell(1).Value.ToString(), //信号名称
+                                //row.Cell(2).Value.ToString(), //通讯地址
+                                //row.Cell(3).Value.ToString(), //功能码
+                                //row.Cell(4).Value.ToString(), //寄存器地址
+                                //TryParseInt(row.Cell(5).GetString()), //寄存器个数
+                                //TryParseInt(row.Cell(6).GetString()),  //新增起始位
+                                //TryParseInt(row.Cell(7).GetString()),  //新增长度
+                                //row.Cell(8).Value.ToString(), //系统变量
+                                //row.Cell(9).Value.ToString(), //单位
+                                //row.Cell(10).Value.ToString(),//字节序
+                                //row.Cell(11).Value.ToString(),//符号
+                                //TryParseDecimal(row.Cell(12).GetString()),//系数
+                                //TryParseDecimal(row.Cell(13).GetString()),//偏移
+                                //row.Cell(14).Value.ToString(),//范围
+                                0
                             }, null);
                         }
                     }
@@ -3075,24 +3091,42 @@ namespace ChargeDebug.Form
                     var worksheet = workbook.Worksheets.Add("RS485-Modbus协议");
 
                     // 添加标题行
-                    worksheet.Cell(1, 1).Value = "寄存器地址";
-                    worksheet.Cell(1, 2).Value = "描述";
-                    worksheet.Cell(1, 3).Value = "数据类型";
-                    worksheet.Cell(1, 4).Value = "读写权限";
-                    worksheet.Cell(1, 5).Value = "值";
-                    worksheet.Cell(1, 6).Value = "备注";
+                    worksheet.Cell(1, 1).Value = "信号名称";
+                    worksheet.Cell(1, 2).Value = "通讯地址";
+                    worksheet.Cell(1, 3).Value = "功能码";
+                    worksheet.Cell(1, 4).Value = "寄存器地址";
+                    worksheet.Cell(1, 5).Value = "寄存器个数";
+                    worksheet.Cell(1, 6).Value = "起始位";
+                    worksheet.Cell(1, 7).Value = "长度";
+                    worksheet.Cell(1, 8).Value = "关联系统变量名称";
+                    worksheet.Cell(1, 9).Value = "单位";
+                    worksheet.Cell(1, 10).Value = "字节顺序";
+                    worksheet.Cell(1, 11).Value = "符号";
+                    worksheet.Cell(1, 12).Value = "系数";
+                    worksheet.Cell(1, 13).Value = "偏移";
+                    worksheet.Cell(1, 14).Value = "范围";
 
                     int rowIndex = 2;
 
                     // 写入所有节点
                     foreach (TreeListNode node in treeList.Nodes)
                     {
-                        worksheet.Cell(rowIndex, 1).Value = node.GetValue("寄存器地址")?.ToString() ?? "";
-                        worksheet.Cell(rowIndex, 2).Value = node.GetValue("描述")?.ToString() ?? "";
-                        worksheet.Cell(rowIndex, 3).Value = node.GetValue("数据类型")?.ToString() ?? "";
-                        worksheet.Cell(rowIndex, 4).Value = node.GetValue("读写权限")?.ToString() ?? "";
-                        worksheet.Cell(rowIndex, 5).Value = node.GetValue("值")?.ToString() ?? "";
-                        worksheet.Cell(rowIndex, 6).Value = node.GetValue("备注")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 1).Value = node.GetValue("信号名称")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 2).Value = node.GetValue("通讯地址")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 3).Value = node.GetValue("功能码")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 4).Value = node.GetValue("寄存器地址")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 5).Value = node.GetValue("寄存器个数")?.ToString() ?? "";
+                        // 新增导出
+                        worksheet.Cell(rowIndex, 6).Value = node.GetValue("起始位")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 7).Value = node.GetValue("长度")?.ToString() ?? "";
+
+                        worksheet.Cell(rowIndex, 8).Value = node.GetValue("关联系统变量名称")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 9).Value = node.GetValue("单位")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 10).Value = node.GetValue("字节顺序")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 11).Value = node.GetValue("符号")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 12).Value = node.GetValue("系数")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 13).Value = node.GetValue("偏移")?.ToString() ?? "";
+                        worksheet.Cell(rowIndex, 14).Value = node.GetValue("范围")?.ToString() ?? "";
                         rowIndex++;
                     }
 
@@ -3126,6 +3160,8 @@ namespace ChargeDebug.Form
                 string functionCode = node.GetValue("功能码")?.ToString() ?? "";
                 string registerAddress = node.GetValue("寄存器地址")?.ToString() ?? "";
                 int registerCount = Convert.ToInt32(node.GetValue("寄存器个数") ?? 1);
+                int startBit = Convert.ToInt32(node.GetValue("起始位") ?? 0);
+                int signalLen = Convert.ToInt32(node.GetValue("长度") ?? 16);
                 string systemVariableName = node.GetValue("关联系统变量名称")?.ToString() ?? "";
                 string unit = node.GetValue("单位")?.ToString() ?? "";
                 string byteOrder = node.GetValue("字节顺序")?.ToString() ?? "Inter";
@@ -3145,6 +3181,8 @@ namespace ChargeDebug.Form
                     functionCode: functionCode,
                     registerAddress: registerAddress,
                     registerCount: registerCount,
+                    startBit: startBit,
+                    length: signalLen,
                     systemVariableName: systemVariableName,
                     unit: unit,
                     byteOrder: byteOrder,

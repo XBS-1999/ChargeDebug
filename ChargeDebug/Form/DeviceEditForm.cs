@@ -161,7 +161,7 @@ namespace ChargeDebug.Form
             labelCanType = new LabelControl { Text = "通讯类型:", Location = new Point(340, 62) };
             cantype = new ComboBoxEdit { Location = new Point(450, 60), Width = 150 };
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
-            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "GCAN‑GT‑418", "ZCAN_CANFDNET_200U_TCP", "ZCAN_USBCANFD_200U", "RS485-MODBUS", "USB-SCPI", "RS232" });
+            cantype.Properties.Items.AddRange(new[] { "ZCAN_CANETTCP", "GCAN‑GT‑418", "ZCAN_CANFDNET_200U_TCP", "ZCAN_USBCANFD_200U", "TCP-MODBUS", "RS485-MODBUS", "USB-SCPI", "RS232" });
             cantype.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
             cantype.SelectedIndexChanged += Cantype_SelectedIndexChanged;
 
@@ -425,7 +425,7 @@ namespace ChargeDebug.Form
             {
                 cantype.SelectedIndex = 1;
             }
-            else if(selectedType == "RS485-MODBUS")
+            else if(selectedType == "RS485-MODBUS" || selectedType == "TCP-MODBUS")
             {
                 cantype.SelectedIndex = 4; // RS485-MODBUS
             }
@@ -469,7 +469,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型显示或隐藏网口/串口配置组
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418" || cantype.Text == "TCP-MODBUS")
             {
                 // 显示网口配置，隐藏串口配置
                 networkGroup.Visible = true;
@@ -546,7 +546,7 @@ namespace ChargeDebug.Form
             {
                 buttonY = equipmentGroup.Bottom;
 
-                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418"|| cantype.Text == "TCP-MODBUS")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -567,7 +567,7 @@ namespace ChargeDebug.Form
             {
                 buttonY = 140;
 
-                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
+                if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418" || cantype.Text == "TCP-MODBUS")
                 {
                     buttonY = networkGroup.Bottom;
                 }
@@ -600,13 +600,13 @@ namespace ChargeDebug.Form
                 {
                     conn.Open();
 
-                    // 根据通讯类型确定协议类型
+                    // 根据通讯类型确定协议类型ZCAN_CANFDNET_200U_TCP
                     string agreementType = "";
                     if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_USBCANFD_200U" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
                     {
                         agreementType = "CAN总线";
                     }
-                    else if (cantype.Text == "RS485-MODBUS")
+                    else if (cantype.Text == "RS485-MODBUS" || cantype.Text == "TCP-MODBUS")
                     {
                         agreementType = "MODBUS";
                     }
@@ -696,7 +696,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型加载相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418" || cantype.Text == "TCP-MODBUS")
             {
                 deviceip.Text = row.Table.Columns.Contains("DeviceIP") ? row["DeviceIP"].ToString() : "";
                 deviceport.Text = row.Table.Columns.Contains("DevicePort") ? row["DevicePort"].ToString() : "";
@@ -763,7 +763,7 @@ namespace ChargeDebug.Form
             }
 
             // 根据通讯类型验证相应的配置
-            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418")
+            if (cantype.Text == "ZCAN_CANETTCP" || cantype.Text == "ZCAN_CANFDNET_200U_TCP" || cantype.Text == "GCAN‑GT‑418" || cantype.Text == "TCP-MODBUS")
             {
                 // 验证IP地址格式
                 if (!string.IsNullOrWhiteSpace(deviceip.Text) &&

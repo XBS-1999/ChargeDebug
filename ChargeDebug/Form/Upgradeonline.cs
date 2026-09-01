@@ -20,7 +20,7 @@ namespace ChargeDebug.Form
         private ComboBoxEdit cbCpu;
         private ButtonEdit btnSelectFile;
         private SimpleButton btnEnterBoot;
-        private SimpleButton btnUpgrade;       
+        private SimpleButton btnUpgrade;
         private SimpleButton btnStopUpgrade;   //新增停止升级按钮
         // 右侧控件声明
         private MemoEdit txtInfoDisplay;

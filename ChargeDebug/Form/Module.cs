@@ -65,8 +65,17 @@ namespace ChargeDebug.Form
         private static readonly ConcurrentDictionary<string, StreamWriter> _deviceFileWriters = new ConcurrentDictionary<string, StreamWriter>();
         private static readonly ConcurrentDictionary<string, object> _deviceFileLocks = new ConcurrentDictionary<string, object>();
         private static readonly ConcurrentDictionary<string, bool> _deviceHeaderWritten = new ConcurrentDictionary<string, bool>();
-        private CheckBox _chkRealTimeSave;
+        private CheckEdit _chkRealTimeSave;
         private string _deviceKey; // 设备标识键
+
+        //模块选中标记，主窗体按钮只执行勾选模块
+        public bool IsModuleSelected { get; set; }
+
+        //右上角选择框
+        private CheckEdit _chkSelectModule;
+
+        // 全局保存共用保护参数
+        public static ConfigurationData GlobalProtectionParam { get; set; }
 
         // 保存目录管理
         private static string _baseSaveDirectory;
@@ -150,8 +159,8 @@ namespace ChargeDebug.Form
         private const string POWER_SIGNAL = "蓄电池功率";
 
         // 通道类型标识
-        private bool _hasACChannel = false;
-        private bool _hasDCChannel = false;
+        public bool _hasACChannel = false;
+        public bool _hasDCChannel = false;
 
         // 风扇控制相关字段
         private uint _fanCanId = 0x0400A0CC;          // 风扇控制CAN ID
@@ -222,19 +231,20 @@ namespace ChargeDebug.Form
         /// <param name="title">模块标题</param>
         /// <param name="equipment">设备模型</param>
         /// <param name="signals">信号列表</param>
-        public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
+        //public Module(string title, EquipmentModel equipment, List<SignalInfo> signals, string userPermissions)
+        public Module(string title, EquipmentModel equip, List<SignalInfo> canSignals, List<ModbusSignal> modbusSignals, string protocolType, string userPerm)
         {
             //byte[] data = { 0x55, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // 0x55CA000000000000
             //SignalInfo signal1 = new SignalInfo { StartBit = 7, Length = 16, ByteOrder = "1"};
             //ulong result1 = CANManager.Instance.ExtractRawValue(data, signal1);
 
             //return;
-            _equipment = equipment;
+            _equipment = equip;
             _title = title;
-            _userPermissions = userPermissions;
+            _userPermissions = userPerm;
 
             // 生成设备标识键（基于设备IP和索引）
-            _deviceKey = $"{equipment.DeviceName}_{equipment.DeviceIP}_{equipment.DeviceIndex}";
+            _deviceKey = $"{_equipment.DeviceName}_{_equipment.DeviceIP}_{_equipment.DeviceIndex}";
 
             // 初始化设备文件锁
             _deviceFileLocks.GetOrAdd(_deviceKey, new object());
@@ -243,11 +253,12 @@ namespace ChargeDebug.Form
             InitializeSaveDirectories();
 
             // 根据模块标识判断通道类型
-            DetectChannelTypes(title, signals);
+            if (protocolType == "CAN总线")
+                DetectChannelTypes(title, canSignals);
 
             InitializeComponent();
             InitializeUI();
-            ProcessSignals(signals);
+            ProcessSignals(canSignals);
 
             // 初始化UI更新定时器
             _uiUpdateTimer = new System.Threading.Timer(_ =>
@@ -256,7 +267,7 @@ namespace ChargeDebug.Form
             }, null, UI_UPDATE_INTERVAL, UI_UPDATE_INTERVAL);
 
             // 初始化启动管理器
-            _startupManager = new StartupManager(equipment, title);
+            _startupManager = new StartupManager(_equipment, title);
             string channelPart = ExtractStandardDeviceName(title);
             StartupManagers[channelPart] = _startupManager;
 
@@ -440,15 +451,30 @@ namespace ChargeDebug.Form
         private void AddRealTimeSaveToTitle(CustomGroupControl groupControl)
         {
             // 创建实时保存复选框
-            _chkRealTimeSave = new CheckBox();
-            _chkRealTimeSave.Text = "实时保存";
-            _chkRealTimeSave.AutoSize = true;
-            _chkRealTimeSave.CheckedChanged += ChkRealTimeSave_CheckedChanged;
+            _chkRealTimeSave = new CheckEdit();
+            _chkRealTimeSave.Properties.Caption = "实时保存";
+            _chkRealTimeSave.Properties.AllowGrayed = false;
             _chkRealTimeSave.BackColor = Color.Transparent;
-            //_chkRealTimeSave.ForeColor = Color.White; // 白色文字在标题栏更明显
+            // 固定尺寸，防止自适应挤压重叠
+            _chkRealTimeSave.Size = new Size(90, 24);
+            _chkRealTimeSave.CheckedChanged += ChkRealTimeSave_CheckedChanged;
 
-            // 将复选框添加到GroupControl的标题栏
+            //新增：模块选中复选框，放在最右侧
+            _chkSelectModule = new CheckEdit();
+            _chkSelectModule.Properties.Caption = "选择";
+            _chkSelectModule.Properties.AllowGrayed = false;
+            _chkSelectModule.BackColor = Color.Transparent;
+            // 固定宽度
+            _chkSelectModule.Size = new Size(70, 24);
+            _chkSelectModule.CheckedChanged += (s, e) =>
+            {
+                IsModuleSelected = _chkSelectModule.Checked;
+            };
+
+
+            //加入标题栏
             groupControl.AddControlToTitle(_chkRealTimeSave);
+            groupControl.AddControlToTitle(_chkSelectModule);
         }
 
         /// <summary>
@@ -522,6 +548,64 @@ namespace ChargeDebug.Form
             }
 
             gridControl.ContextMenuStrip = contextMenu;
+        }
+
+        /// <summary>
+        /// 批量启动：执行启动（不再弹窗）
+        /// </summary>
+        public async Task<bool> RunStartWithSharedParam()
+        {
+            try
+            {
+                if (_dcRunStatus != 0x00 && _dcRunStatus != 0x03)
+                {
+                    LogService.Log($"{_title}状态异常，跳过启动");
+                    return false;
+                }
+
+                _protectionParameters = GlobalProtectionParam;
+
+                bool run = await _startupManager.StartDeviceAsync(_protectionParameters, false);
+                if (!run) return false;
+
+                _stopCommandSent = true;
+                bool statusChanged = await CheckDeviceStatusChange(TimeSpan.FromSeconds(3), "DC");
+                bool runmode = await CheckRunMode(TimeSpan.FromSeconds(5), _protectionParameters.WorkingMode, "DC");
+
+                if (!statusChanged || !runmode)
+                {
+                    await _startupManager.StopDeviceAsync();
+                    return false;
+                }
+
+                _startTime = DateTime.Now;
+                _stepStartTime = DateTime.Now;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"{_title}启动异常：{ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> RunACStartWithSharedParam()
+        {
+            // AC模块同理，只执行下发，不再弹窗
+            try
+            {
+                if (_acRunStatus != 0x00 && _acRunStatus != 0x03)
+                    return false;
+
+                // 共用全局参数自行补充
+                _stopCommandSent = true;
+                bool ok = await _startupManager.ACStartDeviceAsync(null);
+                return ok;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         #endregion
@@ -2578,6 +2662,21 @@ namespace ChargeDebug.Form
             }
         }
 
+        public async void Stop(object? sender, EventArgs e)
+        {
+            try
+            {
+                //任何状态下都可以停机
+                _stopCommandSent = true;
+                SendStopCommandIfNeeded();
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"停机操作失败: {ex.Message}");
+                XtraMessageBox.Show($"停机操作失败: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// 清除故障
         /// </summary>
@@ -3857,6 +3956,8 @@ namespace ChargeDebug.Form
 
             try
             {
+                _chkSelectModule?.Dispose();
+
                 // 停止实时数据保存
                 StopRealTimeSave();
 

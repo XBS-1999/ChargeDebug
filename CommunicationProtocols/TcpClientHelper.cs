@@ -1,10 +1,12 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
 
+#pragma warning disable
 namespace TcpCommunicationLib
 {
     public class TcpClientHelper : IDisposable
     {
+
         private TcpListener? _server;
         private TcpClient? _client;
         private NetworkStream? _stream;

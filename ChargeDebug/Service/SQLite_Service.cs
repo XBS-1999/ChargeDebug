@@ -1,4 +1,5 @@
 ﻿using DataModel;
+using DevExpress.XtraBars.Docking2010.Views.Widget;
 using System.Data;
 using System.Data.SQLite;
 
@@ -432,14 +433,16 @@ namespace ChargeDebug.Service
                             FunctionCode = reader.GetString(4),
                             RegisterAddress = reader.GetString(5),
                             RegisterCount = reader.GetInt32(6),
-                            SystemVariableName = reader.IsDBNull(7) ? "" : reader.GetString(7),
-                            Unit = reader.IsDBNull(8) ? "" : reader.GetString(8),
-                            ByteOrder = reader.IsDBNull(9) ? "Inter" : reader.GetString(9),
-                            Signed = reader.IsDBNull(10) ? "Unsigned" : reader.GetString(10),
-                            Factor = reader.IsDBNull(11) ? 1.0 : reader.GetDouble(11),
-                            Offset = reader.IsDBNull(12) ? 0.0 : reader.GetDouble(12),
-                            ValueRange = reader.IsDBNull(13) ? "" : reader.GetString(13),
-                            Orders = reader.GetInt32(14)
+                            StartBit = reader.GetInt32(7),
+                            Length = reader.GetInt32(8),
+                            SystemVariableName = reader.IsDBNull(9) ? "" : reader.GetString(9),
+                            Unit = reader.IsDBNull(10) ? "" : reader.GetString(10),
+                            ByteOrder = reader.IsDBNull(11) ? "Inter" : reader.GetString(11),
+                            Signed = reader.IsDBNull(12) ? "Unsigned" : reader.GetString(12),
+                            Factor = reader.IsDBNull(13) ? 1.0 : reader.GetDouble(13),
+                            Offset = reader.IsDBNull(14) ? 0.0 : reader.GetDouble(14),
+                            ValueRange = reader.IsDBNull(15) ? "" : reader.GetString(15),
+                            Orders = reader.GetInt32(16)
                         });
                     }
                 }
@@ -453,15 +456,15 @@ namespace ChargeDebug.Service
         /// </summary>
         public static long UpsertModbusSignal(SQLiteConnection conn,
             long signalId, long dbcFileId, string signalName, string correspondenceAddress, string functionCode, string registerAddress,
-            int registerCount, string systemVariableName, string unit, string byteOrder, string signed,
+            int registerCount, int startBit,int length, string systemVariableName, string unit, string byteOrder, string signed,
             double factor, double offset, string valueRange, int orders, SQLiteTransaction transaction = null)
         {
             if (signalId < 0) // 新增
             {
                 const string insertSql = @"INSERT INTO ModbusSignals 
-                                      (DbcFileId, SignalName, CorrespondenceAddress, FunctionCode, RegisterAddress, RegisterCount, 
+                                      (DbcFileId, SignalName, CorrespondenceAddress, FunctionCode, RegisterAddress, RegisterCount, StartBit, Length
                                        SystemVariableName, Unit, ByteOrder, Signed, Factor, Offset, ValueRange, Orders)
-                                      VALUES (@dbcFileId, @signalName, @correspondenceAddress, @functionCode, @registerAddress, @registerCount,
+                                      VALUES (@dbcFileId, @signalName, @correspondenceAddress, @functionCode, @registerAddress, @registerCount, @startBit, @length,
                                               @systemVariableName, @unit, @byteOrder, @signed, @factor, @offset, @valueRange, @orders)
                                       RETURNING SignalID;";
 
@@ -473,6 +476,8 @@ namespace ChargeDebug.Service
                     cmd.Parameters.AddWithValue("@functionCode", functionCode);
                     cmd.Parameters.AddWithValue("@registerAddress", registerAddress);
                     cmd.Parameters.AddWithValue("@registerCount", registerCount);
+                    cmd.Parameters.AddWithValue("@startBit", startBit);
+                    cmd.Parameters.AddWithValue("@length", length);
                     cmd.Parameters.AddWithValue("@systemVariableName", systemVariableName);
                     cmd.Parameters.AddWithValue("@unit", unit);
                     cmd.Parameters.AddWithValue("@byteOrder", byteOrder);
@@ -493,6 +498,8 @@ namespace ChargeDebug.Service
                                            FunctionCode = @functionCode,
                                            RegisterAddress = @registerAddress, 
                                            RegisterCount = @registerCount, 
+                                           StartBit  = @startBit, 
+                                           Length  = @length, 
                                            SystemVariableName = @systemVariableName, 
                                            Unit = @unit, 
                                            ByteOrder = @byteOrder, 
@@ -512,6 +519,8 @@ namespace ChargeDebug.Service
                     cmd.Parameters.AddWithValue("@functionCode", functionCode);
                     cmd.Parameters.AddWithValue("@registerAddress", registerAddress);
                     cmd.Parameters.AddWithValue("@registerCount", registerCount);
+                    cmd.Parameters.AddWithValue("@startBit", startBit);
+                    cmd.Parameters.AddWithValue("@length", length);
                     cmd.Parameters.AddWithValue("@systemVariableName", systemVariableName);
                     cmd.Parameters.AddWithValue("@unit", unit);
                     cmd.Parameters.AddWithValue("@byteOrder", byteOrder);
@@ -543,7 +552,7 @@ namespace ChargeDebug.Service
         /// </summary>
         public static void UpdateModbusRegisterOrder(SQLiteConnection conn, long registerId, int order, SQLiteTransaction transaction = null)
         {
-            using (var cmd = new SQLiteCommand("UPDATE ModbusRegisters SET Orders = @order WHERE RegisterID = @registerId", conn, transaction))
+            using (var cmd = new SQLiteCommand("UPDATE ModbusSignals SET Orders = @order WHERE Orders = @registerId", conn, transaction))
             {
                 cmd.Parameters.AddWithValue("@registerId", registerId);
                 cmd.Parameters.AddWithValue("@order", order);
@@ -556,7 +565,7 @@ namespace ChargeDebug.Service
         /// </summary>
         public static int GetMaxModbusRegisterOrder(SQLiteConnection conn, long dbcFileId)
         {
-            using (var cmd = new SQLiteCommand("SELECT MAX(Orders) FROM ModbusRegisters WHERE DbcFileId = @dbcFileId", conn))
+            using (var cmd = new SQLiteCommand("SELECT MAX(Orders) FROM ModbusSignals WHERE DbcFileId = @dbcFileId", conn))
             {
                 cmd.Parameters.AddWithValue("@dbcFileId", dbcFileId);
                 var result = cmd.ExecuteScalar();

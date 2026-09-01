@@ -1,6 +1,8 @@
 ﻿using ChargeDebug.Service;
 using DataModel;
+using DevExpress.Utils.Extensions;
 using DevExpress.XtraEditors;
+using DevExpress.XtraEditors.Controls;
 using DevExpress.XtraLayout;
 using DevExpress.XtraLayout.Utils;
 using System.Data.SQLite;
@@ -17,6 +19,15 @@ namespace ChargeDebug.Form
         private EmptySpaceItem middleSpaceItem;
         private EmptySpaceItem topSpaceItem;
 
+        private PanelControl panelControl3;
+        private PanelControl panelControl4;
+        private PanelControl panelControl5;
+
+        //顶部按钮控件
+        private SimpleButton btnStartTest;
+        private SimpleButton btnStopTest;
+        private LayoutControlGroup btnBarGroup;
+
         private List<EquipmentModel> surequipmentList = new List<EquipmentModel>();
         // 添加设备定时器字典
         private readonly Dictionary<int, System.Threading.Timer> _deviceTimers =
@@ -24,11 +35,15 @@ namespace ChargeDebug.Form
         //private static uint dcnumber = 0;        //总DC通道数
         //private static uint acnumber = 0;        //总AC通道数
         private static int channels = 0;        //总通道数
+        private string protocolType = "";         // 协议类型（CAN总线或MODBUS）
         private string dbcPath = "";
         // 在 Surveillance 类中
         private bool _enabled = true;
 
         private string _userPermissions;
+
+        // 全局唯一启动窗口实例
+        private static StartConfiguration _globalStartConfigForm;
 
         // 存储创建的模块引用
         private readonly List<Module> _modules = new List<Module>();
@@ -48,10 +63,56 @@ namespace ChargeDebug.Form
 
         private void InitializeUI()
         {
+            panelControl3 = new PanelControl();
+            panelControl3.Dock = DockStyle.Fill;
+            panelControl3.BorderStyle = BorderStyles.NoBorder;
+            panelControl3.Padding = new System.Windows.Forms.Padding(0);
+            panelControl3.Margin = new System.Windows.Forms.Padding(0);
+            this.Controls.Add(panelControl3);
+
+            panelControl4 = new PanelControl();
+            panelControl4.Dock = DockStyle.Fill;
+            panelControl4.BorderStyle = BorderStyles.NoBorder;
+            panelControl4.Padding = new System.Windows.Forms.Padding(0);
+            panelControl4.Margin = new System.Windows.Forms.Padding(0);
+            panelControl3.Controls.Add(panelControl4);
+
+            panelControl5 = new PanelControl();
+            panelControl5.Dock = DockStyle.Top;
+            panelControl5.Height = 50;
+            panelControl5.BorderStyle = BorderStyles.NoBorder;
+            panelControl5.Padding = new System.Windows.Forms.Padding(0);
+            panelControl5.Margin = new System.Windows.Forms.Padding(0);
+            panelControl3.Controls.Add(panelControl5);
+
+            btnStartTest = new SimpleButton
+            {
+                Text = "开始测试",
+                Width = 100,
+                Height = 30,
+                Location = new Point(600, 10),
+                Enabled = true
+            };
+            btnStopTest = new SimpleButton
+            {
+                Text = "停止测试",
+                Width = 100,
+                Height = 30,
+                Location = new Point(750, 10),
+                Enabled = true
+            };
+
+            btnStartTest.Click += btnStartTest_Click;
+            btnStopTest.Click += btnStopTest_Click;
+
+            panelControl5.Controls.Add(btnStartTest);
+            panelControl5.Controls.Add(btnStopTest);
+
+            // 2. 下方布局区域（填满剩余所有空间）
             layoutControl = new LayoutControl();
             layoutControl.Dock = DockStyle.Fill;
             layoutControl.AllowCustomization = false;
-            this.Controls.Add(layoutControl);
+            panelControl4.Controls.Add(layoutControl);
 
             //主组：垂直布局
             rootGroup = new LayoutControlGroup
@@ -66,8 +127,8 @@ namespace ChargeDebug.Form
             topSpaceItem = new EmptySpaceItem
             {
                 SizeConstraintsType = SizeConstraintsType.Custom,
-                MaxSize = new Size(0, 70),
-                MinSize = new Size(0, 70)
+                MaxSize = new Size(0, 30),
+                MinSize = new Size(0, 30)
             };
             rootGroup.Add(topSpaceItem);
 
@@ -79,6 +140,64 @@ namespace ChargeDebug.Form
                 DefaultLayoutType = LayoutType.Horizontal,
             };
             rootGroup.Add(horizontalGroup);
+        }
+
+        private async void btnStartTest_Click(object sender, EventArgs e)
+        {
+            var selectModules = GetAllModuleControls(this).Where(m => m.IsModuleSelected).ToList();
+            if (selectModules.Count == 0)
+            {
+                XtraMessageBox.Show("请先勾选需要启动的模块！");
+                return;
+            }
+
+            // ========== 只弹出一次全局配置窗口 ==========
+            if (_globalStartConfigForm == null || _globalStartConfigForm.IsDisposed)
+            {
+                _globalStartConfigForm = new StartConfiguration("批量启动配置", "统一参数设置", true);
+            }
+
+            if (_globalStartConfigForm.ShowDialog() != DialogResult.OK)
+                return;
+
+            // 把参数保存到静态全局变量，所有模块共用
+            Module.GlobalProtectionParam = _globalStartConfigForm.Configuration;
+
+            // ========== 循环执行所有选中模块启动 ==========
+            foreach (var mod in selectModules)
+            {
+                if (mod._hasDCChannel)
+                {
+                    await mod.RunStartWithSharedParam();
+                }
+                else if (mod._hasACChannel)
+                {
+                    await mod.RunACStartWithSharedParam();
+                }
+            }
+        }
+
+        private async void btnStopTest_Click(object sender, EventArgs e)
+        {
+            var selectModules = GetAllModuleControls(this).Where(m => m.IsModuleSelected).ToList();
+            if (selectModules.Count == 0)
+            {
+                XtraMessageBox.Show("未勾选任何模块！");
+                return;
+            }
+
+            // 全局只弹出一次确认
+            if (XtraMessageBox.Show("确定批量停止所有选中设备？", "停机确认",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            // 批量停机
+            foreach (var mod in selectModules)
+            {
+                mod.Stop(null, EventArgs.Empty);
+            }
         }
 
         private void DeviceConfig(List<EquipmentModel> equipmentList)
@@ -127,6 +246,11 @@ namespace ChargeDebug.Form
         {
             try
             {
+                if (btnStartTest != null) btnStartTest.Dispose();
+                if (btnStopTest != null) btnStopTest.Dispose();
+                btnStartTest = null;
+                btnStopTest = null;
+
                 // 释放中间空白项
                 if (middleSpaceItem != null)
                 {
@@ -177,6 +301,26 @@ namespace ChargeDebug.Form
             {
                 System.Diagnostics.Debug.WriteLine($"释放布局资源时出错: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 递归查找所有Module模块
+        /// </summary>
+        private List<Module> GetAllModuleControls(Control parent)
+        {
+            var list = new List<Module>();
+            foreach (Control c in parent.Controls)
+            {
+                if (c is Module mod)
+                {
+                    list.Add(mod);
+                }
+                else if (c.HasChildren)
+                {
+                    list.AddRange(GetAllModuleControls(c));
+                }
+            }
+            return list;
         }
 
         // 递归释放布局组中的项目
@@ -316,22 +460,31 @@ namespace ChargeDebug.Form
                 {
                     CreateDeviceTimers();
 
-                    // 步骤1：获取DbcFileId
+                    // 步骤1：获取DbcFileId + 协议类型
                     long dbcFileId = SQLite_Service.GetDbcFileId(conn, equipment.CommunicationProtocols);
+                    protocolType = SQLite_Service.GetProtocolType(conn, dbcFileId);
 
-                    // 步骤2：获取该DBC文件下的所有消息
-                    var messages = SQLite_Service.GetMessagesByDbc(conn, dbcFileId);
-                    //List<SignalInfo> allSignals = new List<SignalInfo>();
+                    List<SignalInfo> allCanSignals = new List<SignalInfo>();
+                    List<ModbusSignal> allModbusSignals = new List<ModbusSignal>();
 
-                    // 步骤3：收集所有信号
-                    List<SignalInfo> allSignals = new List<SignalInfo>();
-                    foreach (var message in messages)
+                    // 分协议加载，CAN/MODBUS独立数据表
+                    if (protocolType == "CAN总线")
                     {
-                        if (message.CANID != "0x" && !message.MessageName.StartsWith("调试"))
+                        // CAN逻辑不变，读取Messages/Signals表
+                        var messages = SQLite_Service.GetMessagesByDbc(conn, dbcFileId);
+                        foreach (var message in messages)
                         {
-                            var signals = SQLite_Service.GetSignalsByMessage(conn, message.MessageID);
-                            allSignals.AddRange(signals.Where(s => !string.IsNullOrEmpty(s.SystemName)));
+                            if (message.CANID != "0x" && !message.MessageName.StartsWith("调试"))
+                            {
+                                var signals = SQLite_Service.GetSignalsByMessage(conn, message.MessageID);
+                                allCanSignals.AddRange(signals.Where(s => !string.IsNullOrEmpty(s.SystemName)));
+                            }
                         }
+                    }
+                    else if (protocolType == "MODBUS")
+                    {
+                        // Modbus独立读取ModbusSignals表，不走CAN报文表
+                        allModbusSignals = SQLite_Service.GetModbusSignalsByDbc(conn, dbcFileId);
                     }
 
                     // 获取最大通道数（AC和DC中的较大值）
@@ -343,49 +496,51 @@ namespace ChargeDebug.Form
 
                     for (int i = 0; i < maxChannels; i++)
                     {
-                        List<SignalInfo> channelSignals = new List<SignalInfo>();
+                        List<SignalInfo> channelCanSignals = new List<SignalInfo>();
+                        List<ModbusSignal> channelModbusSignals = new List<ModbusSignal>();
 
                         acnum++;
                         dcnum++;
 
-                        // 处理DC通道信号（如果存在）
-                        if (i < equipment.DCNumber)
+                        if (protocolType == "CAN总线")
                         {
-                            foreach (var signal in allSignals)
+                            // 原有CAN通道信号拆分逻辑完全保留
+                            if (i < equipment.DCNumber)
                             {
-                                // 只处理DC相关信号
-                                if (signal.CANID.Contains("2X"))
+                                foreach (var signal in allCanSignals)
                                 {
-                                    var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("2X", "2" + (dcnum - 1));
-                                    channelSignals.Add(newSignal);
+                                    if (signal.CANID.Contains("2X"))
+                                    {
+                                        var newSignal = CloneSignal(signal);
+                                        newSignal.CANID = signal.CANID.Replace("2X", "2" + (dcnum - 1));
+                                        channelCanSignals.Add(newSignal);
+                                    }
+                                }
+                            }
+                            if (i < equipment.ACNumber)
+                            {
+                                foreach (var signal in allCanSignals)
+                                {
+                                    if (signal.CANID.Contains("AX"))
+                                    {
+                                        var newSignal = CloneSignal(signal);
+                                        newSignal.CANID = signal.CANID.Replace("AX", "A" + (acnum - 1));
+                                        channelCanSignals.Add(newSignal);
+                                    }
+                                }
+                            }
+                            foreach (var signal in allCanSignals)
+                            {
+                                if (!signal.CANID.Contains("AX") && !signal.CANID.Contains("2X"))
+                                {
+                                    channelCanSignals.Add(CloneSignal(signal));
                                 }
                             }
                         }
-
-                        // 处理AC通道信号
-                        if (i < equipment.ACNumber)
+                        else if (protocolType == "MODBUS")
                         {
-                            //int num = equipment.ACAddress;
-                            foreach (var signal in allSignals)
-                            {
-                                // 只处理AC相关信号
-                                if (signal.CANID.Contains("AX"))
-                                {
-                                    var newSignal = CloneSignal(signal);
-                                    newSignal.CANID = signal.CANID.Replace("AX", "A" + (acnum - 1));
-                                    channelSignals.Add(newSignal);
-                                }
-                            }
-                        }
-
-                        foreach (var signal in allSignals)
-                        {
-                            // 只处理共用信号相关信号
-                            if (!signal.CANID.Contains("AX") && !signal.CANID.Contains("2X"))
-                            {
-                                channelSignals.Add(CloneSignal(signal));
-                            }
+                            // Modbus无通道ID替换逻辑，全量信号直接给到当前通道
+                            channelModbusSignals = new List<ModbusSignal>(allModbusSignals);
                         }
 
                         // 创建模块（同时包含AC和DC通道）
@@ -394,9 +549,12 @@ namespace ChargeDebug.Form
                         title += i < equipment.ACNumber && i < equipment.DCNumber ? "/" : "";
                         title += i < equipment.DCNumber ? $"DC{dcnum}" : "";
 
+                        // 创建Module，新增Modbus信号入参区分协议
+                        var userControl = new Module(title, equipment, channelCanSignals, channelModbusSignals, protocolType, _userPermissions);
+
                         //var userControl = new Module($"{equipment.DeviceNumber}-通道{i + 1}")
                         // 传递所有必需参数：标题、设备号、通道索引、信号列表
-                        var userControl = new Module(title, equipment, channelSignals, _userPermissions);
+                        //var userControl = new Module(title, equipment, channelSignals, _userPermissions);
                         _modules.Add(userControl); // 存储引用
 
                         userControl.Margin = new System.Windows.Forms.Padding(0);
@@ -498,7 +656,7 @@ namespace ChargeDebug.Form
         private void SendDevicePeriodicMessage(object state)
         {
             // 检查模块发送状态
-            if (!_enabled)
+            if (!_enabled || protocolType != "CAN总线")
             {
                 // 使用日志代替消息框（线程安全）
                 //LogService.Log($"设备{((EquipmentModel)state).DeviceNumber}的时间同步发送被阻止");

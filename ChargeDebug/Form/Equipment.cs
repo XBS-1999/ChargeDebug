@@ -350,7 +350,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418" || form.CanType == "TCP-MODBUS")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
@@ -517,7 +517,7 @@ namespace ChargeDebug.Form
                                 cmd.Parameters.AddWithValue("@Whether", form.Whether);
 
                                 // 根据通讯类型设置相应的配置
-                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418")
+                                if (form.CanType == "ZCAN_CANETTCP" || form.CanType == "ZCAN_CANFDNET_200U_TCP" || form.CanType == "GCAN‑GT‑418" || form.CanType == "TCP-MODBUS")
                                 {
                                     cmd.Parameters.AddWithValue("@DeviceIP", form.DeviceIP);
                                     cmd.Parameters.AddWithValue("@DevicePort", form.DevicePort);
