@@ -1168,12 +1168,12 @@ namespace ChargeDebug.Form
                     else if (double.TryParse(_protectionParameters.UnderVoltage, out double underVoltage) &&
                              value < underVoltage)
                     {
-                        SendStopCommandIfNeeded();
-                        softwareprotection = true;
-                        string name = $"欠压保护: {value} > {underVoltage}";
-                        _activeFaults["软件_欠压"] = name;
-                        _faultDisplayQueue.Enqueue(name);
-                        LogService.Log(name);
+                        //SendStopCommandIfNeeded();
+                        //softwareprotection = true;
+                        //string name = $"欠压保护: {value} > {underVoltage}";
+                        //_activeFaults["软件_欠压"] = name;
+                        //_faultDisplayQueue.Enqueue(name);
+                        //LogService.Log(name);
                         //XtraMessageBox.Show($"电压异常: {value} < {underVoltage} (欠压保护值)");
                     }
                 }
