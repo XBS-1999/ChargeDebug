@@ -8,6 +8,7 @@ using DevExpress.XtraTab;
 using Log;
 using System.Data.SQLite;
 using System.IO;
+using System.Text;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -87,6 +88,11 @@ namespace ChargeDebug.Form
             contextMenu = new ContextMenuStrip();
 
             // 添加"导入参数"菜单项
+            ToolStripMenuItem readAll = new ToolStripMenuItem("一键读取");
+            readAll.Click += ReadAll_Click; // 关联点击事件
+            contextMenu.Items.Add(readAll);
+
+            // 添加"导入参数"菜单项
             ToolStripMenuItem importItem = new ToolStripMenuItem("导入参数");
             importItem.Click += BtnImport_Click; // 关联点击事件
             contextMenu.Items.Add(importItem);
@@ -105,8 +111,15 @@ namespace ChargeDebug.Form
         {
             try
             {
-                // 获取指定Tab页中的所有GroupControl
-                var groups = GetGroupControlsInTabPage(tabPage);
+                var allGroups = GetGroupControlsInTabPage(tabPage);
+                var groups = allGroups.Where(g => ExportGroupKeywords.Any(kw => g.Text.Contains(kw))).ToList();
+
+                if (groups.Count == 0)
+                {
+                    LogService.Log("当前Tab页未找到匹配的参数组（系统设置/控制参数设置/保护参数设置/PI参数设置/动态响应参数设定）");
+                    return false;
+                }
+
                 exportData.Clear();
 
                 // 遍历所有参数组
@@ -121,7 +134,7 @@ namespace ChargeDebug.Form
                     // 重试读取参数（最多3次）
                     bool readSuccess = false;
                     int retryCount = 0;
-                    while (!readSuccess && retryCount < 1)
+                    while (!readSuccess && retryCount < 3)
                     {
                         readSuccess = await ReadParameters(group);
                         retryCount++;
@@ -150,7 +163,7 @@ namespace ChargeDebug.Form
                 }
 
                 // 写入CSV文件
-                using (StreamWriter writer = new StreamWriter(filePath))
+                using (StreamWriter writer = new StreamWriter(filePath, false, Encoding.UTF8))
                 {
                     // 写入标题行
                     writer.WriteLine("Group,Signal,Value");
@@ -211,18 +224,28 @@ namespace ChargeDebug.Form
                 }
 
                 // 获取指定Tab页中的所有GroupControl
-                var groups = GetGroupControlsInTabPage(tabPage);
+                var allGroups = GetGroupControlsInTabPage(tabPage);
+                var groups = allGroups.Where(g => ExportGroupKeywords.Any(kw => g.Text.Contains(kw))).ToList();
 
-                // 应用参数值
+                if (groups.Count == 0)
+                {
+                    LogService.Log("当前Tab页未找到匹配的参数组（系统设置/控制参数设置/保护参数设置/PI参数设置/动态响应参数设定），导入终止");
+                    return false;
+                }
+
+                // 应用参数值到文本框
                 foreach (var group in groups)
                 {
                     string groupTitle = group.Text;
-                    if (!importData.ContainsKey(groupTitle)) continue;
+                    if (!importData.ContainsKey(groupTitle))
+                    {
+                        LogService.Log($"CSV中未找到参数组 [{groupTitle}]，跳过");
+                        continue;
+                    }
 
                     var groupInfo = group.Tag as GroupInfo;
                     if (groupInfo == null) continue;
 
-                    // 设置参数值到文本框
                     for (int i = 0; i < groupInfo.Signals.Count; i++)
                     {
                         string signalName = groupInfo.Signals[i].SignalName;
@@ -241,7 +264,7 @@ namespace ChargeDebug.Form
                     }
                 }
 
-                // 写入所有参数（重试机制）
+                // 写入所有参数（重试机制，最多3次）
                 bool allSuccess = true;
                 foreach (var group in groups)
                 {
@@ -250,14 +273,15 @@ namespace ChargeDebug.Form
 
                     bool writeSuccess = false;
                     int retryCount = 0;
-                    while (!writeSuccess && retryCount < 1)
+                    // 已修复为 3 次
+                    while (!writeSuccess && retryCount < 3)
                     {
                         writeSuccess = await WriteParameters(group);
                         retryCount++;
                         if (!writeSuccess)
                         {
                             LogService.Log($"第{retryCount}次写入{groupTitle}失败，重试中...");
-                            await Task.Delay(200); // 延迟200ms后重试
+                            await Task.Delay(200);
                         }
                     }
 
@@ -298,32 +322,82 @@ namespace ChargeDebug.Form
             return groups;
         }
 
-        // ==================== 获取所有参数组 ====================
-        private List<GroupControl> GetAllGroupControls()
+        /// <summary>
+        /// 根据Name获取TabPage内指定GroupControl（浅遍历，和原有逻辑一致）
+        /// </summary>
+        /// <param name="tabPage">标签页</param>
+        /// <param name="groupName">GroupControl.Name</param>
+        /// <returns>找不到返回null</returns>
+        private GroupControl GetSpecGroupByName(XtraTabPage tabPage, string groupName)
         {
-            var groups = new List<GroupControl>();
+            var allGroups = GetGroupControlsInTabPage(tabPage);
+            return allGroups.FirstOrDefault(g => g.Name == groupName);
+        }
 
-            // 遍历所有Tab页
-            foreach (XtraTabPage tabPage in mainTabControl.TabPages)
+        // ==================== 修改一键读取按钮事件 ====================
+        private async void ReadAll_Click(object? sender, EventArgs e)
+        {
+            try
             {
-                // 获取布局控件
-                var layoutControl = tabPage.Controls.OfType<LayoutControl>().FirstOrDefault();
-                if (layoutControl == null) continue;
-
-                // 获取所有GroupControl
-                foreach (Control control in layoutControl.Controls)
+                // 获取当前选中的Tab页
+                XtraTabPage currentTab = mainTabControl.SelectedTabPage;
+                if (currentTab == null)
                 {
-                    if (control is GroupControl group)
+                    ShowToast("请选择一个通道", Color.Red);
+                    return;
+                }
+
+                // 获取指定Tab页中的所有GroupControl
+                var groups = GetGroupControlsInTabPage(currentTab);
+
+                // 遍历所有参数组
+                foreach (var group in groups)
+                {
+                    var groupInfo = group.Tag as GroupInfo;
+                    if (groupInfo == null) continue;
+
+                    string groupTitle = group.Text;
+                    var groupData = new Dictionary<string, string>();
+
+                    // 重试读取参数（最多3次）
+                    bool readSuccess = false;
+                    int retryCount = 0;
+                    while (!readSuccess && retryCount < 1)
                     {
-                        groups.Add(group);
+                        readSuccess = await ReadParameters(group);
+                        retryCount++;
+                        if (!readSuccess)
+                        {
+                            LogService.Log($"第{retryCount}次读取{groupTitle}失败，重试中...");
+                            await Task.Delay(200); // 延迟200ms后重试
+                        }
+                    }
+
+                    if (!readSuccess)
+                    {
+                        LogService.Log($"{groupTitle}读取失败，跳过该组");
+                        continue;
                     }
                 }
             }
-
-            return groups;
+            catch (Exception ex)
+            {
+                ShowToast("参数导出失败", Color.Red);
+                LogService.Log($"导出失败: {ex.Message}");
+            }
         }
 
         // ==================== 修改导出按钮事件 ====================
+
+        // ==================== 允许导出的参数组关键词白名单 ====================
+        private readonly string[] ExportGroupKeywords = new[]
+        {
+            "系统设置",
+            "控制参数设置",
+            "保护参数设置",
+            "PI参数设置",
+            "动态响应参数设定"
+        };
         private async void BtnExport_Click(object? sender, EventArgs e)
         {
             try
