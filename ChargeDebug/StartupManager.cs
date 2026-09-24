@@ -276,6 +276,47 @@ namespace ChargeDebug
                         }
                         break;
 
+                    case "恒母线电流运行":
+                        data[0] = 0x03;
+                        data[3] = 0x00;
+                        data[4] = 0x00;
+                        data[5] = 0x00;
+                        data[6] = 0x00;
+                        data[7] = 0x00;
+                        if (configData.DynamicParameters.TryGetValue("ConstantBusCurrent", out string? busCurrentValueStr) &&
+                                double.TryParse(busCurrentValueStr, out double busCurrentValue))
+                        {
+                            // 控制参数1：母线电流，单位A，放大10倍存入data[1..2]
+                            int controlparameters1 = (int)(busCurrentValue * 10);
+                            data[1] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                            data[2] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+                        }
+                        break;
+
+                    case "离网运行":
+                        data[0] = 0x04;
+                        data[5] = 0x00;
+                        data[6] = 0x00;
+                        data[7] = 0x00;
+                        // 控制参数1：离网电压，单位V，放大10倍存入data[1..2]
+                        if (configData.DynamicParameters.TryGetValue("OffGridVoltage", out string? offGridVoltageStr) &&
+                                double.TryParse(offGridVoltageStr, out double offGridVoltage))
+                        {
+                            int controlparameters1 = (int)(offGridVoltage * 10);
+                            data[1] = (byte)(controlparameters1 & 0xFF);           // 最低有效字节
+                            data[2] = (byte)((controlparameters1 >> 8) & 0xFF);    // 次低有效字节
+
+                            // 控制参数2：离网频率，单位Hz，放大10倍存入data[3..4]
+                            if (configData.DynamicParameters.TryGetValue("OffGridFrequency", out string? offGridFreqStr) &&
+                                    double.TryParse(offGridFreqStr, out double offGridFreq))
+                            {
+                                int controlparameters2 = (int)(offGridFreq * 10);
+                                data[3] = (byte)(controlparameters2 & 0xFF);
+                                data[4] = (byte)((controlparameters2 >> 8) & 0xFF);
+                            }
+                        }
+                        break;
+
                     default:
                         data[0] = 0x00;
                         data[1] = 0x00;
