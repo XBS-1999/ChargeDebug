@@ -2773,6 +2773,7 @@ namespace ChargeDebug.Form
                             // 新增
                             signal.StartBit,
                             signal.Length,
+
                             signal.SystemVariableName,
                             signal.Unit,
                             signal.ByteOrder,
