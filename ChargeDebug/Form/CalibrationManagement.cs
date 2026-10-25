@@ -2,6 +2,7 @@
 using ClosedXML.Excel;
 using CommunicationProtocols;
 using DataModel;
+using DevExpress.CodeParser;
 using DevExpress.DataProcessing;
 using DevExpress.Pdf.Native.BouncyCastle.Asn1.Tsp;
 using DevExpress.Utils;
@@ -13,10 +14,13 @@ using DevExpress.XtraTreeList;
 using DevExpress.XtraTreeList.Columns;
 using DevExpress.XtraTreeList.Nodes;
 using Log;
+using Spire.Xls; // 新增PDF转换所需命名空间
 using System.Data;
 using System.Data.SQLite;
-using System.IO;
+using System.Drawing.Printing;
+using System.IO;  // 新增内存流/文件操作所需命名空间
 using System.Text;
+using Size = System.Drawing.Size;
 
 #pragma warning disable
 namespace ChargeDebug.Form
@@ -942,21 +946,45 @@ namespace ChargeDebug.Form
                 // 创建保存文件对话框
                 using (SaveFileDialog saveFileDialog = new SaveFileDialog())
                 {
-                    saveFileDialog.Filter = "Excel 文件|*.xlsx|CSV 文件|*.csv";
+                    saveFileDialog.Filter = "Excel 文件|*.xlsx|CSV 文件|*.csv|PDF文档|*.pdf";
                     saveFileDialog.Title = "导出校准数据";
                     saveFileDialog.FileName = $"{deviceNumber}_校准数据_{DateTime.Now:yyyyMMdd_HHmmss}";
 
                     if (saveFileDialog.ShowDialog() == DialogResult.OK)
                     {
+                        string ext = Path.GetExtension(saveFileDialog.FileName).ToLower();
+                        string savePath = saveFileDialog.FileName;
+
+                        switch (ext)
+                        {
+                            case ".xlsx":
+                                ExportToExcel(saveFileDialog.FileName);
+                                break;
+                            case ".csv":
+                                
+                                break;
+                            case ".pdf":
+                                string tempExcel = @"C:\Users\admin\Desktop\测试\1234.xlsx";
+                                //ExportToPdf(tempExcel, savePath, keepExcel: true);
+                                // 将此行：
+                                // CreateExcelToPdf(tempExcel, savePath, string.Empty);
+                                // 修改为：
+                                string errMsg = string.Empty;
+                                CreateExcelToPdf(tempExcel, savePath, ref errMsg);
+                                // 只导出PDF，自动删除临时Excel
+                                //ExportToExcel(Path.ChangeExtension(savePath, ".xlsx"), savePath, keepExcel: false);
+                                break;
+                        }
+
                         // 根据文件类型选择导出方式
-                        if (Path.GetExtension(saveFileDialog.FileName).ToLower() == ".xlsx")
-                        {
-                            ExportToExcel(saveFileDialog.FileName);
-                        }
-                        else
-                        {
-                            //ExportToCsv(saveFileDialog.FileName);
-                        }
+                        //if (Path.GetExtension(saveFileDialog.FileName).ToLower() == ".xlsx")
+                        //{
+                        //    ExportToExcel(saveFileDialog.FileName);
+                        //}
+                        //else
+                        //{
+                        //    //ExportToCsv(saveFileDialog.FileName);
+                        //}
 
                         XtraMessageBox.Show("数据导出成功!");
                     }
@@ -5375,6 +5403,281 @@ namespace ChargeDebug.Form
                 throw new Exception($"导出到Excel失败: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// 导出数据到Excel，可选同时导出PDF
+        /// </summary>
+        /// <param name="filePath">Excel保存路径</param>
+        /// <param name="pdfPath">PDF保存路径，传null则不导出PDF</param>
+        /// <param name="keepExcel">导出PDF时是否保留Excel源文件</param>
+        private void ExportToExcel(string filePath, string pdfPath = null, bool keepExcel = true)
+        {
+            try
+            {
+                using (var workbook = new XLWorkbook())
+                {
+                    // 获取所有树节点
+                    var channelNodes = treeList.Nodes.Cast<TreeListNode>().ToList();
+
+                    var worksheet = workbook.Worksheets.Add($"电压电流校准数据（电子档）");
+
+                    // 设置整个工作表的默认字体为宋体，11号，内容居中，格式常规
+                    worksheet.Style.Font.FontName = "宋体";
+                    worksheet.Style.Font.FontSize = 11;
+                    worksheet.RowHeight = 20;
+                    worksheet.ColumnWidth = 14;
+                    worksheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    worksheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                    worksheet.Style.NumberFormat.Format = "General"; // 设置格式为常规
+
+                    // 设置标题
+                    worksheet.Cell(1, 1).Value = $"蓄电池充放电检测仪--附件：电压电流校准数据";
+                    worksheet.Row(1).Height = 40;
+                    worksheet.Row(1).Style.Font.FontSize = 20;
+                    worksheet.Range("A1:F1").Merge(); // 合并标题行
+                    worksheet.Row(1).Style.Font.Bold = true;
+
+                    int currentRow = 2; // 当前行指针
+                    int count = 0;
+                    foreach (var channelGroup in channelNodes)
+                    {
+                        count++;
+                        // 获取信号信息 - 从第一个节点获取设备名称和信号名称
+                        string deviceName = channelGroup.GetValue("DeviceName")?.ToString() ?? "";
+                        string signaltype = channelGroup.GetValue("SignalType")?.ToString() ?? "";
+                        string signalName = channelGroup.GetValue("SignalName")?.ToString() ?? "";
+                        string ratingVoltage = channelGroup.GetValue("RatingVoltageCurrent")?.ToString() ?? "";
+                        string scalefactor = channelGroup.GetValue("ScaleFactor")?.ToString() ?? "";
+                        string zerofactor = channelGroup.GetValue("ZeroFactor")?.ToString() ?? "";
+
+                        // 通道标题
+                        worksheet.Cell(currentRow, 1).Value = $"{deviceName}-{signalName}";
+                        worksheet.Range(currentRow, 1, currentRow, 4).Merge(); // 合并通道标题
+
+                        worksheet.Cell(currentRow, 5).Value = "额定值";
+                        worksheet.Cell(currentRow, 6).Value = "比例零点系数";
+                        worksheet.Column(6).Width = 25;
+
+                        // 子标题
+                        worksheet.Cell(currentRow + 1, 1).Value = "校准前";
+                        worksheet.Range(currentRow + 1, 1, currentRow + 1, 2).Merge(); // 合并校准前
+
+                        worksheet.Cell(currentRow + 1, 3).Value = "校准后";
+                        worksheet.Range(currentRow + 1, 3, currentRow + 1, 4).Merge(); // 合并校准后
+
+                        worksheet.Cell(currentRow + 1, 5).Value = ratingVoltage;
+                        //worksheet.Range(currentRow + 1, 5, currentRow + 1, 6).Merge(); // 合并额定电压和测试结果
+
+                        worksheet.Cell(currentRow + 1, 6).Value = $"K:{scalefactor} B:{zerofactor}";
+
+                        // 列标题
+                        worksheet.Cell(currentRow + 2, 1).Value = "设备采样值";
+                        worksheet.Cell(currentRow + 2, 2).Value = "实际输入值";
+                        worksheet.Cell(currentRow + 2, 3).Value = "设备采样值";
+                        worksheet.Cell(currentRow + 2, 4).Value = "实际输入值";
+                        worksheet.Cell(currentRow + 2, 5).Value = "校准精度";
+                        worksheet.Cell(currentRow + 2, 6).Value = "测试结果";
+
+                        // 设置表头样式
+                        var headerRange = worksheet.Range(currentRow, 1, currentRow + 2, 6);
+                        headerRange.Style.Font.Bold = true;
+
+                        // 获取该通道的所有校准点数据
+                        int dataStartRow = currentRow + 3;
+                        int dataRow = dataStartRow;
+
+                        foreach (TreeListNode node in channelGroup.Nodes)
+                        {
+                            string[] beforeParts;
+                            string[] afterParts;
+                            string accuracy = node.GetValue("CalibrationAccuracy")?.ToString() ?? "";
+                            string result = node.GetValue("CalibrationResult")?.ToString() ?? "";
+
+                            string beforeData = node.GetValue("BeforeCalibration")?.ToString() ?? "";
+                            beforeParts = beforeData.Split('/');
+
+                            string afterData = node.GetValue("AfterCalibration")?.ToString() ?? "";
+                            afterParts = afterData.Split('/');
+
+                            if (beforeParts.Length == 2 && afterParts.Length == 2)
+                            {
+                                worksheet.Cell(dataRow, 1).Value = beforeParts[0];
+                                worksheet.Cell(dataRow, 2).Value = beforeParts[1];
+                                worksheet.Cell(dataRow, 3).Value = afterParts[0];
+                                worksheet.Cell(dataRow, 4).Value = afterParts[1];
+                                worksheet.Cell(dataRow, 5).Value = accuracy;
+                                worksheet.Cell(dataRow, 6).Value = result;
+                                dataRow++;
+                            }
+                        }
+
+                        // 更新当前行指针，增加空行
+                        if (count != channelNodes.Count)
+                        {
+                            currentRow = dataRow + 1;
+                            worksheet.Range(dataRow, 1, dataRow, 6).Merge(); // 合并
+                        }
+
+                        // 设置数据区域边框
+                        if (dataRow > 1)
+                        {
+                            var dataRange = worksheet.Range(2, 1, dataRow - 1, 6);
+                            dataRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                            dataRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                        }
+                    }
+
+                    // 保存文件
+                    workbook.SaveAs(filePath);
+
+                    // ========== 新增：Excel一键转PDF逻辑 ==========
+                    if (!string.IsNullOrEmpty(pdfPath))
+                    {
+                        // 加载刚生成的Excel文件
+                        Workbook pdfWorkbook = new Workbook();
+                        pdfWorkbook.LoadFromFile(filePath);
+                        Worksheet pdfSheet = pdfWorkbook.Worksheets[0];
+
+                        // 打印参数设置（A4自适应宽度，和Excel打印效果完全一致）
+                        PageSetup pageSetup = pdfSheet.PageSetup;
+                        pageSetup.PaperSize = PaperSizeType.PaperA4;
+                        pageSetup.FitToPagesWide = 1;   // 表格缩放到1页宽，不会横向分页
+                        pageSetup.FitToPagesTall = 0;   // 高度自动分页
+                        pageSetup.Orientation = PageOrientationType.Portrait;
+
+                        //页边距，单位：英寸
+                        pageSetup.TopMargin = 0.8;
+                        pageSetup.BottomMargin = 0.8;
+                        pageSetup.LeftMargin = 0.6;
+                        pageSetup.RightMargin = 0.6;
+
+                        // 导出PDF文件
+                        pdfWorkbook.SaveToFile(pdfPath, FileFormat.PDF);
+                        pdfWorkbook.Dispose();
+
+                        // 如果不需要保留Excel源文件，自动删除临时Excel
+                        if (!keepExcel && File.Exists(filePath))
+                        {
+                            File.Delete(filePath);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"导出失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 读取已有Excel文件，转换为PDF
+        /// </summary>
+        /// <param name="filePath">源Excel(xlsx)完整路径</param>
+        /// <param name="pdfPath">输出PDF完整路径</param>
+        /// <param name="keepExcel">是否保留原Excel文件</param>
+        private void ExportToPdf(string filePath, string pdfPath, bool keepExcel = true)
+        {
+            try
+            {
+                if (!File.Exists(filePath))
+                {
+                    throw new FileNotFoundException("源Excel文件不存在", filePath);
+                }
+                if (string.IsNullOrWhiteSpace(pdfPath))
+                {
+                    throw new ArgumentException("pdfPath不能为空");
+                }
+
+                Workbook pdfWorkbook = new Workbook();
+                pdfWorkbook.LoadFromFile(filePath);
+                Worksheet pdfSheet = pdfWorkbook.Worksheets[0];
+
+                PageSetup pageSetup = pdfSheet.PageSetup;
+                pageSetup.PaperSize = PaperSizeType.PaperA4;
+                pageSetup.FitToPagesWide = 1;
+                pageSetup.FitToPagesTall = 0;
+                pageSetup.Orientation = PageOrientationType.Portrait;
+
+                // 英寸
+                pageSetup.TopMargin = 0.8;
+                pageSetup.BottomMargin = 0.8;
+                pageSetup.LeftMargin = 0.6;
+                pageSetup.RightMargin = 0.6;
+
+                pdfWorkbook.SaveToFile(pdfPath, FileFormat.PDF);
+                pdfWorkbook.Dispose();
+
+                if (!keepExcel && File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"导出失败: {ex.Message}", ex);
+            }
+        }
+
+        public bool CreateExcelToPdf(string xlsfile, string pdffile, ref string errMsg)
+        {
+            errMsg = string.Empty;
+            Workbook workbook = null;
+            string tempExcel = string.Empty;
+
+            try
+            {
+                // 校验
+                if (string.IsNullOrWhiteSpace(xlsfile))
+                {
+                    errMsg = "源Excel文件路径不能为空";
+                    return false;
+                }
+                if (!File.Exists(xlsfile))
+                {
+                    errMsg = $"源文件不存在：{xlsfile}";
+                    return false;
+                }
+
+                workbook = new Workbook();
+
+                // ========== 核心修复1：关闭自动计算，避免公式引擎空引用 ==========
+                //workbook.CalculationMode = ExcelCalculationMode.Manual;
+
+                // ========== 核心修复2：显式指定2007格式，不要用2010/2016 ==========
+                // 12.2版本对高版本标识的解析有缺陷，Version2007兼容性最好
+                workbook.LoadFromFile(xlsfile);
+
+                foreach (Worksheet sheet in workbook.Worksheets)
+                {
+                    sheet.PageSetup.PaperSize = PaperSizeType.PaperA4;
+                    sheet.PageSetup.Orientation = PageOrientationType.Landscape;
+                    sheet.PageSetup.FitToPagesWide = 1;
+                    sheet.PageSetup.FitToPagesTall = 0;
+
+                    sheet.PageSetup.LeftMargin = 0.5;
+                    sheet.PageSetup.RightMargin = 0.5;
+                    sheet.PageSetup.TopMargin = 0.3;
+                    sheet.PageSetup.BottomMargin = 0.3;
+                }
+
+                string pdfDir = Path.GetDirectoryName(pdffile);
+                if (!Directory.Exists(pdfDir))
+                    Directory.CreateDirectory(pdfDir);
+
+                workbook.SaveToFile(pdffile, Spire.Xls.FileFormat.PDF);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errMsg = $"CreateExcelToPdf异常：{ex.Message}";
+                return false;
+            }
+            finally
+            {
+                workbook?.Dispose();
+            }
+        }
+
 
         /// <summary>
         /// 重置进度显示

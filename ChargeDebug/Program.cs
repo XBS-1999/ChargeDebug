@@ -4,6 +4,8 @@ using DevExpress.XtraEditors;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using QuestPDF;
+using QuestPDF.Infrastructure;
 
 namespace ChargeDebug
 {
@@ -16,6 +18,8 @@ namespace ChargeDebug
         [STAThread]
         static void Main()
         {
+            //Settings.License = LicenseType.Community;
+
             // 版本号：V2.0.0
             // ===== 初始化阶段 =====
             // 1. 必须在创建任何窗口之前设置兼容文本渲染
