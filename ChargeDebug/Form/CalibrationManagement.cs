@@ -1267,7 +1267,7 @@ namespace ChargeDebug.Form
                         // 使用USB-SCPI管理器启动设备
                         if (equipment.DeviceName == "GVM-9102")
                         {
-                            bool usbscpi = GwinstekGVM9102_Communicator.Instance.Connect();
+                            bool usbscpi = GwinstekGVM9102_Communicator.Instance.Connect(equipment.ComPort);
                             if (!usbscpi)
                             {
                                 return false;
