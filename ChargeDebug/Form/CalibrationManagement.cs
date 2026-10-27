@@ -1295,7 +1295,7 @@ namespace ChargeDebug.Form
                         // 使用USB-SCPI管理器启动设备
                         if (equipment.DeviceName == "GVM-9102")
                         {
-                            bool usbscpi = GwinstekGVM9102_Communicator.Instance.Connect();
+                            bool usbscpi = GwinstekGVM9102_CDCCommunicator.Instance.Connect(equipment.ComPort);
                             if (!usbscpi)
                             {
                                 return false;
@@ -4772,7 +4772,7 @@ namespace ChargeDebug.Form
                     double voltageValue = 0.0;
                     if (voltmeter.DeviceName == "GVM-9102")
                     {
-                        voltageValue = GwinstekGVM9102_Communicator.Instance.MeasureDCVoltage(measurementTimeMs:2000);
+                        voltageValue = GwinstekGVM9102_CDCCommunicator.Instance.MeasureDCVoltage(measurementTimeMs:2000);
                     }
                     else if (voltmeter.DeviceName == "KEYSIGHT-34465A")
                     {
@@ -5850,7 +5850,7 @@ namespace ChargeDebug.Form
                         // USB-SCPI设备断开连接
                         if (equipment.DeviceName == "GVM-9102")
                         {
-                            GwinstekGVM9102_Communicator.Instance.Disconnect();
+                            GwinstekGVM9102_CDCCommunicator.Instance.Disconnect();
                         }
                         else if (equipment.DeviceName == "KEYSIGHT-34465A")
                         {

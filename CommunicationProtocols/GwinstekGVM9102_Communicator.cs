@@ -1,767 +1,336 @@
-﻿using NationalInstruments.Visa;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO.Ports;
 using System.Linq;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Text;
+using System.Threading;
 
 #pragma warning disable
 namespace CommunicationProtocols
 {
-    public sealed class GwinstekGVM9102_Communicator : IDisposable
+    /// <summary>
+    /// GVM-9102 USB CDC 通讯类（虚拟串口，不依赖 NI-VISA）
+    /// Connect 传端口号（如 "COM5"）；传 null 自动扫描并 *IDN? 识别。
+    /// 前置：后面板 USB Device 口(Type B)接电脑、USB-Protocol=USBCDC、CDC 驱动已装。
+    /// </summary>
+    public sealed class GwinstekGVM9102_CDCCommunicator : IDisposable
     {
-        private static readonly Lazy<GwinstekGVM9102_Communicator> _instance =
-            new Lazy<GwinstekGVM9102_Communicator>(() => new GwinstekGVM9102_Communicator());
+        private static readonly Lazy<GwinstekGVM9102_CDCCommunicator> _instance =
+            new Lazy<GwinstekGVM9102_CDCCommunicator>(() => new GwinstekGVM9102_CDCCommunicator());
 
-        private MessageBasedSession _mbSession;
-        private bool _isConnected = false;
-        private bool _disposed = false;
+        private SerialPort _serialPort;
+        private bool _isConnected;
+        private bool _disposed;
+        private readonly object _syncRoot = new object();
 
-        // 私有构造函数防止外部实例化
-        private GwinstekGVM9102_Communicator()
+        private const int DefaultBaudRate = 115200;
+        private const string Eol = "\r\n";          // 固纬 EOL = CR+LF
+        private const int OpenDelayMs = 200;
+        private const int QueryRetryCount = 3;
+
+        private GwinstekGVM9102_CDCCommunicator() { }
+        public static GwinstekGVM9102_CDCCommunicator Instance => _instance.Value;
+        public Action<string> Log { get; set; }
+        public bool IsConnected => _isConnected && _serialPort != null && _serialPort.IsOpen;
+
+        #region 连接管理
+        public bool Connect(string portName = null)
         {
-            // 初始化代码
-        }
-
-        /// <summary>
-        /// 获取GwinstekGVM9102_Communicator的单例实例
-        /// </summary>
-        public static GwinstekGVM9102_Communicator Instance
-        {
-            get { return _instance.Value; }
-        }
-
-        #region 连接管理方法
-
-        /// <summary>
-        /// 连接到固纬 GVM-9102 高压表
-        /// </summary>
-        /// <param name="resourceString">VISA资源字符串，如果为null则自动检测</param>
-        /// <returns>连接成功返回true</returns>
-        public bool Connect(string resourceString = null)
-        {
-            try
+            lock (_syncRoot)
             {
-                if (_isConnected)
-                    Disconnect();
-
-                using (ResourceManager rmSession = new ResourceManager())
+                try
                 {
-                    // 如果没有指定资源字符串，尝试自动检测
-                    if (string.IsNullOrEmpty(resourceString))
+                    if (IsConnected) Disconnect();
+                    if (string.IsNullOrEmpty(portName))
                     {
-                        // 固纬 GVM-9102 的标识符
-                        string[] searchPatterns = {
-                            "USB?*::0x2184::0x005A?*::INSTR", // 固纬典型USB VID/PID
-                            "TCPIP?*::INSTR",
-                            "ASRL?*::INSTR"
-                        };
-
-                        foreach (string pattern in searchPatterns)
-                        {
-                            try
-                            {
-                                string[] resources = rmSession.Find(pattern).ToArray();
-                                if (resources.Length > 0)
-                                {
-                                    resourceString = resources[0];
-                                    break;
-                                }
-                            }
-                            catch
-                            {
-                                continue;
-                            }
-                        }
-
-                        if (string.IsNullOrEmpty(resourceString))
-                        {
-                            throw new Exception("未找到GVM-9102设备，请确保高压表已连接并打开电源");
-                        }
+                        portName = AutoDetectPort();
+                        if (portName == null)
+                            throw new Exception(
+                                "未找到 GVM-9102 CDC 串口：检查后面板 USB Device 口(Type B)、" +
+                                "USB-Protocol=USBCDC、CDC 驱动已装；或手动传端口号 Connect(\"COM5\")");
                     }
-
-                    // 打开会话
-                    _mbSession = (MessageBasedSession)rmSession.Open(resourceString);
-                    _mbSession.TimeoutMilliseconds = 10000; // 设置超时时间为10秒
-
-                    // 清空缓冲区
-                    _mbSession.Clear();
-
-                    // 验证设备
-                    _mbSession.RawIO.Write("*IDN?\n");
-                    string response = _mbSession.RawIO.ReadString().Trim();
-
-                    if (response.Contains("GVM9102") || response.Contains("GWInstek"))
+                    _serialPort = new SerialPort(portName, DefaultBaudRate, Parity.None, 8, StopBits.One)
                     {
-                        _isConnected = true;
-                        InitializeMeter();
-                        return true;
-                    }
-                    else
+                        Encoding = Encoding.ASCII,
+                        NewLine = "\n",
+                        ReadTimeout = 5000,
+                        WriteTimeout = 3000
+                    };
+                    _serialPort.Open();
+                    _serialPort.DiscardInBuffer();
+                    _serialPort.DiscardOutBuffer();
+                    Thread.Sleep(OpenDelayMs);          // 等 CDC 驱动就绪
+
+                    string idn = QueryWithRetry("*IDN?");
+                    if (!idn.Contains("GVM9102") && !idn.Contains("GWInstek"))
                     {
                         Disconnect();
-                        throw new Exception($"连接的设备不是固纬 GVM-9102。设备响应: {response}");
+                        throw new Exception($"该串口不是固纬 GVM-9102，设备响应: {idn}");
                     }
+                    _isConnected = true;
+                    Log?.Invoke($"已连接 {portName}，设备: {idn}");
+                    InitializeMeter();
+                    return true;
                 }
-            }
-            catch (Exception ex)
-            {
-                _isConnected = false;
-                throw new Exception($"连接失败: {ex.Message}");
+                catch (Exception ex)
+                {
+                    Disconnect();
+                    Log?.Invoke($"连接失败: {ex.Message}");
+                    throw new Exception($"连接失败: {ex.Message}");
+                }
             }
         }
 
-        /// <summary>
-        /// 断开与高压表的连接
-        /// </summary>
+        private string AutoDetectPort()
+        {
+            foreach (string port in SerialPort.GetPortNames())
+            {
+                SerialPort probe = null;
+                try
+                {
+                    probe = new SerialPort(port, DefaultBaudRate, Parity.None, 8, StopBits.One)
+                    { Encoding = Encoding.ASCII, NewLine = "\n", ReadTimeout = 1500, WriteTimeout = 1500 };
+                    probe.Open();
+                    probe.DiscardInBuffer();
+                    probe.Write("*IDN?" + Eol);
+                    string resp = probe.ReadLine();
+                    if (resp.Contains("GVM9102") || resp.Contains("GWInstek"))
+                        return port;
+                }
+                catch { }
+                finally { if (probe != null) { try { probe.Close(); } catch { } probe.Dispose(); } }
+            }
+            return null;
+        }
+
         public void Disconnect()
         {
-            try
+            lock (_syncRoot)
             {
-                if (_mbSession != null)
+                if (_serialPort != null)
                 {
-                    _mbSession.Dispose();
-                    _mbSession = null;
+                    try { _serialPort.Close(); } catch { }
+                    _serialPort.Dispose();
+                    _serialPort = null;
                 }
                 _isConnected = false;
             }
-            catch (Exception ex)
+        }
+        #endregion
+
+        #region SCPI 基础
+        public void SendCommand(string command)
+        {
+            if (!IsConnected) throw new Exception("未连接到高压表");
+            lock (_syncRoot)
             {
-                throw new Exception($"断开连接时出错: {ex.Message}");
+                try { _serialPort.Write(command + Eol); }
+                catch (Exception ex) { throw new Exception($"发送命令失败: {ex.Message}, 命令: {command}"); }
             }
         }
 
-        /// <summary>
-        /// 检查是否已连接
-        /// </summary>
-        public bool IsConnected
+        public string Query(string query)
         {
-            get { return _isConnected && _mbSession != null; }
+            if (!IsConnected) throw new Exception("未连接到高压表");
+            lock (_syncRoot)
+            {
+                try { return QueryWithRetry(query); }
+                catch (Exception ex) { throw new Exception($"查询失败: {ex.Message}, 查询: {query}"); }
+            }
         }
 
+        private string QueryWithRetry(string query)
+        {
+            Exception lastEx = null;
+            for (int i = 0; i < QueryRetryCount; i++)
+            {
+                try
+                {
+                    _serialPort.DiscardInBuffer();
+                    _serialPort.Write(query + Eol);
+                    return _serialPort.ReadLine().Trim();
+                }
+                catch (Exception ex) { lastEx = ex; Thread.Sleep(100); }
+            }
+            throw new Exception($"查询失败(重试{QueryRetryCount}次): {lastEx?.Message}");
+        }
         #endregion
 
-        #region 设备初始化与配置
-
-        // 初始化高压表设置
+        #region 设备初始化
         private void InitializeMeter()
         {
             try
             {
-                // 重置设备到默认状态
+                try { SendCommand("SYST:REM"); } catch { }
                 SendCommand("*RST");
-                System.Threading.Thread.Sleep(1500); // 等待重置完成
-
-                // 清除状态
+                Thread.Sleep(1500);
                 SendCommand("*CLS");
-
-                // 设置ASCII格式数据
                 SendCommand(":FORMAT:DATA ASCII");
-
-                // 设置显示模式
                 SendCommand(":DISPLAY:MODE DIGITAL");
-
                 SetRange(0);
-
                 SetResolution("HIGH");
-
                 SetSampleRate(5);
             }
-            catch (Exception ex)
-            {
-                throw new Exception($"初始化高压表失败: {ex.Message}");
-            }
+            catch (Exception ex) { throw new Exception($"初始化高压表失败: {ex.Message}"); }
         }
 
-        /// <summary>
-        /// 重置高压表到默认设置
-        /// </summary>
         public void Reset()
         {
             SendCommand("*RST");
-            System.Threading.Thread.Sleep(1500);
+            Thread.Sleep(1500);
         }
-
         #endregion
 
-        #region SCPI命令通信基础方法
-
-        /// <summary>
-        /// 发送SCPI命令到高压表
-        /// </summary>
-        /// <param name="command">SCPI命令</param>
-        public void SendCommand(string command)
-        {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
-            try
-            {
-                if (!command.EndsWith("\n"))
-                    command += "\n";
-
-                _mbSession.RawIO.Write(command);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"发送命令失败: {ex.Message}, 命令: {command}");
-            }
-        }
-
-        /// <summary>
-        /// 查询高压表并返回响应
-        /// </summary>
-        /// <param name="query">SCPI查询命令</param>
-        /// <returns>高压表的响应</returns>
-        public string Query(string query)
-        {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
-            try
-            {
-                if (!query.EndsWith("?"))
-                    throw new ArgumentException("查询命令必须以问号(?)结尾");
-
-                if (!query.EndsWith("?\n"))
-                    query += "\n";
-
-                // 清空缓冲区以确保没有残留数据
-                _mbSession.Clear();
-
-                // 发送查询命令
-                _mbSession.RawIO.Write(query);
-
-                // 读取响应
-                string response = _mbSession.RawIO.ReadString().Trim();
-
-                return response;
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"查询失败: {ex.Message}, 查询: {query}");
-            }
-        }
-
-        #endregion
-
-        #region 测量配置方法
-
-        /// <summary>
-        /// 设置采样率
-        /// </summary>
-        /// <param name="rate">采样率（次/秒），GVM-9102最高支持400次/秒</param>
+        #region 测量配置
         public void SetSampleRate(int rate)
         {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
-            try
-            {
-                if (rate < 1 || rate > 10000)
-                    throw new ArgumentException("采样率必须在1到10000次/秒之间");
-
-                SendCommand($":SENSE:VOLTAGE:SRATE {rate}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置采样率失败: {ex.Message}");
-            }
+            if (rate < 1 || rate > 10000) throw new ArgumentException("采样率必须在1到10000次/秒之间");
+            SendCommand($":SENSE:VOLTAGE:SRATE {rate}");
         }
 
-        /// <summary>
-        /// 设置测量量程
-        /// </summary>
-        /// <param name="range">量程值：2, 20, 200, 1000（伏特）或 0（自动）</param>
         public void SetRange(double range = 0)
         {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
-            try
+            if (range == 0) SendCommand(":SENSE:VOLTAGE:RANGE:AUTO 1");
+            else
             {
-                if (range == 0)
-                {
-                    SendCommand(":SENSE:VOLTAGE:RANGE:AUTO 1");
-                }
-                else
-                {
-                    double[] validRanges = { 2, 20, 200, 1000 };
-                    if (!validRanges.Contains(range))
-                        throw new ArgumentException("量程必须是2V, 20V, 200V, 1000V或0（自动）");
-
-                    SendCommand($":SENSE:VOLTAGE:RANGE {range}");
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置量程失败: {ex.Message}");
+                double[] validRanges = { 2, 20, 200, 1000 };
+                if (!validRanges.Contains(range)) throw new ArgumentException("量程必须是2V, 20V, 200V, 1000V或0（自动）");
+                SendCommand($":SENSE:VOLTAGE:RANGE {range}");
             }
         }
 
-        /// <summary>
-        /// 设置测量分辨率
-        /// </summary>
-        /// <param name="resolution">分辨率模式：HIGH, MEDIUM, LOW</param>
         public void SetResolution(string resolution = "HIGH")
         {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
-            try
-            {
-                string[] validResolutions = { "HIGH", "MEDIUM", "LOW" };
-                if (!validResolutions.Contains(resolution.ToUpper()))
-                    throw new ArgumentException("分辨率必须是HIGH, MEDIUM或LOW");
-
-                SendCommand($":SENSE:VOLTAGE:RESOLUTION {resolution}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置分辨率失败: {ex.Message}");
-            }
+            string[] validResolutions = { "HIGH", "MEDIUM", "LOW" };
+            if (!validResolutions.Contains(resolution.ToUpper())) throw new ArgumentException("分辨率必须是HIGH, MEDIUM或LOW");
+            SendCommand($":SENSE:VOLTAGE:RESOLUTION {resolution}");
         }
-
         #endregion
 
-        #region 测量命令
-
-        /// <summary>
-        /// 测量直流电压（GVM-9102的主要功能）
-        /// 在指定时间内进行多次测量并取平均值以提高精度
-        /// </summary>
-        /// <param name="range">量程，0表示自动量程</param>
-        /// <param name="resolution">分辨率模式</param>
-        /// <param name="measurementTimeMs">总测量时间（毫秒），默认1000ms</param>
-        /// <param name="minMeasurements">最小测量次数，默认5次</param>
-        /// <param name="maxMeasurements">最大测量次数，默认100次</param>
-        /// <returns>电压值（伏特）</returns>
+        #region 测量
         public double MeasureDCVoltage(double range = 0, string resolution = "HIGH", int rate = 5,
                                       int measurementTimeMs = 1000, int minMeasurements = 5, int maxMeasurements = 100)
         {
-            if (!IsConnected)
-                throw new Exception("未连接到高压表");
-
+            if (!IsConnected) throw new Exception("未连接到高压表");
             try
             {
-                // 参数验证
-                if (measurementTimeMs < 100)
-                    throw new Exception("测量时间不能小于100ms");
-                if (minMeasurements < 1)
-                    throw new Exception("最小测量次数不能小于1");
-                if (maxMeasurements < minMeasurements)
-                    throw new Exception("最大测量次数不能小于最小测量次数");
+                if (measurementTimeMs < 100) throw new Exception("测量时间不能小于100ms");
+                if (minMeasurements < 1) throw new Exception("最小测量次数不能小于1");
+                if (maxMeasurements < minMeasurements) throw new Exception("最大测量次数不能小于最小测量次数");
 
-                // 设置量程和分辨率
-                if (range != 0)
-                    SetRange(range);
-
-                if (resolution != "HIGH")
-                    SetResolution(resolution);
-
-                if (rate != 5)
-                    SetSampleRate(rate);
+                if (range != 0) SetRange(range);
+                if (resolution != "HIGH") SetResolution(resolution);
+                if (rate != 5) SetSampleRate(rate);
 
                 List<double> measurements = new List<double>();
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                int measurementCount = 0;
-
-                // 计算每次测量之间的间隔（基于最大测量次数）
                 int intervalMs = Math.Max(10, measurementTimeMs / maxMeasurements);
 
-                // 在指定时间内进行多次测量
-                while (stopwatch.ElapsedMilliseconds < measurementTimeMs &&
-                       measurementCount < maxMeasurements)
+                while (stopwatch.ElapsedMilliseconds < measurementTimeMs && measurements.Count < maxMeasurements)
                 {
-                    try
-                    {
-                        // 发送查询命令
-                        SendCommand(":READ?");
+                    string response = Query(":READ?");
+                    if (double.TryParse(response, out double result))
+                        measurements.Add(result);
+                    else
+                        throw new Exception($"无效的响应格式: {response}");
 
-                        // 读取响应
-                        string response = _mbSession.RawIO.ReadString().Trim();
-
-                        if (double.TryParse(response, out double result))
-                        {
-                            measurements.Add(result);
-                            measurementCount++;
-                        }
-                        else
-                        {
-                            throw new Exception($"警告: 无效的响应格式: {response}");
-                        }
-
-                        // 如果不是最后一次测量，等待间隔时间
-                        if (stopwatch.ElapsedMilliseconds + intervalMs < measurementTimeMs &&
-                            measurementCount < maxMeasurements)
-                        {
-                            System.Threading.Thread.Sleep(intervalMs);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"单次测量失败: {ex.Message}");
-                        // 继续尝试下一次测量
-                    }
+                    if (stopwatch.ElapsedMilliseconds + intervalMs < measurementTimeMs && measurements.Count < maxMeasurements)
+                        Thread.Sleep(intervalMs);
                 }
-
                 stopwatch.Stop();
 
-                // 检查是否收集到足够的测量数据
                 if (measurements.Count < minMeasurements)
-                {
-                    throw new Exception($"测量数据不足。期望至少{minMeasurements}次测量，实际只获得{measurements.Count}次");
-                }
+                    throw new Exception($"测量数据不足。期望至少{minMeasurements}次，实际{measurements.Count}次");
 
-                // 数据处理：去除异常值（使用Tukey's fences方法）
-                //double[] processedMeasurements = RemoveOutliers(measurements.ToArray());
-
-                // 计算平均值
-                double average = measurements.Average();
-
-                // 格式化输出（保留合适的小数位数）
-                double finalValue = Math.Round(average, 5); // 保留6位小数
-
-                // 可选：输出统计信息用于调试
-                //if (measurements.Count > 1)
-                //{
-                //    double stdDev = CalculateStandardDeviation(processedMeasurements);
-                //}
-
-                return finalValue;
+                return Math.Round(measurements.Average(), 5);
             }
-            catch (Exception ex)
-            {
-                throw new Exception($"直流电压测量失败: {ex.Message}");
-            }
+            catch (Exception ex) { throw new Exception($"直流电压测量失败: {ex.Message}"); }
         }
 
-        /// <summary>
-        /// 使用Tukey's fences方法去除异常值
-        /// </summary>
-        private double[] RemoveOutliers(double[] data)
-        {
-            if (data.Length < 4) return data; // 数据太少时不处理异常值
+        public void StartContinuousMeasurement() => SendCommand(":INIT:CONTINUOUS ON");
+        public void StopContinuousMeasurement() => SendCommand(":INIT:CONTINUOUS OFF");
 
-            // 计算四分位数
-            var sortedData = data.OrderBy(x => x).ToArray();
-            int n = sortedData.Length;
-
-            double Q1 = sortedData[n / 4];
-            double Q3 = sortedData[3 * n / 4];
-            double IQR = Q3 - Q1;
-
-            // 计算异常值边界
-            double lowerBound = Q1 - 1.5 * IQR;
-            double upperBound = Q3 + 1.5 * IQR;
-
-            // 过滤异常值
-            return data.Where(x => x >= lowerBound && x <= upperBound).ToArray();
-        }
-
-        /// <summary>
-        /// 计算标准差
-        /// </summary>
-        private double CalculateStandardDeviation(double[] data)
-        {
-            double average = data.Average();
-            double sumOfSquares = data.Sum(x => Math.Pow(x - average, 2));
-            return Math.Sqrt(sumOfSquares / data.Length);
-        }
-
-        /// <summary>
-        /// 开始连续测量
-        /// </summary>
-        public void StartContinuousMeasurement()
-        {
-            try
-            {
-                SendCommand(":INIT:CONTINUOUS ON");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"启动连续测量失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 停止连续测量
-        /// </summary>
-        public void StopContinuousMeasurement()
-        {
-            try
-            {
-                SendCommand(":INIT:CONTINUOUS OFF");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"停止连续测量失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 读取当前测量值（用于连续测量模式）
-        /// </summary>
-        /// <returns>电压值（伏特）</returns>
         public double FetchMeasurement()
         {
-            try
-            {
-                string response = Query(":FETCH?");
-                if (double.TryParse(response, out double result))
-                {
-                    return result;
-                }
-                else
-                    throw new Exception($"无效的响应格式: {response}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"读取测量值失败: {ex.Message}");
-            }
+            string response = Query(":FETCH?");
+            if (double.TryParse(response, out double result)) return result;
+            throw new Exception($"无效的响应格式: {response}");
         }
-
         #endregion
 
-        #region 数学运算功能（GVM-9102特色功能）
+        #region 数学运算
+        public void SetdBReference(double reference) => SendCommand($":CALCULATE:DB:REFERENCE {reference}");
 
-        /// <summary>
-        /// 设置dB相对电平参考
-        /// </summary>
-        /// <param name="reference">参考电平（伏特）</param>
-        public void SetdBReference(double reference)
-        {
-            try
-            {
-                SendCommand($":CALCULATE:DB:REFERENCE {reference}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置dB参考失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 启用dBm计算
-        /// </summary>
-        /// <param name="impedance">阻抗值（欧姆）</param>
         public void EnabledBmCalculation(double impedance = 600)
         {
-            try
-            {
-                SendCommand($":CALCULATE:DBM:IMPEDANCE {impedance}");
-                SendCommand(":CALCULATE:DBM:STATE ON");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"启用dBm计算失败: {ex.Message}");
-            }
+            SendCommand($":CALCULATE:DBM:IMPEDANCE {impedance}");
+            SendCommand(":CALCULATE:DBM:STATE ON");
         }
 
-        /// <summary>
-        /// 设置比较功能
-        /// </summary>
-        /// <param name="highLimit">上限值</param>
-        /// <param name="lowLimit">下限值</param>
         public void SetCompareFunction(double highLimit, double lowLimit)
         {
-            try
-            {
-                SendCommand($":CALCULATE:COMPARE:HIGH {highLimit}");
-                SendCommand($":CALCULATE:COMPARE:LOW {lowLimit}");
-                SendCommand(":CALCULATE:COMPARE:STATE ON");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置比较功能失败: {ex.Message}");
-            }
+            SendCommand($":CALCULATE:COMPARE:HIGH {highLimit}");
+            SendCommand($":CALCULATE:COMPARE:LOW {lowLimit}");
+            SendCommand(":CALCULATE:COMPARE:STATE ON");
         }
 
-        /// <summary>
-        /// 设置MX+B比例运算
-        /// </summary>
-        /// <param name="scale">比例系数M</param>
-        /// <param name="offset">偏移量B</param>
         public void SetScaleOffset(double scale, double offset)
         {
-            try
-            {
-                SendCommand($":CALCULATE:SCALE {scale}");
-                SendCommand($":CALCULATE:OFFSET {offset}");
-                SendCommand(":CALCULATE:SCALE:STATE ON");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置比例偏移失败: {ex.Message}");
-            }
+            SendCommand($":CALCULATE:SCALE {scale}");
+            SendCommand($":CALCULATE:OFFSET {offset}");
+            SendCommand(":CALCULATE:SCALE:STATE ON");
         }
-
         #endregion
 
         #region 显示控制
-
-        /// <summary>
-        /// 设置显示模式
-        /// </summary>
-        /// <param name="mode">显示模式：DIGITAL, BARGRAPH, TREND, HISTOGRAM</param>
         public void SetDisplayMode(string mode = "DIGITAL")
         {
-            try
-            {
-                string[] validModes = { "DIGITAL", "BARGRAPH", "TREND", "HISTOGRAM" };
-                if (!validModes.Contains(mode.ToUpper()))
-                    throw new ArgumentException("显示模式必须是DIGITAL, BARGRAPH, TREND或HISTOGRAM");
-
-                SendCommand($":DISPLAY:MODE {mode}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置显示模式失败: {ex.Message}");
-            }
+            string[] validModes = { "DIGITAL", "BARGRAPH", "TREND", "HISTOGRAM" };
+            if (!validModes.Contains(mode.ToUpper())) throw new ArgumentException("显示模式必须是DIGITAL, BARGRAPH, TREND或HISTOGRAM");
+            SendCommand($":DISPLAY:MODE {mode}");
         }
 
-        /// <summary>
-        /// 设置显示语言
-        /// </summary>
-        /// <param name="language">语言：ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, JAPANESE, KOREAN</param>
         public void SetDisplayLanguage(string language = "ENGLISH")
         {
-            try
-            {
-                SendCommand($":DISPLAY:LANGUAGE {language}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"设置显示语言失败: {ex.Message}");
-            }
+            string[] validLanguages = { "ENGLISH", "SIMPLIFIED_CHINESE", "TRADITIONAL_CHINESE", "JAPANESE", "KOREAN" };
+            if (!validLanguages.Contains(language.ToUpper())) throw new ArgumentException("语言参数无效");
+            SendCommand($":DISPLAY:LANGUAGE {language}");
         }
-
         #endregion
 
-        #region 数据存储功能
-
-        /// <summary>
-        /// 开始数据记录
-        /// </summary>
-        /// <param name="points">记录点数</param>
+        #region 数据存储
         public void StartDataLogging(int points = 1000)
         {
-            try
-            {
-                SendCommand($":MEMORY:POINTS {points}");
-                SendCommand(":MEMORY:LOG START");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"启动数据记录失败: {ex.Message}");
-            }
+            SendCommand($":MEMORY:POINTS {points}");
+            SendCommand(":MEMORY:LOG START");
         }
 
-        /// <summary>
-        /// 停止数据记录
-        /// </summary>
-        public void StopDataLogging()
-        {
-            try
-            {
-                SendCommand(":MEMORY:LOG STOP");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"停止数据记录失败: {ex.Message}");
-            }
-        }
+        public void StopDataLogging() => SendCommand(":MEMORY:LOG STOP");
 
-        /// <summary>
-        /// 读取存储的数据
-        /// </summary>
-        /// <returns>存储的测量数据数组</returns>
         public double[] ReadStoredData()
         {
-            try
-            {
-                string response = Query(":MEMORY:DATA?");
-                string[] dataStrings = response.Split(',');
-                List<double> data = new List<double>();
-
-                foreach (string dataString in dataStrings)
-                {
-                    if (double.TryParse(dataString.Trim(), out double value))
-                    {
-                        data.Add(value);
-                    }
-                }
-
-                return data.ToArray();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"读取存储数据失败: {ex.Message}");
-            }
+            string response = Query(":MEMORY:DATA?");
+            List<double> data = new List<double>();
+            foreach (string s in response.Split(','))
+                if (double.TryParse(s.Trim(), out double v)) data.Add(v);
+            return data.ToArray();
         }
-
         #endregion
 
         #region 系统命令
-
-        /// <summary>
-        /// 获取设备标识信息
-        /// </summary>
-        public string GetIdn()
-        {
-            return Query("*IDN?");
-        }
-
-        /// <summary>
-        /// 检查系统错误
-        /// </summary>
-        public string GetSystemError()
-        {
-            return Query(":SYSTEM:ERROR?");
-        }
-
-        /// <summary>
-        /// 执行自检
-        /// </summary>
-        public string SelfTest()
-        {
-            return Query("*TST?");
-        }
-
-        /// <summary>
-        /// 获取设备状态
-        /// </summary>
-        public string GetStatus()
-        {
-            return Query(":STATUS:QUESTIONABLE?");
-        }
-
+        public string GetIdn() => Query("*IDN?");
+        public string GetSystemError() => Query(":SYSTEM:ERROR?");
+        public string SelfTest() => Query("*TST?");
+        public string GetStatus() => Query(":STATUS:QUESTIONABLE?");
         #endregion
 
-        #region IDisposable实现
-
+        #region IDisposable
         private void Dispose(bool disposing)
         {
-            if (!_disposed)
-            {
-                if (disposing)
-                {
-                    Disconnect();
-                }
-                _disposed = true;
-            }
+            if (!_disposed) { if (disposing) Disconnect(); _disposed = true; }
         }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~GwinstekGVM9102_Communicator()
-        {
-            Dispose(false);
-        }
-
+        public void Dispose() { Dispose(true); GC.SuppressFinalize(this); }
+        ~GwinstekGVM9102_CDCCommunicator() => Dispose(false);
         #endregion
     }
 }
