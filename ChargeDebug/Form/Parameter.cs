@@ -1127,6 +1127,7 @@ namespace ChargeDebug.Form
             CleanupExistingControls();
 
             InitializeUI();       // 重新生成界面
+            InitializeContextMenu(); // 初始化右键菜单
         }
 
         /// <summary>
