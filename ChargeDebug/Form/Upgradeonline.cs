@@ -39,8 +39,8 @@ namespace ChargeDebug.Form
         // ===== 新增：烧写类型 + 烧录器参数 =====
         private ComboBoxEdit cbBurnType;          // 烧写类型：CAN总线 / 烧录器
         private ComboBoxEdit cbCpuCore;           // 烧录器目标 CPU：CPU1 / CPU2 / CPU1+CPU2
-        private ButtonEdit btnSelectBootFile;     // 烧录器 Boot 文件(.out)（可多选，CPU1/CPU2 各 ≤1）
-        private ButtonEdit btnSelectAppFile;      // 烧录器 App 文件(.out)（可多选，CPU1/CPU2 各 ≤1）
+        private ButtonEdit btnSelectBootFile;     // 烧录器 Boot 文件(.out/.hex/.bin)（可多选，CPU1/CPU2 各 ≤1）
+        private ButtonEdit btnSelectAppFile;      // 烧录器 App 文件(.out/.hex/.bin)（可多选，CPU1/CPU2 各 ≤1）
         private List<string> _bootFiles = new List<string>();   // 已选 Boot 文件列表
         private List<string> _appFiles = new List<string>();    // 已选 App 文件列表
         private TextEdit txtSn;                   // 烧录器 SN
@@ -146,7 +146,7 @@ namespace ChargeDebug.Form
             btnSelectFile.Properties.Buttons.Add(new EditorButton(ButtonPredefines.Ellipsis));
             btnSelectFile.ButtonPressed += (s, e) => SelectFile();
             btnSelectFile.Properties.ReadOnly = true;
-            btnSelectFile.Text = "点击选择文件";
+            btnSelectFile.Text = "点击选择固件";
 
             // ===== 新增：烧录器 CPU 与双文件框、SN =====
             cbCpuCore.Properties.TextEditStyle = TextEditStyles.DisableTextEditor;
@@ -178,32 +178,32 @@ namespace ChargeDebug.Form
             typeItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
 
             // 添加控件到布局 - 每个项之间保持20px间隔
-            deviceItem = leftLayout.AddItem("选择设备:", cbDevice);
+            deviceItem = leftLayout.AddItem("目标设备:", cbDevice);
             deviceItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
-            channelItem = leftLayout.AddItem("选择通道:", cbChannel);
+            channelItem = leftLayout.AddItem("通讯通道:", cbChannel);
             channelItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
-            cpuItem = leftLayout.AddItem("CPU型号:", cbCpu);
+            cpuItem = leftLayout.AddItem("目标CPU:", cbCpu);
             cpuItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
-            fileItem = leftLayout.AddItem("选择文件:", btnSelectFile);
+            fileItem = leftLayout.AddItem("固件文件:", btnSelectFile);
             fileItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20); // 底部20px间隔
 
             // ===== 新增：烧录器参数（默认隐藏，切到烧录器时显示）=====
-            cpuCoreItem = leftLayout.AddItem("烧录CPU:", cbCpuCore);
+            cpuCoreItem = leftLayout.AddItem("目标CPU:", cbCpuCore);
             cpuCoreItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
             cpuCoreItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
 
-            bootFileItem = leftLayout.AddItem("Boot文件(.out):", btnSelectBootFile);
+            bootFileItem = leftLayout.AddItem("Boot文件:", btnSelectBootFile);
             bootFileItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
             bootFileItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
 
-            appFileItem = leftLayout.AddItem("App文件(.out):", btnSelectAppFile);
+            appFileItem = leftLayout.AddItem("App文件:", btnSelectAppFile);
             appFileItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
             appFileItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
 
-            snItem = leftLayout.AddItem("序列号SN:", txtSn);
+            snItem = leftLayout.AddItem("序列号:", txtSn);
             snItem.Padding = new DevExpress.XtraLayout.Utils.Padding(0, 0, 0, 20);
             snItem.Visibility = DevExpress.XtraLayout.Utils.LayoutVisibility.Never;
 
@@ -261,7 +261,7 @@ namespace ChargeDebug.Form
             string filePath = btnSelectFile.Text;
 
             // 检查是否选择了文件
-            if (filePath == "点击选择文件" || !File.Exists(filePath))
+            if (filePath == "点击选择固件" || !File.Exists(filePath))
             {
                 errorMessage = "❌ 请先选择有效的固件文件";
                 return false;
@@ -375,7 +375,7 @@ namespace ChargeDebug.Form
                     if (!ValidateFile(out string errorMessage))
                     {
                         AppendInfo(errorMessage);
-                        btnSelectFile.Text = "点击选择文件";
+                        btnSelectFile.Text = "点击选择固件";
                         XtraMessageBox.Show(errorMessage.Replace("❌ 文件验证失败:", "文件名必须包含:") +
                                            $"当前文件: {filePath}",
                                            "文件验证失败",
@@ -417,7 +417,7 @@ namespace ChargeDebug.Form
                         catch (Exception ex)
                         {
                             AppendInfo($"❌ HEX解析失败: {ex.Message}");
-                            btnSelectFile.Text = "点击选择文件";
+                            btnSelectFile.Text = "点击选择固件";
                             XtraMessageBox.Show($"HEX文件解析失败: {ex.Message}", "解析错误",
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
@@ -836,7 +836,7 @@ namespace ChargeDebug.Form
 
             btnUpgrade.Text = isUni ? "开始烧写" : "开始升级";
             btnStopUpgrade.Text = isUni ? "停止烧写" : "停止升级";
-            AppendInfo(isUni ? "已切换：烧录器(XDS100V3) 烧写 .out（Boot 可选，CPU1/CPU2 按文件名识别）"
+            AppendInfo(isUni ? "已切换：烧录器(XDS100V3) 烧写 .out/.hex（Boot 可选，CPU1/CPU2 按文件名识别）"
                              : "已切换：CAN 总线在线升级（.hex）");
         }
 
@@ -875,7 +875,7 @@ namespace ChargeDebug.Form
                 if (e.Button.Kind == ButtonPredefines.Ellipsis) onSelect();
             };
             btn.Properties.ReadOnly = true;
-            btn.Text = "点击选择" + placeholder + "文件";
+            btn.Text = "点击选择" + placeholder + "固件";
         }
 
         // 附加"清除"按钮（点击后清空该槽位文件列表并重置文本）
@@ -887,7 +887,7 @@ namespace ChargeDebug.Form
                 if (e.Button.Kind == ButtonPredefines.Clear)
                 {
                     onClear();
-                    btn.Text = "点击选择" + placeholder + "文件";
+                    btn.Text = "点击选择" + placeholder + "固件";
                     AppendInfo("✅ 已清除文件选择: " + placeholder);
                 }
             };
@@ -911,7 +911,7 @@ namespace ChargeDebug.Form
         private void SelectFile(bool isBoot)
         {
             using var dlg = new OpenFileDialog();
-            dlg.Filter = "TI COFF 映像|*.out|所有文件|*.*";
+            dlg.Filter = "TI 固件映像|*.out;*.hex;*.bin|所有文件|*.*";
             int sel = cbCpuCore.SelectedIndex;          // 0=CPU1，1=CPU2，2=CPU1+CPU2
             dlg.Multiselect = (sel == 2);               // CPU1+CPU2 允许多选
             if (dlg.ShowDialog() != DialogResult.OK) return;
@@ -948,7 +948,7 @@ namespace ChargeDebug.Form
                     int target = sel + 1;
                     if (fileCpu != 0 && fileCpu != target)
                     {
-                        XtraMessageBox.Show($"文件名识别为 CPU{fileCpu} 的固件，与当前烧录CPU选择（{cbCpuCore.SelectedItem}）不匹配。",
+                        XtraMessageBox.Show($"文件名识别为 CPU{fileCpu} 的固件，与当前目标CPU选择（{cbCpuCore.SelectedItem}）不匹配。",
                             "CPU 不匹配", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -985,9 +985,9 @@ namespace ChargeDebug.Form
         private void UpdateFileSlotText(bool isBoot)
         {
             if (isBoot)
-                btnSelectBootFile.Text = _bootFiles.Count == 0 ? "点击选择Boot文件" : string.Join("; ", _bootFiles);
+                btnSelectBootFile.Text = _bootFiles.Count == 0 ? "点击选择Boot固件" : string.Join("; ", _bootFiles);
             else
-                btnSelectAppFile.Text = _appFiles.Count == 0 ? "点击选择App文件" : string.Join("; ", _appFiles);
+                btnSelectAppFile.Text = _appFiles.Count == 0 ? "点击选择App固件" : string.Join("; ", _appFiles);
         }
 
         // 切换烧录CPU时校验已加载文件的 CPU 归属（仅日志提示；开始烧写前按模式拆分并硬校验）
@@ -1075,7 +1075,7 @@ namespace ChargeDebug.Form
             if (need1)
             {
                 if (cpu1Boots.Count == 0 && cpu1Apps.Count == 0)
-                { AppendInfo("❌ 请至少选择 CPU1 的 Boot 或 App 文件 (.out)"); return; }
+                { AppendInfo("❌ 请至少选择 CPU1 的 Boot 或 App 文件"); return; }
                 if (cpu1Boots.Count > 1)
                 { AppendInfo($"❌ CPU1 的 Boot 文件最多 1 个（当前 {cpu1Boots.Count} 个）"); return; }
                 if (cpu1Apps.Count > 1)
@@ -1084,7 +1084,7 @@ namespace ChargeDebug.Form
             if (need2)
             {
                 if (cpu2Boots.Count == 0 && cpu2Apps.Count == 0)
-                { AppendInfo("❌ 请至少选择 CPU2 的 Boot 或 App 文件 (.out)"); return; }
+                { AppendInfo("❌ 请至少选择 CPU2 的 Boot 或 App 文件"); return; }
                 if (cpu2Boots.Count > 1)
                 { AppendInfo($"❌ CPU2 的 Boot 文件最多 1 个（当前 {cpu2Boots.Count} 个）"); return; }
                 if (cpu2Apps.Count > 1)

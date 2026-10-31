@@ -299,7 +299,8 @@ public sealed class UniFlashFlasher
             if (loc == null)
             {
                 throw new FileNotFoundException(
-                    $"未在软件目录 {baseDir}（含 UniFlashCli/uniflash 等子目录，深度≤3）下找到 dslite.bat/dslite.exe。\n" +
+                    $"未在软件目录 {baseDir}（含 UniFlashCli/uniflash 等子目录，深度≤3）或 C 盘固定目录\n" +
+                    $"(C:\\UniFlashCLI\\uniflash_windows 等，见 FixedCliRoots) 下找到 dslite.bat/dslite.exe。\n" +
                     "请将 UniFlash CLI 包（dslite.bat + user_files 目录）放入软件目录后重试。");
             }
             _cfg.DslitePath = loc.Value.DslitePath;
@@ -383,7 +384,12 @@ public sealed class UniFlashFlasher
             string? appDest = null;
             if (appOutPath != null)
             {
-                appDest = Path.Combine(_cfg.CliPackagePath, "user_files", "images", _cfg.AppImageName);
+                // .out 用配置的目标名（默认 app.out，向后兼容）；.hex/.bin 等保留源文件名，
+                // DSLite 按扩展名识别文件格式（官方支持 Intel Hex/S-Record/TI-TXT/binary）。
+                string appImageName = Path.GetExtension(appOutPath).Equals(".out", StringComparison.OrdinalIgnoreCase)
+                    ? _cfg.AppImageName
+                    : Path.GetFileName(appOutPath);
+                appDest = Path.Combine(_cfg.CliPackagePath, "user_files", "images", appImageName);
                 CopyImage(appOutPath, appDest);
             }
 
@@ -414,7 +420,10 @@ public sealed class UniFlashFlasher
             string? bootDest = null;
             if (_cfg.FlashBoot && bootOutPath != null)
             {
-                bootDest = Path.Combine(_cfg.CliPackagePath, "user_files", "images", _cfg.BootImageName);
+                string bootImageName = Path.GetExtension(bootOutPath).Equals(".out", StringComparison.OrdinalIgnoreCase)
+                    ? _cfg.BootImageName
+                    : Path.GetFileName(bootOutPath);
+                bootDest = Path.Combine(_cfg.CliPackagePath, "user_files", "images", bootImageName);
                 CopyImage(bootOutPath, bootDest);
                 args.Add(ToCliPath(bootDest));
                 Progress?.Invoke(15, $"boot 映像已就位（A/B 区 0x{part.BootBegin:X6}-0x{part.BootEnd:X6}）");
@@ -470,6 +479,10 @@ public sealed class UniFlashFlasher
     /// 多个候选时优先同目录含 user_files 的。
     /// 返回 null = 未找到。
     /// </summary>
+    /// <summary>C 盘固定 CLI 包候选根（纯 ASCII，规避中文路径问题；可自行增删）。</summary>
+    internal static readonly string[] FixedCliRoots =
+        { @"C:\UniFlashCLI", @"C:\UniFlash", @"C:\ChargeDebug" };
+
     public static (string DslitePath, string CliPackagePath)? Locate(string? baseDir = null)
     {
         if (string.IsNullOrWhiteSpace(baseDir))
@@ -480,6 +493,17 @@ public sealed class UniFlashFlasher
         {
             string dir = sub.Length == 0 ? baseDir : Path.Combine(baseDir, sub);
             if (Directory.Exists(dir) && !dirs.Contains(dir)) dirs.Add(dir);
+        }
+        // C 盘固定候选根：用户可将 CLI 包（uniflash_windows 或包内容）放到以下任一位置；
+        // 纯 ASCII 路径，规避中文路径兼容问题。根本身是包，或其 uniflash_windows 等子目录是包，均可命中。
+        foreach (var root in FixedCliRoots)
+        {
+            if (Directory.Exists(root) && !dirs.Contains(root)) dirs.Add(root);
+            foreach (var sub in new[] { "uniflash_windows", "UniFlashCli", "uniflash", "uniflash_cli", "UniFlash" })
+            {
+                string d = Path.Combine(root, sub);
+                if (Directory.Exists(d) && !dirs.Contains(d)) dirs.Add(d);
+            }
         }
         CollectDirs(baseDir, 3, dirs);
 
@@ -595,6 +619,30 @@ public sealed class UniFlashFlasher
         File.Copy(src, dest, overwrite: true);
     }
 
+    /// <summary>
+    /// 返回 DSLite 可写的 TI_APPDATA_DIR：优先 CLI 包内 ti_appdata（随包走、换机不变），
+    /// 包目录不可写时兜底到系统临时目录。
+    /// </summary>
+    private string EnsureTiAppDataDir()
+    {
+        // TI 工具对非 ASCII 路径兼容性不稳：CLI 包目录含中文等字符时，
+        // 不再把 TI_APPDATA_DIR 放进包内，改用纯 ASCII 的系统临时目录，
+        // 彻底绕开中文路径（软件目录建议也改为纯英文）。
+        var candidates = new List<string>();
+        if (IsAsciiPath(_cfg.CliPackagePath))
+            candidates.Add(Path.Combine(_cfg.CliPackagePath, "ti_appdata"));
+        candidates.Add(Path.Combine(Path.GetTempPath(), "ChargeDebug_TI_AppData"));
+        candidates.Add(Path.GetTempPath());
+        foreach (var d in candidates)
+        {
+            try { Directory.CreateDirectory(d); return d; }
+            catch { /* 尝试下一个候选 */ }
+        }
+        return Path.GetTempPath();
+    }
+
+    private static bool IsAsciiPath(string s) => s.All(c => c < 128);
+
     private async Task<int> RunDsliteAsync(List<string> args, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
@@ -605,6 +653,10 @@ public sealed class UniFlashFlasher
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
+        // DSLite 默认把配置写到 %LOCALAPPDATA%\TEXAS INSTRUMENTS\CCS\...，
+        // 换电脑/换用户时该路径可能不可写或含非法字符导致 create_directories 失败退出 -1。
+        // 强制重定向到程序目录下可写子目录（TI 官方提示：set TI_APPDATA_DIR）。
+        psi.EnvironmentVariables["TI_APPDATA_DIR"] = EnsureTiAppDataDir();
 
         string dslite = _cfg.DslitePath;
         if (dslite.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
