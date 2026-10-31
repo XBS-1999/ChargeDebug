@@ -177,7 +177,7 @@ namespace ChargeDebug
             {
                 UpdatePage<Parameter>(page => page.UpdateParameters(equipmentList), "参数管理");
                 UpdatePage<FaultRecording>(page => page.UpdateDcNumber(equipmentList), "故障录波");
-                UpdatePage<Upgradeonline>(page => page.UpdateDcNumber(equipmentList), "在线升级");
+                UpdatePage<Upgradeonline>(page => page.UpdateDcNumber(equipmentList), "固件升级");
                 UpdatePage<CalibrationManagement>(page => page.UpdateDcNumber(equipmentList), "校准管理");
                 UpdatePage<InsulationWithstandVoltage>(page => page.UpdateDcNumber(equipmentList), "绝缘耐压");
             }
@@ -343,7 +343,7 @@ namespace ChargeDebug
             buttonItem11 = new BarButtonItem { Caption = "数据分析" };
             buttonItem5 = new BarButtonItem { Caption = "用户管理" };
             buttonItem6 = new BarButtonItem { Caption = "故障录波" };
-            buttonItem7 = new BarButtonItem { Caption = "在线升级" };
+            buttonItem7 = new BarButtonItem { Caption = "固件升级" };
             buttonItem8 = new BarButtonItem { Caption = "用户切换" };
             buttonItem9 = new BarButtonItem { Caption = "校准管理" };
             buttonItem10 = new BarButtonItem { Caption = "绝缘耐压" };
